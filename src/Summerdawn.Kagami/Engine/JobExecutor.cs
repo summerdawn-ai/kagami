@@ -59,8 +59,8 @@ public sealed class JobExecutor(
         await connectorA.AuthenticateAsync(cancellationToken);
         await connectorB.AuthenticateAsync(cancellationToken);
 
-        var existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
-        var result = new JobExecutionResult { JobKey = jobKey };
+        IReadOnlyList<LinkStateRow> existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
+        JobExecutionResult result = new() { JobKey = jobKey };
 
         // --- Poll side A ---
         string? cursorA = await cursorRepo.GetCursorAsync(jobOptions.EndpointA, cancellationToken);
@@ -83,6 +83,7 @@ public sealed class JobExecutor(
         if (!whatIf)
         {
             await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsAtoB, connectorB, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.B, cancellationToken);
+            existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
 
             if (pageA.NextCursor is not null)
             {
@@ -111,6 +112,7 @@ public sealed class JobExecutor(
         if (!whatIf)
         {
             await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsBtoA, connectorA, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.A, cancellationToken);
+            existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
 
             if (pageB.NextCursor is not null)
             {
