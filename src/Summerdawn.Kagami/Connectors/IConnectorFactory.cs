@@ -10,5 +10,5 @@ public interface IConnectorFactory
     /// <summary>
     /// Creates a connector for the given endpoint configuration.
     /// </summary>
-    IConnector Create(string endpointName, EndpointOptions endpoint, CredentialOptions? credential);
+    public IConnector Create(string endpointName, EndpointOptions endpoint, CredentialOptions? credential);
 }

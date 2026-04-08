@@ -1,7 +1,5 @@
 namespace Summerdawn.Kagami.Persistence;
 
-using Microsoft.Data.Sqlite;
-
 /// <summary>
 /// Stores and retrieves endpoint sync cursors / tokens.
 /// </summary>
@@ -14,7 +12,7 @@ public sealed class EndpointCursorRepository(StateDatabase db)
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT cursor_value FROM endpoint_cursors WHERE endpoint_name = @name";
         cmd.Parameters.AddWithValue("@name", endpointName);
-        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+        object? result = await cmd.ExecuteScalarAsync(cancellationToken);
         return result is DBNull or null ? null : (string)result;
     }
 

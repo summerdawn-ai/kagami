@@ -1,10 +1,11 @@
 namespace Summerdawn.Kagami.DependencyInjection;
 
+using System.Diagnostics.CodeAnalysis;
+
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
-using Summerdawn.Kagami.Connectors.Fake;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Persistence;
 
@@ -29,21 +30,18 @@ public static class KagamiServiceCollectionExtensions
         services.AddSingleton<Planner>();
         services.AddSingleton<JobExecutor>();
         services.AddSingleton<SyncHost>();
-        return services;
-    }
-
-    /// <summary>Registers the fake connector factory for testing/development.</summary>
-    public static IServiceCollection AddFakeConnectors(this IServiceCollection services)
-    {
-        services.AddSingleton<IConnectorFactory, FakeConnectorFactory>();
+        services.AddSingleton<IConnectorFactory, UnsupportedConnectorFactory>();
         return services;
     }
 
     /// <summary>Registers a custom connector factory.</summary>
-    public static IServiceCollection AddConnectorFactory<TFactory>(this IServiceCollection services)
+    public static IServiceCollection AddConnectorFactory<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactory>(
+        this IServiceCollection services)
         where TFactory : class, IConnectorFactory
     {
-        services.AddSingleton<IConnectorFactory, TFactory>();
+        services.AddSingleton<TFactory>();
+        services.AddSingleton<IConnectorFactory>(sp => sp.GetRequiredService<TFactory>());
         return services;
     }
 }

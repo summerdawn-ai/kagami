@@ -116,8 +116,8 @@ public sealed class SyncHost(
     {
         if (schedule.StartsWith("PT", StringComparison.OrdinalIgnoreCase))
         {
-            var value = schedule[2..^1];
-            var unit = schedule[^1];
+            string value = schedule[2..^1];
+            char unit = schedule[^1];
             if (int.TryParse(value, out int n))
             {
                 return unit switch

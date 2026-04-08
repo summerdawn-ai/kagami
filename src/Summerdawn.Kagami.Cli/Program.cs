@@ -113,7 +113,6 @@ public static class Program
         var services = new ServiceCollection();
         services.AddLogging(b => b.AddConsole());
         services.AddKagami(config.GetSection("Kagami"));
-        services.AddFakeConnectors();
         var sp = services.BuildServiceProvider();
         return sp.GetRequiredService<SyncHost>();
     }

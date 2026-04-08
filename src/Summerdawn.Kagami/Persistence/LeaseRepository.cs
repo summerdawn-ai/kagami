@@ -35,7 +35,7 @@ public sealed class LeaseRepository(StateDatabase db)
         cmd.Parameters.AddWithValue("@expiresAt", expires.ToString("O"));
         cmd.Parameters.AddWithValue("@nowStr", now.ToString("O"));
 
-        var affected = await cmd.ExecuteNonQueryAsync(cancellationToken);
+        int affected = await cmd.ExecuteNonQueryAsync(cancellationToken);
         return affected > 0;
     }
 
@@ -58,7 +58,7 @@ public sealed class LeaseRepository(StateDatabase db)
         cmd.CommandText = "SELECT COUNT(1) FROM job_leases WHERE job_key = @jobKey AND expires_at > @now";
         cmd.Parameters.AddWithValue("@jobKey", jobKey);
         cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
-        var count = (long)(await cmd.ExecuteScalarAsync(cancellationToken))!;
+        long count = (long)(await cmd.ExecuteScalarAsync(cancellationToken))!;
         return count > 0;
     }
 }

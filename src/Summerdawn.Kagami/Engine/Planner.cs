@@ -64,7 +64,7 @@ public sealed class Planner(ILogger<Planner> logger)
 
                 if (linksBySourceId.TryGetValue(item.SourceId, out var existingForDelete))
                 {
-                    var deleteId = targetSide == SyncSide.B ? existingForDelete.SideBId : existingForDelete.SideAId;
+                    string? deleteId = targetSide == SyncSide.B ? existingForDelete.SideBId : existingForDelete.SideAId;
                     if (deleteId != null)
                     {
                         actions.Add(new SyncAction

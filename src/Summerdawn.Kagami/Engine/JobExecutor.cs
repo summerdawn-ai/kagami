@@ -28,7 +28,7 @@ public sealed class JobExecutor(
         bool whatIf = false,
         CancellationToken cancellationToken = default)
     {
-        var holderId = Guid.NewGuid().ToString("N");
+        string holderId = Guid.NewGuid().ToString("N");
         bool leaseAcquired = await leaseRepo.TryAcquireAsync(jobKey, holderId, LeaseDuration, cancellationToken);
         if (!leaseAcquired)
         {
@@ -63,7 +63,7 @@ public sealed class JobExecutor(
         var result = new JobExecutionResult { JobKey = jobKey };
 
         // --- Poll side A ---
-        var cursorA = await cursorRepo.GetCursorAsync(jobOptions.EndpointA, cancellationToken);
+        string? cursorA = await cursorRepo.GetCursorAsync(jobOptions.EndpointA, cancellationToken);
         IncrementalPage pageA;
         if (cursorA is null)
         {
@@ -91,7 +91,7 @@ public sealed class JobExecutor(
         }
 
         // --- Poll side B ---
-        var cursorB = await cursorRepo.GetCursorAsync(jobOptions.EndpointB, cancellationToken);
+        string? cursorB = await cursorRepo.GetCursorAsync(jobOptions.EndpointB, cancellationToken);
         IncrementalPage pageB;
         if (cursorB is null)
         {
@@ -171,7 +171,7 @@ public sealed class JobExecutor(
                     var updated = await targetConnector.UpdateItemAsync(action.Item, cancellationToken);
                     await operationLog.AppendAsync(jobKey, entityType, "update", updated.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
-                    var sourceId = action.Item.SourceId;
+                    string sourceId = action.Item.SourceId;
                     LinkStateRow? link = updateSide == SyncSide.B
                         ? linksBySideAId.GetValueOrDefault(sourceId)
                         : linksBySideBId.GetValueOrDefault(sourceId);
