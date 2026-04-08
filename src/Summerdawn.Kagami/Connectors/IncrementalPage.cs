@@ -1,0 +1,18 @@
+namespace Summerdawn.Kagami.Connectors;
+
+using Summerdawn.Kagami.Models;
+
+/// <summary>
+/// A page of incremental changes returned by a connector.
+/// </summary>
+public sealed class IncrementalPage
+{
+    /// <summary>Items returned in this page.</summary>
+    public IReadOnlyList<CanonicalItem> Items { get; set; } = [];
+
+    /// <summary>New cursor/sync token to persist for the next incremental poll.</summary>
+    public string? NextCursor { get; set; }
+
+    /// <summary>Whether there are more pages to fetch.</summary>
+    public bool HasMore { get; set; }
+}

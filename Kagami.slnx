@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+  </Folder>
+  <Folder Name="/Source/">
+    <Project Path="src/Summerdawn.Kagami/Summerdawn.Kagami.csproj" />
+    <Project Path="src/Summerdawn.Kagami.Cli/Summerdawn.Kagami.Cli.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="tests/Summerdawn.Kagami.Tests/Summerdawn.Kagami.Tests.csproj" />
+  </Folder>
+</Solution>
