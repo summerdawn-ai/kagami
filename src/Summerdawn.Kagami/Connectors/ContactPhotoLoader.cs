@@ -38,6 +38,8 @@ internal static class ContactPhotoLoader
 
         public async Task EnsureLoadedAsync(CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             Task? pendingTask;
             lock (gate)
             {
@@ -49,14 +51,14 @@ internal static class ContactPhotoLoader
                 pendingTask = loadingTask;
                 if (pendingTask is null)
                 {
-                    pendingTask = loader(cancellationToken);
+                    pendingTask = loader(CancellationToken.None);
                     loadingTask = pendingTask;
                 }
             }
 
             try
             {
-                await pendingTask;
+                await pendingTask.WaitAsync(cancellationToken);
             }
             finally
             {
