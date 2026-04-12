@@ -31,31 +31,47 @@ internal static class ContactPhotoLoader
 
     private sealed class LoaderState(Func<CancellationToken, Task> loader)
     {
-        private readonly SemaphoreSlim gate = new(1, 1);
+        private readonly object gate = new();
         private readonly Func<CancellationToken, Task> loader = loader;
+        private Task? loadingTask;
         private bool loaded;
 
         public async Task EnsureLoadedAsync(CancellationToken cancellationToken)
         {
-            if (loaded)
-            {
-                return;
-            }
-
-            await gate.WaitAsync(cancellationToken);
-            try
+            Task? pendingTask;
+            lock (gate)
             {
                 if (loaded)
                 {
                     return;
                 }
 
-                await loader(cancellationToken);
-                loaded = true;
+                pendingTask = loadingTask;
+                if (pendingTask is null)
+                {
+                    pendingTask = loader(cancellationToken);
+                    loadingTask = pendingTask;
+                }
+            }
+
+            try
+            {
+                await pendingTask;
             }
             finally
             {
-                gate.Release();
+                lock (gate)
+                {
+                    if (pendingTask.IsCompletedSuccessfully)
+                    {
+                        loaded = true;
+                    }
+
+                    if (!loaded && ReferenceEquals(loadingTask, pendingTask))
+                    {
+                        loadingTask = null;
+                    }
+                }
             }
         }
     }
