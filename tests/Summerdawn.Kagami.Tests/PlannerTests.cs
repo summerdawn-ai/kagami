@@ -213,7 +213,7 @@ public sealed class PlannerTests
         // a1 is already linked to b1.
         // a2 appears and semantically matches b1 (same display name + email).
         // b1 must NOT be a duplicate candidate for a2; a2 should result in Create(B).
-        var link = CreateLink("a1", "b1");
+        var link = CreateLink("a1", "b1", entityType: EntityType.Contact);
         var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
         var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
 
@@ -234,7 +234,7 @@ public sealed class PlannerTests
     {
         // Mirror of the scenario above: b1 is linked to a1; b2 matches a1 semantically.
         // a1 must NOT be a duplicate candidate for b2; b2 should result in Create(A).
-        var link = CreateLink("a1", "b1");
+        var link = CreateLink("a1", "b1", entityType: EntityType.Contact);
         var b2 = CreateContactItem("b2", displayName: "Alice", email: "alice@example.com");
         var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
 
@@ -282,7 +282,8 @@ public sealed class PlannerTests
             [b1],
             []);
 
-        // Both b→a actions must be NoOp (ambiguous competition).
+        // b1 has multiple A candidates → NoOp for b1 (1 action, ambiguous).
+        Assert.Single(actions);
         Assert.All(actions, a => Assert.Equal(SyncActionKind.NoOp, a.Kind));
     }
 
@@ -415,11 +416,12 @@ public sealed class PlannerTests
         string sideAId,
         string sideBId,
         string? sideAVersion = null,
-        string? sideBVersion = null) =>
+        string? sideBVersion = null,
+        string entityType = EntityType.CalendarEvent) =>
         new()
         {
             JobKey = "job-1",
-            EntityType = EntityType.CalendarEvent,
+            EntityType = entityType,
             SideAId = sideAId,
             SideBId = sideBId,
             SideAVersion = sideAVersion,
