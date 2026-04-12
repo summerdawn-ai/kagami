@@ -286,8 +286,7 @@ public sealed class JobExecutor(
             string name = string.IsNullOrWhiteSpace(contact.DisplayName)
                 ? action.Item.SourceId
                 : contact.DisplayName;
-            string primaryEmail = contact.Emails.FirstOrDefault()?.Address ?? "no-email";
-            return $"contact '{name}' <{primaryEmail}> (sourceId={action.Item.SourceId})";
+            return $"contact '{name}' (sourceId={action.Item.SourceId})";
         }
 
         if (action.Item is not null)

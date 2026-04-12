@@ -46,7 +46,7 @@ dotnet test
 ### Run the CLI
 
 ```bash
-dotnet run --project /home/runner/work/kagami/kagami/src/Summerdawn.Kagami.Cli -- --help
+dotnet run --project src/Summerdawn.Kagami.Cli -- --help
 ```
 
 ## CLI Usage
@@ -64,13 +64,13 @@ kagami reset <job-key>
 Execute all due jobs once:
 
 ```bash
-dotnet run --project /home/runner/work/kagami/kagami/src/Summerdawn.Kagami.Cli -- once --config appsettings.json
+dotnet run --project src/Summerdawn.Kagami.Cli -- once --config appsettings.json
 ```
 
 Run a single job:
 
 ```bash
-dotnet run --project /home/runner/work/kagami/kagami/src/Summerdawn.Kagami.Cli -- once --config appsettings.json --job contacts-sync
+dotnet run --project src/Summerdawn.Kagami.Cli -- once --config appsettings.json --job contacts-sync
 ```
 
 ### What-if mode
@@ -78,7 +78,7 @@ dotnet run --project /home/runner/work/kagami/kagami/src/Summerdawn.Kagami.Cli -
 `--what-if` performs planning only. It does **not** write remote changes or update Kagami state. Instead, it logs each planned contact create, update, and delete:
 
 ```bash
-dotnet run --project /home/runner/work/kagami/kagami/src/Summerdawn.Kagami.Cli -- once --config appsettings.json --what-if
+dotnet run --project src/Summerdawn.Kagami.Cli -- once --config appsettings.json --what-if
 ```
 
 ### Continuous mode
@@ -86,7 +86,7 @@ dotnet run --project /home/runner/work/kagami/kagami/src/Summerdawn.Kagami.Cli -
 Run continuously on the configured polling schedules:
 
 ```bash
-dotnet run --project /home/runner/work/kagami/kagami/src/Summerdawn.Kagami.Cli -- run --config appsettings.json
+dotnet run --project src/Summerdawn.Kagami.Cli -- run --config appsettings.json
 ```
 
 ### Reset state
@@ -94,7 +94,7 @@ dotnet run --project /home/runner/work/kagami/kagami/src/Summerdawn.Kagami.Cli -
 Clear cursors and link state for a single job:
 
 ```bash
-dotnet run --project /home/runner/work/kagami/kagami/src/Summerdawn.Kagami.Cli -- reset contacts-sync --config appsettings.json
+dotnet run --project src/Summerdawn.Kagami.Cli -- reset contacts-sync --config appsettings.json
 ```
 
 ## Configuration
