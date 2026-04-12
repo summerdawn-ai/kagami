@@ -67,13 +67,13 @@ public static class Program
         // jobs run
         var jobsRunOnceOption = new Option<bool>("--once")
         {
-            Description = "Execute all due jobs once and exit (default behavior; provide --all for continuous mode)",
+            Description = "Execute the targeted jobs immediately once and exit (ignores configured schedules)",
             Arity = ArgumentArity.Zero,
         };
 
         var jobsRunAllOption = new Option<bool>("--all")
         {
-            Description = "Run continuously, polling all jobs on their configured schedules",
+            Description = "Accepted for compatibility; continuous polling is already the default behavior",
             Arity = ArgumentArity.Zero,
         };
 
@@ -90,18 +90,19 @@ public static class Program
             string? configPath = parseResult.GetValue(configOption);
             bool whatIf = parseResult.GetValue(whatIfOption);
             string? jobKey = parseResult.GetValue(jobOption);
-            bool runAll = parseResult.GetValue(jobsRunAllOption);
+            bool runOnce = parseResult.GetValue(jobsRunOnceOption);
+            _ = parseResult.GetValue(jobsRunAllOption);
             var host = BuildSyncHost(configPath);
 
-            if (runAll)
+            if (runOnce)
             {
-                // Continuous mode: run until cancelled
-                await host.RunContinuousAsync(CancellationToken.None);
+                // One-shot mode: run targeted jobs immediately and exit.
+                await host.RunOnceAsync(whatIf, jobKey, CancellationToken.None);
             }
             else
             {
-                // Default: run all due jobs once (or a single named job)
-                await host.RunOnceAsync(whatIf, jobKey, CancellationToken.None);
+                // Default: poll continuously, optionally narrowed to a single named job.
+                await host.RunContinuousAsync(whatIf, jobKey, CancellationToken.None);
             }
         });
 

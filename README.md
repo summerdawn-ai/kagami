@@ -84,16 +84,22 @@ kagami jobs list --config appsettings.json
 
 #### `kagami jobs run`
 
-Run all enabled jobs once (default), a single named job, or continuously:
+Run continuously by default, either for all enabled jobs or for a single named job. Use `--once` to execute the targeted jobs immediately one time and exit; this bypasses the configured schedule for that invocation. The optional `--all` flag is accepted for compatibility but is not required.
 
 ```bash
-# Run all due jobs once and exit (default)
+# Run all enabled jobs continuously (default)
 kagami jobs run --config appsettings.json
 
-# Run a single job with what-if
-kagami jobs run --job contacts-sync --what-if --config appsettings.json
+# Run a single job continuously
+kagami jobs run --job contacts-sync --config appsettings.json
 
-# Run continuously, polling on configured schedules
+# Run all enabled jobs once, immediately, and exit
+kagami jobs run --once --config appsettings.json
+
+# Run a single job once with what-if
+kagami jobs run --job contacts-sync --once --what-if --config appsettings.json
+
+# Compatibility form; equivalent to the default continuous mode
 kagami jobs run --all --config appsettings.json
 ```
 
