@@ -10,7 +10,7 @@ using Summerdawn.Kagami.Models;
 internal sealed class GoogleContactsConnector : IConnector
 {
     private const string ContactsScope = "https://www.googleapis.com/auth/contacts";
-    private const string PersonFields = "metadata,names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships";
+    private const string PersonFields = "metadata,names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships,photos";
     private static readonly DateOnly DefaultBirthday = new(1900, 1, 1);
 
     private readonly HttpClient httpClient;
@@ -46,7 +46,7 @@ internal sealed class GoogleContactsConnector : IConnector
         SupportsDeletes = true,
         SupportsAttendees = false,
         SupportsRecurrence = false,
-        SupportsContactPhotos = false,
+        SupportsContactPhotos = true,
         SupportsServerSideFiltering = false,
     };
 
@@ -66,7 +66,13 @@ internal sealed class GoogleContactsConnector : IConnector
         string requestUri = $"https://people.googleapis.com/v1/{Uri.EscapeDataString(id)}?personFields={Uri.EscapeDataString(PersonFields)}";
         using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
-        return ConvertPerson(document.RootElement);
+        CanonicalItem? item = ConvertPerson(document.RootElement);
+        if (item is not null && !item.IsDeleted)
+        {
+            await PopulatePhotoAsync(item, document.RootElement, cancellationToken);
+        }
+
+        return item;
     }
 
     public async Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
@@ -77,7 +83,10 @@ internal sealed class GoogleContactsConnector : IConnector
         using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Post, requestUri, cancellationToken);
         request.Content = CreateJsonContent(body);
         using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
-        return ConvertPerson(document.RootElement) ?? throw new InvalidOperationException("Google createContact returned no person payload.");
+        CanonicalItem created = ConvertPerson(document.RootElement) ?? throw new InvalidOperationException("Google createContact returned no person payload.");
+        await SyncPhotoAsync(created.SourceId, item, deleteWhenAbsent: false, cancellationToken);
+        return await GetItemAsync(created.SourceId, cancellationToken)
+            ?? throw new InvalidOperationException("Google createContact succeeded but the created item could not be reloaded.");
     }
 
     public async Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
@@ -94,8 +103,10 @@ internal sealed class GoogleContactsConnector : IConnector
         string requestUri = $"https://people.googleapis.com/v1/{Uri.EscapeDataString(item.SourceId)}:updateContact?updatePersonFields={updateFields}&personFields={Uri.EscapeDataString(PersonFields)}";
         using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Patch, requestUri, cancellationToken);
         request.Content = CreateJsonContent(personBuilder.Build());
-        using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
-        return ConvertPerson(document.RootElement) ?? throw new InvalidOperationException("Google updateContact returned no person payload.");
+        using JsonDocument _ = await SendForJsonAsync(request, cancellationToken);
+        await SyncPhotoAsync(item.SourceId, item, deleteWhenAbsent: true, cancellationToken);
+        return await GetItemAsync(item.SourceId, cancellationToken)
+            ?? throw new InvalidOperationException("Google updateContact succeeded but the updated item could not be reloaded.");
     }
 
     public async Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
@@ -147,6 +158,11 @@ internal sealed class GoogleContactsConnector : IConnector
                 CanonicalItem? item = ConvertPerson(person);
                 if (item is not null)
                 {
+                    if (!item.IsDeleted)
+                    {
+                        ContactPhotoLoader.Attach(item, ct => PopulatePhotoAsync(item, person, ct));
+                    }
+
                     items.Add(item);
                 }
             }
@@ -417,6 +433,77 @@ internal sealed class GoogleContactsConnector : IConnector
         });
     }
 
+    private async Task PopulatePhotoAsync(CanonicalItem item, JsonElement person, CancellationToken cancellationToken)
+    {
+        string? photoUrl = ReadPhotoUrl(person);
+        if (string.IsNullOrWhiteSpace(photoUrl))
+        {
+            ContactPhotoMetadata.SetNoPhoto(item);
+            return;
+        }
+
+        (byte[] photoBytes, string contentType)? photo = await DownloadPhotoAsync(photoUrl, cancellationToken);
+        if (photo is null)
+        {
+            ContactPhotoMetadata.SetNoPhoto(item);
+            return;
+        }
+
+        ContactPhotoMetadata.SetPhoto(item, photo.Value.photoBytes, photo.Value.contentType);
+    }
+
+    private async Task<(byte[] photoBytes, string contentType)?> DownloadPhotoAsync(string photoUrl, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, photoUrl, cancellationToken);
+        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        await EnsureSuccessAsync(response, cancellationToken);
+        byte[] photoBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        if (photoBytes.Length == 0)
+        {
+            return null;
+        }
+
+        string contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+        return (photoBytes, contentType);
+    }
+
+    private async Task SyncPhotoAsync(string resourceName, CanonicalItem item, bool deleteWhenAbsent, CancellationToken cancellationToken)
+    {
+        if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out _))
+        {
+            JsonElement body = JsonSerializer.SerializeToElement(new
+            {
+                photoBytes = Convert.ToBase64String(photoBytes),
+            });
+            string requestUri = $"https://people.googleapis.com/v1/{Uri.EscapeDataString(resourceName)}:updateContactPhoto";
+            using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Patch, requestUri, cancellationToken);
+            request.Content = CreateJsonContent(body);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+            await EnsureSuccessAsync(response, cancellationToken);
+            return;
+        }
+
+        if (!deleteWhenAbsent || !ContactPhotoMetadata.HasKnownAbsence(item))
+        {
+            return;
+        }
+
+        string deleteUri = $"https://people.googleapis.com/v1/{Uri.EscapeDataString(resourceName)}:deleteContactPhoto";
+        using HttpRequestMessage deleteRequest = await CreateRequestAsync(HttpMethod.Delete, deleteUri, cancellationToken);
+        using HttpResponseMessage deleteResponse = await httpClient.SendAsync(deleteRequest, cancellationToken);
+        if (deleteResponse.StatusCode == HttpStatusCode.NotFound)
+        {
+            return;
+        }
+
+        await EnsureSuccessAsync(deleteResponse, cancellationToken);
+    }
+
     private async Task<string[]> EnsureGroupsAsync(IReadOnlyList<string> categories, CancellationToken cancellationToken)
     {
         await EnsureGroupCacheAsync(cancellationToken);
@@ -575,6 +662,31 @@ internal sealed class GoogleContactsConnector : IConnector
                 && DateTimeOffset.TryParse(updateTimeElement.GetString(), out DateTimeOffset updateTime))
             {
                 return updateTime;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ReadPhotoUrl(JsonElement person)
+    {
+        if (!person.TryGetProperty("photos", out JsonElement photos) || photos.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (JsonElement photo in photos.EnumerateArray())
+        {
+            string? url = photo.TryGetProperty("url", out JsonElement urlElement) ? urlElement.GetString() : null;
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                continue;
+            }
+
+            bool isDefault = photo.TryGetProperty("default", out JsonElement defaultElement) && defaultElement.ValueKind == JsonValueKind.True;
+            if (!isDefault)
+            {
+                return url;
             }
         }
 

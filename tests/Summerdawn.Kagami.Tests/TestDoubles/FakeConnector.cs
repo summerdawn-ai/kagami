@@ -15,7 +15,7 @@ public sealed class FakeConnector : IConnector
         SupportsDeletes = true,
         SupportsAttendees = true,
         SupportsRecurrence = false,
-        SupportsContactPhotos = false,
+        SupportsContactPhotos = true,
         SupportsServerSideFiltering = false,
     };
 
@@ -87,6 +87,7 @@ public sealed class FakeConnector : IConnector
         existing.Version = generation.ToString();
         existing.ContentHash = item.ContentHash;
         existing.IsDeleted = item.IsDeleted;
+        existing.Metadata = new Dictionary<string, string>(item.Metadata);
         existing.Metadata["gen"] = generation.ToString();
         return Task.FromResult(existing);
     }
