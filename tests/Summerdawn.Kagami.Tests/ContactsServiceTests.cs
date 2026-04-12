@@ -2,6 +2,7 @@ namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 using Summerdawn.Kagami.Configuration;
+using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
@@ -67,6 +68,54 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ListAsyncReturnsAllContactsAcrossPages()
+    {
+        ContactsService pagedService = CreateService(
+            new PagedConnector(
+                new IncrementalPage
+                {
+                    Items = [MakeContact("a1", "Alice")],
+                    HasMore = true,
+                    NextCursor = "page-2",
+                },
+                new IncrementalPage
+                {
+                    Items = [MakeContact("a2", "Bob")],
+                    HasMore = false,
+                    NextCursor = "delta-token",
+                }));
+
+        var items = await pagedService.ListAsync("Microsoft");
+
+        Assert.Equal(2, items.Count);
+        Assert.Equal(["a1", "a2"], items.Select(item => item.SourceId));
+    }
+
+    [Fact]
+    public async Task ListAsyncHonorsMaxItemsAcrossPages()
+    {
+        ContactsService pagedService = CreateService(
+            new PagedConnector(
+                new IncrementalPage
+                {
+                    Items = Enumerable.Range(1, 60).Select(index => MakeContact($"a{index}", $"Contact {index}")).ToArray(),
+                    HasMore = true,
+                    NextCursor = "page-2",
+                },
+                new IncrementalPage
+                {
+                    Items = Enumerable.Range(61, 60).Select(index => MakeContact($"a{index}", $"Contact {index}")).ToArray(),
+                    HasMore = false,
+                    NextCursor = "delta-token",
+                }));
+
+        var items = await pagedService.ListAsync("Microsoft", filter: null, maxItems: 100);
+
+        Assert.Equal(100, items.Count);
+        Assert.Equal("a100", items[^1].SourceId);
+    }
+
+    [Fact]
     public async Task ListAsyncAppliesFilter()
     {
         connectorA.Seed(MakeContact("a1", "Alice"));
@@ -77,6 +126,19 @@ public sealed class ContactsServiceTests : IDisposable
 
         Assert.Single(items);
         Assert.Equal("Alice", ((CanonicalContact)items[0].Payload!).DisplayName);
+    }
+
+    [Fact]
+    public async Task ListAsyncAppliesFilterUsingOrganizationWhenDisplayNameIsEmpty()
+    {
+        connectorA.Seed(MakeContact("a1", displayName: string.Empty, organization: "Contoso Ltd"));
+        connectorA.Seed(MakeContact("a2", "Bob"));
+
+        var filter = ContactFilter.Parse("contains(name,'Contoso')")!;
+        var items = await service.ListAsync("Microsoft", filter);
+
+        Assert.Single(items);
+        Assert.Equal("Contoso Ltd", ((CanonicalContact)items[0].Payload!).Organization);
     }
 
     [Fact]
@@ -110,7 +172,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsyncUsesLastnameFirstnameNaming()
+    public async Task ExportAsyncUsesDisplayNameForFileName()
     {
         connectorA.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
@@ -119,7 +181,7 @@ public sealed class ContactsServiceTests : IDisposable
             await service.ExportAsync("Microsoft", dir);
             var files = Directory.GetFiles(dir, "*.json");
             Assert.Single(files);
-            Assert.Equal("smith_alice.json", Path.GetFileName(files[0]));
+            Assert.Equal("alice_smith.json", Path.GetFileName(files[0]));
         }
         finally
         {
@@ -140,8 +202,8 @@ public sealed class ContactsServiceTests : IDisposable
         {
             await service.ExportAsync("Microsoft", dir);
             var files = Directory.GetFiles(dir, "*.json").Select(Path.GetFileName).Order().ToList();
-            Assert.Contains("smith_alice.json", files);
-            Assert.Contains("smith_alice_2.json", files);
+            Assert.Contains("alice_smith.json", files);
+            Assert.Contains("alice_smith_2.json", files);
         }
         finally
         {
@@ -165,6 +227,48 @@ public sealed class ContactsServiceTests : IDisposable
         {
             await service.ExportAsync("Microsoft", dir);
             Assert.False(File.Exists(stale), "Stale export file should have been deleted");
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExportAsyncUsesOrganizationWhenDisplayNameIsEmpty()
+    {
+        connectorA.Seed(MakeContact("a1", displayName: string.Empty, organization: "Contoso Ltd"));
+        string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
+        try
+        {
+            await service.ExportAsync("Microsoft", dir);
+            var files = Directory.GetFiles(dir, "*.json");
+            Assert.Single(files);
+            Assert.Equal("contoso_ltd.json", Path.GetFileName(files[0]));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExportAsyncFallsBackToIdWhenNameIsMissing()
+    {
+        connectorA.Seed(MakeContact("contact-42", displayName: string.Empty));
+        string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
+        try
+        {
+            await service.ExportAsync("Microsoft", dir);
+            var files = Directory.GetFiles(dir, "*.json");
+            Assert.Single(files);
+            Assert.Equal("contact_42.json", Path.GetFileName(files[0]));
         }
         finally
         {
@@ -215,15 +319,47 @@ public sealed class ContactsServiceTests : IDisposable
         Assert.True(forced.ActionsPlanned > 0);
     }
 
+    private ContactsService CreateService(IConnector microsoftConnector)
+    {
+        FakeConnectorFactory pagedFactory = new();
+        pagedFactory.Register("Microsoft", microsoftConnector);
+        pagedFactory.Register("Google", connectorB);
+
+        var options = new KagamiOptions
+        {
+            Endpoints =
+            {
+                ["Microsoft"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
+                ["Google"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
+            },
+        };
+
+        var executor = new JobExecutor(
+            new Planner(NullLogger<Planner>.Instance),
+            new LinkStateRepository(db),
+            new EndpointCursorRepository(db),
+            new OperationLogRepository(db),
+            new LeaseRepository(db),
+            NullLogger<JobExecutor>.Instance);
+
+        return new ContactsService(
+            options,
+            pagedFactory,
+            executor,
+            db,
+            NullLogger<ContactsService>.Instance);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private static CanonicalItem MakeContact(string id, string firstName, string lastName = "")
+    private static CanonicalItem MakeContact(string id, string displayName, string lastName = "", string? organization = null)
     {
         var contact = new CanonicalContact
         {
-            GivenName = firstName,
+            GivenName = displayName,
             FamilyName = string.IsNullOrEmpty(lastName) ? null : lastName,
-            DisplayName = string.IsNullOrEmpty(lastName) ? firstName : $"{firstName} {lastName}",
+            DisplayName = string.IsNullOrEmpty(lastName) ? displayName : $"{displayName} {lastName}",
+            Organization = organization,
         };
         return new CanonicalItem
         {
@@ -232,5 +368,36 @@ public sealed class ContactsServiceTests : IDisposable
             Version = "v1",
             Payload = contact,
         };
+    }
+
+    private sealed class PagedConnector(params IncrementalPage[] pages) : IConnector
+    {
+        private readonly Queue<IncrementalPage> queuedPages = new(pages);
+
+        public ConnectorCapabilities Capabilities { get; } = new()
+        {
+            ConnectorType = "paged-test",
+            SupportsIncrementalSync = true,
+            SupportsDeletes = true,
+        };
+
+        public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(queuedPages.Dequeue());
+
+        public Task<IncrementalPage> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
+            Task.FromResult(queuedPages.Dequeue());
+
+        public Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
+            Task.FromResult<CanonicalItem?>(null);
+
+        public Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default) =>
+            Task.FromResult(item);
+
+        public Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default) =>
+            Task.FromResult(item);
+
+        public Task DeleteItemAsync(string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

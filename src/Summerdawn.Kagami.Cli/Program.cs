@@ -67,13 +67,13 @@ public static class Program
         // jobs run
         var jobsRunOnceOption = new Option<bool>("--once")
         {
-            Description = "Execute all due jobs once and exit (default behavior; provide --all for continuous mode)",
+            Description = "Execute the targeted jobs immediately once and exit (ignores configured schedules)",
             Arity = ArgumentArity.Zero,
         };
 
         var jobsRunAllOption = new Option<bool>("--all")
         {
-            Description = "Run continuously, polling all jobs on their configured schedules",
+            Description = "Accepted for compatibility; continuous polling is already the default behavior",
             Arity = ArgumentArity.Zero,
         };
 
@@ -90,18 +90,19 @@ public static class Program
             string? configPath = parseResult.GetValue(configOption);
             bool whatIf = parseResult.GetValue(whatIfOption);
             string? jobKey = parseResult.GetValue(jobOption);
-            bool runAll = parseResult.GetValue(jobsRunAllOption);
+            bool runOnce = parseResult.GetValue(jobsRunOnceOption);
+            _ = parseResult.GetValue(jobsRunAllOption);
             var host = BuildSyncHost(configPath);
 
-            if (runAll)
+            if (runOnce)
             {
-                // Continuous mode: run until cancelled
-                await host.RunContinuousAsync(CancellationToken.None);
+                // One-shot mode: run targeted jobs immediately and exit.
+                await host.RunOnceAsync(whatIf, jobKey, CancellationToken.None);
             }
             else
             {
-                // Default: run all due jobs once (or a single named job)
-                await host.RunOnceAsync(whatIf, jobKey, CancellationToken.None);
+                // Default: poll continuously, optionally narrowed to a single named job.
+                await host.RunContinuousAsync(whatIf, jobKey, CancellationToken.None);
             }
         });
 
@@ -188,28 +189,40 @@ public static class Program
             DefaultValueFactory = _ => "bidi",
         };
 
+        var allOption = new Option<bool>("--all")
+        {
+            Description = "Fetch and display all matching contacts",
+            Arity = ArgumentArity.Zero,
+        };
+
         // contacts list
         var contactsListCommand = new Command("list", "List contacts from a configured endpoint")
         {
             configOption,
             fromOption,
             filterOption,
+            allOption,
         };
         contactsListCommand.SetAction(async parseResult =>
         {
             string? configPath = parseResult.GetValue(configOption);
             string from = parseResult.GetValue(fromOption)!;
             string? filter = parseResult.GetValue(filterOption);
+            bool all = parseResult.GetValue(allOption);
             var svc = BuildContactsService(configPath);
             var contactFilter = ContactFilter.Parse(filter);
-            var items = await svc.ListAsync(from, contactFilter, CancellationToken.None);
+            var items = await svc.ListAsync(from, contactFilter, all ? null : 100, CancellationToken.None);
+            items = items
+                .OrderBy(ContactName.GetNameOrId, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
             if (items.Count == 0)
             {
                 Console.WriteLine("No contacts found.");
                 return;
             }
 
-            Console.WriteLine($"{"Display Name",-35} {"Email",-35} {"Phone"}");
+            Console.WriteLine($"{"Name",-35} {"Email",-35} {"Phone"}");
             Console.WriteLine(new string('-', 95));
             foreach (var item in items)
             {
@@ -221,11 +234,13 @@ public static class Program
 
                 string email = contact.Emails.Count > 0 ? contact.Emails[0].Address : string.Empty;
                 string phone = contact.Phones.Count > 0 ? contact.Phones[0].Number : string.Empty;
-                Console.WriteLine($"{contact.DisplayName,-35} {email,-35} {phone}");
+                Console.WriteLine($"{ContactName.GetNameOrId(item),-35} {email,-35} {phone}");
             }
 
             Console.WriteLine();
-            Console.WriteLine($"Total: {items.Count} contact(s)");
+            Console.WriteLine(all
+                ? $"Total: {items.Count} contact(s)"
+                : $"Showing {items.Count} contact(s) (default limit: 100; use --all to fetch everything)");
         });
 
         // contacts export

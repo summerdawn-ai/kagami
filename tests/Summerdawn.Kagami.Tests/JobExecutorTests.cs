@@ -104,6 +104,21 @@ public sealed class JobExecutorTests : IDisposable
         Assert.Contains(logger.Entries, entry => entry.Contains("would create contact 'Alice Logging'", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task WhatIfLogsOrganizationWhenDisplayNameIsEmpty()
+    {
+        FakeConnector connectorA = new();
+        FakeConnector connectorB = new();
+        connectorA.Seed(CreateContactItem("a1", "v1", string.Empty, organization: "Contoso Ltd"));
+
+        InMemoryLogger<JobExecutor> logger = new();
+        JobExecutor executor = CreateExecutor(logger);
+
+        await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, whatIf: true);
+
+        Assert.Contains(logger.Entries, entry => entry.Contains("would create contact 'Contoso Ltd'", StringComparison.Ordinal));
+    }
+
     private JobExecutor CreateExecutor(ILogger<JobExecutor>? logger = null) =>
         new(
             new Planner(NullLogger<Planner>.Instance),
@@ -125,7 +140,7 @@ public sealed class JobExecutorTests : IDisposable
             ConflictPolicy = ConflictPolicy.LastWriteWins,
         };
 
-    private static CanonicalItem CreateContactItem(string id, string version, string displayName) =>
+    private static CanonicalItem CreateContactItem(string id, string version, string displayName, string? organization = null) =>
         new()
         {
             EntityType = EntityType.Contact,
@@ -134,6 +149,7 @@ public sealed class JobExecutorTests : IDisposable
             Payload = new CanonicalContact
             {
                 DisplayName = displayName,
+                Organization = organization,
                 Emails = [new ContactEmail { Address = GenerateTestEmail(displayName) }],
             },
         };

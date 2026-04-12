@@ -1,6 +1,5 @@
 namespace Summerdawn.Kagami.Engine;
 
-using System.Text;
 using System.Text.Json;
 
 using Summerdawn.Kagami.Configuration;
@@ -33,24 +32,67 @@ public sealed class ContactsService(
     public async Task<IReadOnlyList<CanonicalItem>> ListAsync(
         string endpointName,
         ContactFilter? filter = null,
+        CancellationToken cancellationToken = default) =>
+        await ListAsync(endpointName, filter, null, cancellationToken);
+
+    /// <summary>
+    /// Fetches contacts from the named endpoint and returns them in order.
+    /// </summary>
+    /// <param name="endpointName">The endpoint key in <c>appsettings.json</c> (e.g. <c>Microsoft</c>).</param>
+    /// <param name="filter">Optional OData-style filter to apply in memory.</param>
+    /// <param name="maxItems">Optional maximum number of matching items to return.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task<IReadOnlyList<CanonicalItem>> ListAsync(
+        string endpointName,
+        ContactFilter? filter,
+        int? maxItems,
         CancellationToken cancellationToken = default)
     {
-        var connector = BuildConnector(endpointName);
-        await connector.AuthenticateAsync(cancellationToken);
-        var page = await connector.GetInitialPageAsync(cancellationToken);
-        IReadOnlyList<CanonicalItem> items = page.Items;
-        if (filter is not null)
+        if (maxItems < 0)
         {
-            items = filter.Apply(items);
+            throw new ArgumentOutOfRangeException(nameof(maxItems), "Maximum item count must be zero or greater.");
         }
 
-        return items;
+        var connector = BuildConnector(endpointName);
+        await connector.AuthenticateAsync(cancellationToken);
+
+        List<CanonicalItem> items = [];
+        var page = await connector.GetInitialPageAsync(cancellationToken);
+
+        while (true)
+        {
+            foreach (CanonicalItem item in page.Items)
+            {
+                if (filter is not null && !filter.Matches(item))
+                {
+                    continue;
+                }
+
+                items.Add(item);
+                if (maxItems is not null && items.Count >= maxItems.Value)
+                {
+                    return items;
+                }
+            }
+
+            if (!page.HasMore)
+            {
+                return items;
+            }
+
+            if (page.NextCursor is null)
+            {
+                throw new InvalidOperationException($"Connector returned HasMore=true without a cursor for endpoint '{endpointName}'.");
+            }
+
+            page = await connector.GetIncrementalPageAsync(page.NextCursor, cancellationToken);
+        }
     }
 
     /// <summary>
     /// Exports contacts from the named endpoint to a local directory.
-    /// One JSON file is written per contact, using the naming scheme
-    /// <c>lastname_firstname[_N].json</c>. Any existing <c>*.json</c> files in
+    /// One JSON file is written per contact, using the effective contact name when available.
+    /// Any existing <c>*.json</c> files in
     /// <paramref name="outputDirectory"/> are deleted before writing.
     /// </summary>
     /// <param name="endpointName">The endpoint key in <c>appsettings.json</c>.</param>
@@ -164,84 +206,5 @@ public sealed class ContactsService(
     }
 
     private static string BuildExportBaseName(CanonicalItem item)
-    {
-        string lastName = string.Empty;
-        string firstName = string.Empty;
-
-        if (item.Payload is CanonicalContact contact)
-        {
-            lastName = contact.FamilyName ?? string.Empty;
-            firstName = contact.GivenName ?? string.Empty;
-
-            // Fall back to display name split if individual name parts are absent.
-            // LastIndexOf treats the last whitespace-delimited word as the surname, which
-            // is a reasonable heuristic for most Western display names (e.g., compound
-            // first names or middle names will be grouped with GivenName).
-            if (string.IsNullOrWhiteSpace(lastName) && string.IsNullOrWhiteSpace(firstName))
-            {
-                string display = contact.DisplayName ?? string.Empty;
-                int spaceIdx = display.LastIndexOf(' ');
-                if (spaceIdx > 0)
-                {
-                    // Everything before the last space → given name(s); last word → surname
-                    firstName = display[..spaceIdx].Trim();
-                    lastName = display[(spaceIdx + 1)..].Trim();
-                }
-                else
-                {
-                    lastName = display;
-                }
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(lastName) && string.IsNullOrWhiteSpace(firstName))
-        {
-            // Last resort: use the provider ID
-            return SanitizeSegment(item.SourceId);
-        }
-
-        var sb = new StringBuilder();
-        if (!string.IsNullOrWhiteSpace(lastName))
-        {
-            sb.Append(SanitizeSegment(lastName));
-        }
-
-        if (!string.IsNullOrWhiteSpace(firstName))
-        {
-            if (sb.Length > 0)
-            {
-                sb.Append('_');
-            }
-
-            sb.Append(SanitizeSegment(firstName));
-        }
-
-        return sb.ToString();
-    }
-
-    private static string SanitizeSegment(string value)
-    {
-        var sb = new StringBuilder(value.Length);
-        foreach (char c in value)
-        {
-            if (char.IsLetterOrDigit(c))
-            {
-                sb.Append(char.ToLowerInvariant(c));
-            }
-            else if (c is ' ' or '-' or '.' or '\'' && sb.Length > 0)
-            {
-                // Replace word-separating punctuation with underscore
-                sb.Append('_');
-            }
-        }
-
-        // Collapse consecutive underscores
-        string result = sb.ToString().Trim('_');
-        while (result.Contains("__", StringComparison.Ordinal))
-        {
-            result = result.Replace("__", "_", StringComparison.Ordinal);
-        }
-
-        return string.IsNullOrEmpty(result) ? "unknown" : result;
-    }
+        => ContactName.BuildExportBaseName(item);
 }

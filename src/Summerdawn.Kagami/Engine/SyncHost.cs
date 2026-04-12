@@ -14,14 +14,51 @@ public sealed class SyncHost(
     StateDatabase stateDb,
     ILogger<SyncHost> logger)
 {
-    /// <summary>Runs all enabled jobs once and returns.</summary>
+    /// <summary>Runs the enabled jobs once and returns, optionally filtered to a single job.</summary>
     public async Task RunOnceAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
     {
         await stateDb.InitializeAsync(cancellationToken);
-        var jobs = options.Jobs
-            .Where(kvp => kvp.Value.Enabled && (jobKeyFilter == null || kvp.Key == jobKeyFilter))
-            .ToList();
+        var jobs = GetEnabledJobs(jobKeyFilter);
         logger.LogInformation("RunOnce: executing {Count} job(s), whatIf={WhatIf}", jobs.Count, whatIf);
+        await ExecuteJobsAsync(jobs, whatIf, cancellationToken);
+    }
+
+    /// <summary>Runs continuously, polling the enabled jobs on their configured schedules.</summary>
+    public async Task RunContinuousAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
+    {
+        await stateDb.InitializeAsync(cancellationToken);
+        logger.LogInformation(
+            "Kagami run mode started (whatIf={WhatIf}, jobFilter={JobKeyFilter})",
+            whatIf,
+            jobKeyFilter ?? "<all>");
+
+        var lastRun = new Dictionary<string, DateTimeOffset>();
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var dueJobs = GetEnabledJobs(jobKeyFilter)
+                .Where(kvp => now - lastRun.GetValueOrDefault(kvp.Key, DateTimeOffset.MinValue) >= ParseInterval(kvp.Value.Schedule))
+                .ToList();
+
+            if (dueJobs.Count > 0)
+            {
+                foreach (var (jobKey, _) in dueJobs)
+                {
+                    lastRun[jobKey] = now;
+                }
+
+                await ExecuteJobsAsync(dueJobs, whatIf, cancellationToken);
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(options.Host.SchedulerIntervalSeconds), cancellationToken);
+        }
+    }
+
+    private async Task ExecuteJobsAsync(
+        IReadOnlyList<KeyValuePair<string, JobOptions>> jobs,
+        bool whatIf,
+        CancellationToken cancellationToken)
+    {
         using var semaphore = new SemaphoreSlim(Math.Max(1, options.Host.MaxConcurrentJobs));
         var tasks = jobs.Select(async kvp =>
         {
@@ -36,37 +73,6 @@ public sealed class SyncHost(
             }
         });
         await Task.WhenAll(tasks);
-    }
-
-    /// <summary>Runs continuously, polling jobs on their configured schedules.</summary>
-    public async Task RunContinuousAsync(CancellationToken cancellationToken = default)
-    {
-        await stateDb.InitializeAsync(cancellationToken);
-        logger.LogInformation("Kagami run mode started");
-        var lastRun = new Dictionary<string, DateTimeOffset>();
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var now = DateTimeOffset.UtcNow;
-            foreach (var (jobKey, jobOptions) in options.Jobs)
-            {
-                if (!jobOptions.Enabled)
-                {
-                    continue;
-                }
-
-                var interval = ParseInterval(jobOptions.Schedule);
-                var last = lastRun.GetValueOrDefault(jobKey, DateTimeOffset.MinValue);
-                if (now - last < interval)
-                {
-                    continue;
-                }
-
-                lastRun[jobKey] = now;
-                _ = ExecuteJobAsync(jobKey, jobOptions, whatIf: false, cancellationToken);
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(options.Host.SchedulerIntervalSeconds), cancellationToken);
-        }
     }
 
     /// <summary>Resets the sync state for the given job key.</summary>
@@ -111,6 +117,11 @@ public sealed class SyncHost(
             logger.LogError(ex, "Job {JobKey} failed: {Message}", jobKey, ex.Message);
         }
     }
+
+    private List<KeyValuePair<string, JobOptions>> GetEnabledJobs(string? jobKeyFilter) =>
+        options.Jobs
+            .Where(kvp => kvp.Value.Enabled && (jobKeyFilter is null || kvp.Key == jobKeyFilter))
+            .ToList();
 
     private static TimeSpan ParseInterval(string schedule)
     {

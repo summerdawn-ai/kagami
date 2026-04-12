@@ -312,9 +312,12 @@ public sealed class JobExecutor(
     {
         if (action.Item?.Payload is CanonicalContact contact)
         {
-            string name = string.IsNullOrWhiteSpace(contact.DisplayName)
-                ? action.Item.SourceId
-                : contact.DisplayName;
+            string name = ContactName.GetName(contact);
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = action.Item.SourceId;
+            }
+
             return $"contact '{name}'";
         }
 

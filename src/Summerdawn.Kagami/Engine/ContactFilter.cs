@@ -15,7 +15,8 @@ using Summerdawn.Kagami.Models;
 ///   <item><c>contains(name,'value')</c></item>
 ///   <item><c>name eq 'value'</c></item>
 /// </list>
-/// The identifier <c>name</c> maps to <see cref="CanonicalContact.DisplayName"/>.
+/// The identifier <c>name</c> maps to the effective contact name: <see cref="CanonicalContact.DisplayName"/>
+/// when present, otherwise <see cref="CanonicalContact.Organization"/>.
 /// Items that are not contacts always pass through (the filter is a no-op for non-contacts).
 /// </remarks>
 public sealed partial class ContactFilter
@@ -90,7 +91,7 @@ public sealed partial class ContactFilter
     {
         if (item.Payload is CanonicalContact contact)
         {
-            return check(contact.DisplayName ?? string.Empty);
+            return check(ContactName.GetName(contact));
         }
 
         // Non-contact items pass through
