@@ -30,6 +30,7 @@ public static class KagamiServiceCollectionExtensions
         services.AddSingleton<Planner>();
         services.AddSingleton<JobExecutor>();
         services.AddSingleton<SyncHost>();
+        services.AddSingleton<ContactsService>();
         services.AddSingleton<IConnectorFactory, BuiltInConnectorFactory>();
         return services;
     }

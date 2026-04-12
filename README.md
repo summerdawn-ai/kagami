@@ -47,55 +47,141 @@ dotnet test
 
 ```bash
 dotnet run --project src/Summerdawn.Kagami.Cli -- --help
+dotnet run --project src/Summerdawn.Kagami.Cli -- contacts --help
+dotnet run --project src/Summerdawn.Kagami.Cli -- jobs --help
 ```
 
 ## CLI Usage
 
-Kagami exposes three commands:
+Kagami exposes two top-level command groups:
 
 ```text
-kagami run
-kagami once
-kagami reset <job-key>
+# Scheduled-job management
+kagami jobs list
+kagami jobs run [--job=<key>] [--once] [--all] [--what-if]
+kagami jobs reset --job=<key>
+kagami jobs reset --all
+
+# Interactive contact operations
+kagami contacts list   --from=<endpoint> [--filter=<expr>]
+kagami contacts export --from=<endpoint> --to=<dir> [--filter=<expr>]
+kagami contacts sync   --from=<endpoint> --to=<endpoint> [--mode=bidi|a-to-b|b-to-a]
+                       [--what-if] [--filter=<expr>] [--force]
 ```
 
-### Run once
+### Jobs commands
 
-Execute all due jobs once:
+#### `kagami jobs list`
+
+Print all configured jobs with their status, endpoints, and schedule:
 
 ```bash
-dotnet run --project src/Summerdawn.Kagami.Cli -- once --config appsettings.json
+kagami jobs list --config appsettings.json
 ```
 
-Run a single job:
+#### `kagami jobs run`
+
+Run all enabled jobs once (default), a single named job, or continuously:
 
 ```bash
-dotnet run --project src/Summerdawn.Kagami.Cli -- once --config appsettings.json --job contacts-sync
+# Run all due jobs once and exit (default)
+kagami jobs run --config appsettings.json
+
+# Run a single job with what-if
+kagami jobs run --job contacts-sync --what-if --config appsettings.json
+
+# Run continuously, polling on configured schedules
+kagami jobs run --all --config appsettings.json
 ```
 
-### What-if mode
+#### `kagami jobs reset`
 
-`--what-if` performs planning only. It does **not** write remote changes or update Kagami state. Instead, it logs each planned contact create, update, and delete:
+Clear cursors and link state for one or all jobs:
 
 ```bash
-dotnet run --project src/Summerdawn.Kagami.Cli -- once --config appsettings.json --what-if
+# Reset a single job
+kagami jobs reset --job contacts-sync --config appsettings.json
+
+# Reset all configured jobs
+kagami jobs reset --all --config appsettings.json
 ```
 
-### Continuous mode
+### Contacts commands
 
-Run continuously on the configured polling schedules:
+The `--from` and `--to` options reference **endpoint names** as defined in your
+`appsettings.json` `Endpoints` section (e.g. `Microsoft`, `Google`).
+
+#### `kagami contacts list`
+
+Fetch and display all contacts from a configured endpoint:
 
 ```bash
-dotnet run --project src/Summerdawn.Kagami.Cli -- run --config appsettings.json
+kagami contacts list --from Microsoft --config appsettings.json
 ```
 
-### Reset state
-
-Clear cursors and link state for a single job:
+Optionally restrict scope with an OData-style filter (see [Filter expressions](#filter-expressions)):
 
 ```bash
-dotnet run --project src/Summerdawn.Kagami.Cli -- reset contacts-sync --config appsettings.json
+kagami contacts list --from Microsoft --filter "startswith(name,'A')" --config appsettings.json
 ```
+
+#### `kagami contacts export`
+
+Export contacts as one JSON file per contact into a local directory.
+Existing `*.json` files in the destination are deleted before writing.
+Files are named `lastname_firstname[_N].json`; a numeric suffix is added for duplicate names.
+
+```bash
+kagami contacts export --from Microsoft --to ./export --config appsettings.json
+```
+
+#### `kagami contacts sync`
+
+Synchronize contacts between two configured endpoints.
+
+```bash
+# Bidirectional sync (default)
+kagami contacts sync --from Microsoft --to Google --config appsettings.json
+
+# One-directional
+kagami contacts sync --from Microsoft --to Google --mode a-to-b --config appsettings.json
+
+# Dry run: log planned actions without writing anything
+kagami contacts sync --from Microsoft --to Google --what-if --config appsettings.json
+
+# Force: re-evaluate all in-scope contacts even if unchanged
+kagami contacts sync --from Microsoft --to Google --force --config appsettings.json
+
+# Filter: only synchronize contacts whose display name starts with 'A'
+kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')" --config appsettings.json
+```
+
+##### `--what-if`
+
+Performs planning only. Logs each planned create, update, and delete without writing to either endpoint or updating sync state.
+
+##### `--force`
+
+Re-syncs all in-scope contacts even if their version/hash has not changed since the last sync run.
+Performs a full enumeration (ignores the stored cursor) and re-applies all contacts through the
+normal conflict-resolution rules (last-write-wins by default). Useful after extending the sync
+algorithm with new fields where a regular incremental run would be a no-op.
+
+##### `--filter`
+
+Accepts an OData-style expression that restricts the scope of the command on **both** sides.
+Contacts not matching the filter are completely unaffected — they are neither read from the
+source beyond what the provider returns, nor written to the destination.
+
+#### Filter expressions
+
+| Expression | Meaning |
+|---|---|
+| `startswith(name,'A')` | Display name starts with `A` (case-insensitive) |
+| `endswith(name,'son')` | Display name ends with `son` (case-insensitive) |
+| `contains(name,'Smith')` | Display name contains `Smith` (case-insensitive) |
+| `name eq 'Alice'` | Display name is exactly `Alice` (case-insensitive) |
+
 
 ## Configuration
 

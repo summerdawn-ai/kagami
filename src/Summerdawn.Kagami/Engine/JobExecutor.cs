@@ -21,12 +21,28 @@ public sealed class JobExecutor(
     /// <summary>
     /// Executes a sync job. If <paramref name="whatIf"/> is true, no writes are performed.
     /// </summary>
+    /// <param name="jobKey">The job key used for lease and state tracking.</param>
+    /// <param name="jobOptions">The job configuration.</param>
+    /// <param name="connectorA">Connector for side A.</param>
+    /// <param name="connectorB">Connector for side B.</param>
+    /// <param name="whatIf">When <c>true</c>, no writes are performed; planned actions are logged.</param>
+    /// <param name="filter">
+    /// Optional in-memory contact filter. Only items matching the filter are included in planning;
+    /// items not matching the filter are left completely untouched on both sides.
+    /// </param>
+    /// <param name="force">
+    /// When <c>true</c>, bypasses the HasChanged short-circuit so that all in-scope contacts
+    /// are re-evaluated and re-applied even if their version/hash has not changed.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task<JobExecutionResult> ExecuteAsync(
         string jobKey,
         JobOptions jobOptions,
         IConnector connectorA,
         IConnector connectorB,
         bool whatIf = false,
+        ContactFilter? filter = null,
+        bool force = false,
         CancellationToken cancellationToken = default)
     {
         string holderId = Guid.NewGuid().ToString("N");
@@ -39,7 +55,7 @@ public sealed class JobExecutor(
 
         try
         {
-            return await RunJobAsync(jobKey, jobOptions, connectorA, connectorB, whatIf, cancellationToken);
+            return await RunJobAsync(jobKey, jobOptions, connectorA, connectorB, whatIf, filter, force, cancellationToken);
         }
         finally
         {
@@ -53,9 +69,11 @@ public sealed class JobExecutor(
         IConnector connectorA,
         IConnector connectorB,
         bool whatIf,
+        ContactFilter? filter,
+        bool force,
         CancellationToken cancellationToken)
     {
-        logger.LogInformation("Starting job {JobKey} (whatIf={WhatIf})", jobKey, whatIf);
+        logger.LogInformation("Starting job {JobKey} (whatIf={WhatIf}, force={Force})", jobKey, whatIf, force);
 
         await connectorA.AuthenticateAsync(cancellationToken);
         await connectorB.AuthenticateAsync(cancellationToken);
@@ -65,10 +83,11 @@ public sealed class JobExecutor(
 
         // --- Poll side A ---
         string? cursorA = await cursorRepo.GetCursorAsync(jobOptions.EndpointA, cancellationToken);
-        var pageSetA = await ReadAllPagesAsync(connectorA, jobOptions.EndpointA, cursorA, cancellationToken);
+        var pageSetA = await ReadAllPagesAsync(connectorA, jobOptions.EndpointA, cursorA, force, cancellationToken);
+        IReadOnlyList<CanonicalItem> itemsA = filter is not null ? filter.Apply(pageSetA.Items) : pageSetA.Items;
 
         // --- Plan actions from A to B ---
-        var actionsAtoB = planner.PlanFromSideA(jobOptions, pageSetA.Items, existingLinks);
+        var actionsAtoB = planner.PlanFromSideA(jobOptions, itemsA, existingLinks, force);
         logger.LogInformation("Job {JobKey}: {Count} actions planned from A to B", jobKey, actionsAtoB.Count);
         result.ActionsPlanned += actionsAtoB.Count;
 
@@ -90,10 +109,11 @@ public sealed class JobExecutor(
 
         // --- Poll side B ---
         string? cursorB = await cursorRepo.GetCursorAsync(jobOptions.EndpointB, cancellationToken);
-        var pageSetB = await ReadAllPagesAsync(connectorB, jobOptions.EndpointB, cursorB, cancellationToken);
+        var pageSetB = await ReadAllPagesAsync(connectorB, jobOptions.EndpointB, cursorB, force, cancellationToken);
+        IReadOnlyList<CanonicalItem> itemsB = filter is not null ? filter.Apply(pageSetB.Items) : pageSetB.Items;
 
         // --- Plan actions from B to A ---
-        var actionsBtoA = planner.PlanFromSideB(jobOptions, pageSetB.Items, existingLinks);
+        var actionsBtoA = planner.PlanFromSideB(jobOptions, itemsB, existingLinks, force);
         logger.LogInformation("Job {JobKey}: {Count} actions planned from B to A", jobKey, actionsBtoA.Count);
         result.ActionsPlanned += actionsBtoA.Count;
 
@@ -226,12 +246,21 @@ public sealed class JobExecutor(
         IConnector connector,
         string endpointName,
         string? cursor,
+        bool force,
         CancellationToken cancellationToken)
     {
         IncrementalPage page;
-        if (cursor is null)
+        if (cursor is null || force)
         {
-            logger.LogInformation("No cursor for {Endpoint}, performing initial full sync", endpointName);
+            if (force && cursor is not null)
+            {
+                logger.LogInformation("Force flag set for {Endpoint}; performing full re-sync (ignoring cursor)", endpointName);
+            }
+            else
+            {
+                logger.LogInformation("No cursor for {Endpoint}, performing initial full sync", endpointName);
+            }
+
             page = await connector.GetInitialPageAsync(cancellationToken);
         }
         else

@@ -1,0 +1,153 @@
+namespace Summerdawn.Kagami.Tests;
+
+using Summerdawn.Kagami.Engine;
+using Summerdawn.Kagami.Models;
+
+public sealed class ContactFilterTests
+{
+    // ── Parse returns null for empty expression ───────────────────────────
+
+    [Fact]
+    public void ParseNullReturnsNull()
+    {
+        Assert.Null(ContactFilter.Parse(null));
+    }
+
+    [Fact]
+    public void ParseEmptyStringReturnsNull()
+    {
+        Assert.Null(ContactFilter.Parse(string.Empty));
+    }
+
+    [Fact]
+    public void ParseWhitespaceReturnsNull()
+    {
+        Assert.Null(ContactFilter.Parse("   "));
+    }
+
+    // ── startswith ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void StartsWithMatchesPrefix()
+    {
+        var f = ContactFilter.Parse("startswith(name,'Al')");
+        Assert.NotNull(f);
+        Assert.True(f.Matches(MakeContact("Alice")));
+        Assert.False(f.Matches(MakeContact("Bob")));
+    }
+
+    [Fact]
+    public void StartsWithIsCaseInsensitive()
+    {
+        var f = ContactFilter.Parse("startswith(name,'al')");
+        Assert.NotNull(f);
+        Assert.True(f.Matches(MakeContact("Alice")));
+    }
+
+    [Fact]
+    public void StartsWithIgnoresExtraWhitespace()
+    {
+        var f = ContactFilter.Parse("startswith( name , 'A' )");
+        Assert.NotNull(f);
+        Assert.True(f.Matches(MakeContact("Alice")));
+    }
+
+    // ── endswith ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void EndsWithMatchesSuffix()
+    {
+        var f = ContactFilter.Parse("endswith(name,'son')");
+        Assert.NotNull(f);
+        Assert.True(f.Matches(MakeContact("Anderson")));
+        Assert.False(f.Matches(MakeContact("Smith")));
+    }
+
+    // ── contains ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ContainsMatchesSubstring()
+    {
+        var f = ContactFilter.Parse("contains(name,'Donald')");
+        Assert.NotNull(f);
+        Assert.True(f.Matches(MakeContact("McDonald")));
+        Assert.False(f.Matches(MakeContact("Smith")));
+    }
+
+    // ── eq ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void EqMatchesExactName()
+    {
+        var f = ContactFilter.Parse("name eq 'Alice'");
+        Assert.NotNull(f);
+        Assert.True(f.Matches(MakeContact("Alice")));
+        Assert.False(f.Matches(MakeContact("Alice Smith")));
+    }
+
+    // ── Apply ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ApplyFiltersCollection()
+    {
+        var f = ContactFilter.Parse("startswith(name,'A')")!;
+        var items = new[]
+        {
+            MakeContact("Alice"),
+            MakeContact("Bob"),
+            MakeContact("Andrew"),
+        };
+        var result = f.Apply(items);
+        Assert.Equal(2, result.Count);
+        Assert.All(result, item =>
+        {
+            var contact = (CanonicalContact)item.Payload!;
+            Assert.StartsWith("A", contact.DisplayName, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    // ── Non-contact items pass through ────────────────────────────────────
+
+    [Fact]
+    public void NonContactItemsPassThrough()
+    {
+        var f = ContactFilter.Parse("startswith(name,'A')")!;
+        var item = new CanonicalItem
+        {
+            EntityType = "calendar-event",
+            SourceId = "ev1",
+            Payload = null,
+        };
+        Assert.True(f.Matches(item));
+    }
+
+    // ── Escaped single quotes (OData '' → ') ─────────────────────────────
+
+    [Fact]
+    public void StartsWithHandlesEscapedQuoteInValue()
+    {
+        // OData encoding: '' represents a literal single quote
+        var f = ContactFilter.Parse("startswith(name,'O''Brien')");
+        Assert.NotNull(f);
+        Assert.True(f.Matches(MakeContact("O'Brien")));
+        Assert.False(f.Matches(MakeContact("O Brien")));
+    }
+
+    // ── Unknown expression throws ─────────────────────────────────────────
+
+    [Fact]
+    public void UnrecognizedExpressionThrows()
+    {
+        Assert.Throws<ArgumentException>(() => ContactFilter.Parse("lt(name,'A')"));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    private static CanonicalItem MakeContact(string displayName) =>
+        new()
+        {
+            EntityType = "contact",
+            SourceId = Guid.NewGuid().ToString("N"),
+            Payload = new CanonicalContact { DisplayName = displayName },
+        };
+}
