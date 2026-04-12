@@ -4,7 +4,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using global::Google.Apis.Auth.OAuth2;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Models;
 
@@ -16,7 +15,7 @@ internal sealed class GoogleContactsConnector : IConnector
 
     private readonly HttpClient httpClient;
     private readonly ILogger<GoogleContactsConnector> logger;
-    private readonly GoogleCredential credential;
+    private readonly GoogleOAuthCredential credential;
     private Dictionary<string, string>? groupNamesByResource;
     private Dictionary<string, string>? groupResourcesByName;
 
@@ -31,13 +30,13 @@ internal sealed class GoogleContactsConnector : IConnector
         this.httpClient = httpClient;
         this.logger = logger;
         if (!string.IsNullOrWhiteSpace(credential.Type)
-            && !string.Equals(credential.Type, "google-service-account", StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(credential.Type, "google-oauth", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                $"Google contacts endpoint '{endpointName}' requires credential type 'google-service-account'.");
+                $"Google contacts endpoint '{endpointName}' requires credential type 'google-oauth'.");
         }
 
-        this.credential = CreateCredential(credential.Properties);
+        this.credential = CreateCredential(credential.Properties, httpClient);
     }
 
     public ConnectorCapabilities Capabilities { get; } = new()
@@ -53,7 +52,7 @@ internal sealed class GoogleContactsConnector : IConnector
 
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
-        _ = await credential.UnderlyingCredential.GetAccessTokenForRequestAsync(cancellationToken: cancellationToken);
+        _ = await credential.GetAccessTokenAsync(cancellationToken);
     }
 
     public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
@@ -173,7 +172,7 @@ internal sealed class GoogleContactsConnector : IConnector
     private async Task<HttpRequestMessage> CreateRequestAsync(HttpMethod method, string requestUri, CancellationToken cancellationToken)
     {
         HttpRequestMessage request = new(method, requestUri);
-        string accessToken = await credential.UnderlyingCredential.GetAccessTokenForRequestAsync(cancellationToken: cancellationToken);
+        string accessToken = await credential.GetAccessTokenAsync(cancellationToken);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         return request;
     }
@@ -596,26 +595,12 @@ internal sealed class GoogleContactsConnector : IConnector
     private static StringContent CreateJsonContent(JsonElement body) =>
         new(body.GetRawText(), Encoding.UTF8, "application/json");
 
-    private static GoogleCredential CreateCredential(IReadOnlyDictionary<string, string> properties)
+    private static GoogleOAuthCredential CreateCredential(IReadOnlyDictionary<string, string> properties, HttpClient httpClient)
     {
-        string? jsonPath = properties.GetOptionalValue("jsonPath");
-        string? json = properties.GetOptionalValue("json");
-        using Stream stream = jsonPath is not null
-            ? File.OpenRead(jsonPath)
-            : json is not null
-                ? new MemoryStream(Encoding.UTF8.GetBytes(json))
-                : throw new InvalidOperationException("Google service account credentials require either 'jsonPath' or 'json'.");
-
-        GoogleCredential credential = GoogleCredential.FromStream(stream);
-
-        credential = credential.CreateScoped(ContactsScope);
-        string? impersonatedUser = properties.GetOptionalValue("impersonatedUser");
-        if (!string.IsNullOrWhiteSpace(impersonatedUser))
-        {
-            credential = credential.CreateWithUser(impersonatedUser);
-        }
-
-        return credential;
+        string clientId = properties.GetRequiredValue("clientId", "google-oauth credential");
+        string clientSecret = properties.GetRequiredValue("clientSecret", "google-oauth credential");
+        string userLogin = properties.GetRequiredValue("userLogin", "google-oauth credential");
+        return new GoogleOAuthCredential(clientId, clientSecret, userLogin, [ContactsScope], httpClient);
     }
 
     private static GoogleCursor ParseCursor(string cursor) =>
