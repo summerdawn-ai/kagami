@@ -2,10 +2,10 @@
 
 Kagami is a polling-first contact synchronization daemon and library with internal SQLite state.
 
-It is designed for unattended execution with app/service authentication:
+It currently supports:
 
 - **Microsoft Graph** via confidential client / app-only auth
-- **Google People API** via service account auth, optionally with domain-wide delegation
+- **Google People API** via OAuth 2.0 user sign-in with cached refresh tokens
 
 At the moment, the concrete built-in provider connectors are focused on **contacts**. Calendar models exist in the codebase, but concrete Google/Exchange calendar connectors are intentionally not included yet.
 
@@ -23,7 +23,7 @@ For contacts, it currently supports:
 - Interactive CLI commands to list, export, and sync contacts between configured endpoints
 - OData-style in-memory contact filters for list, export, and sync operations
 - `--force` mode to re-evaluate all in-scope contacts even when no versions changed
-- Headless unattended auth suitable for local/server daemon use
+- Cached Google OAuth tokens for repeat runs after the initial interactive sign-in
 - `--what-if` mode that logs each planned create / update / delete without writing changes
 
 ## Getting Started
@@ -32,6 +32,7 @@ For contacts, it currently supports:
 
 - .NET SDK 10 or later
 - A Google Cloud project with the People API enabled
+- A Google OAuth client configured for the loopback callback `http://localhost:4189/`
 - A Microsoft Entra app registration with Microsoft Graph application permissions
 
 ### Build from source
@@ -215,10 +216,11 @@ Example:
     },
     "Credentials": {
       "googleWorkspace": {
-        "Type": "google-service-account",
+        "Type": "google-oauth",
         "Properties": {
-          "jsonPath": "/etc/kagami/google-service-account.json",
-          "impersonatedUser": "person@summerdawn.ai"
+          "clientId": "your-google-client-id.apps.googleusercontent.com",
+          "clientSecret": "replace-me",
+          "userLogin": "person@summerdawn.ai"
         }
       },
       "graphApp": {
@@ -266,22 +268,24 @@ Example:
 
 Named reusable credential definitions.
 
-#### Google service account
+#### Google OAuth 2.0 user sign-in
 
 Use:
 
-- `Type = "google-service-account"`
+- `Type = "google-oauth"`
 
 Properties:
 
-- `jsonPath`: path to the service-account JSON key file
-- `json`: alternative inline JSON string if you do not want to use a file
-- `impersonatedUser`: optional Workspace user email for domain-wide delegation
+- `clientId`: Google OAuth client ID
+- `clientSecret`: Google OAuth client secret
+- `userLogin`: Google account email to prefill in the sign-in flow and to scope the local token cache
 
 Notes:
 
+- On first use, Kagami opens the browser for OAuth consent and listens on `http://localhost:4189/` for the callback
+- Access and refresh tokens are cached under `%LOCALAPPDATA%\Summerdawn.ai\Kagami\tokens`
 - Kagami requests the Google contacts scope: `https://www.googleapis.com/auth/contacts`
-- If you want Kagami to work against a Workspace user's contacts, use domain-wide delegation and set `impersonatedUser`
+- The built-in Google contacts connector currently uses end-user OAuth; service-account and domain-wide-delegation auth are not supported
 
 #### Microsoft Graph confidential client
 
@@ -366,17 +370,19 @@ Kagami uses app-only access against:
 
 ### Google Workspace / People API
 
-Minimal unattended setup:
+Minimal setup:
 
 1. Create one Google Cloud project
-2. Create one service account
-3. Enable the People API
-4. If you need to operate on a Workspace user's contacts, configure **domain-wide delegation**
-5. Configure Kagami with the service-account JSON and, when applicable, `impersonatedUser`
+2. Enable the People API
+3. Create an OAuth 2.0 client for a desktop or installed application
+4. Configure the loopback callback `http://localhost:4189/`
+5. Configure Kagami with `clientId`, `clientSecret`, and `userLogin`
+6. Run a Google-backed Kagami command once and complete the browser sign-in flow
 
 Kagami uses:
 
-- Google service-account auth
+- Google OAuth 2.0 authorization-code flow with a local loopback callback
+- cached access and refresh tokens for subsequent runs
 - the People API contacts scope
 - `people.connections.list` sync tokens for incremental polling
 
