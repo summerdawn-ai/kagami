@@ -1,0 +1,11 @@
+<Project>
+
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);1701;1702;1591;xUnit2013</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPublishable>false</IsPublishable>
+  </PropertyGroup>
+
+</Project>

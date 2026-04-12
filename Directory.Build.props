@@ -1,0 +1,33 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- Trigger code style rules from .editorconfig on build -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest</AnalysisLevel>
+
+    <!-- Enable documentation file generation to enable IDE0005 (unused usings) warnings -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Ignore CS1591 warnings about missing XML comments triggered by `GenerateDocumentationFile` -->
+    <NoWarn>$(NoWarn);1701;1702;CS1591</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Shared NuGet package metadata -->
+    <Authors>summerdawn.ai</Authors>
+    <Company>summerdawn.ai</Company>
+    <Copyright>Copyright (c) 2025 summerdawn.ai</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/summerdawn-ai/kagami</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/summerdawn-ai/kagami</PackageProjectUrl>
+    <PackageTags>kagami;calendar;contacts;sync;google;outlook;exchange</PackageTags>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Include PDBs in authored .nupkg -->
+    <DebugSymbols>true</DebugSymbols>
+    <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
+  </PropertyGroup>
+
+</Project>
