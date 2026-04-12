@@ -675,7 +675,6 @@ internal sealed class GoogleContactsConnector : IConnector
             return null;
         }
 
-        string? fallbackUrl = null;
         foreach (JsonElement photo in photos.EnumerateArray())
         {
             string? url = photo.TryGetProperty("url", out JsonElement urlElement) ? urlElement.GetString() : null;
@@ -689,11 +688,9 @@ internal sealed class GoogleContactsConnector : IConnector
             {
                 return url;
             }
-
-            fallbackUrl ??= url;
         }
 
-        return fallbackUrl;
+        return null;
     }
 
     private static string? ReadFirstNestedString(JsonElement element, string arrayPropertyName, string propertyName)
