@@ -200,6 +200,67 @@ public sealed class PlannerTests
         Assert.Equal(SyncActionKind.Update, actions[0].Kind);
     }
 
+    [Fact]
+    public void ResolveConflictingActionsKeepsOnlySideAUpdateWhenPolicyIsSideAWins()
+    {
+        List<SyncAction> actionsAtoB = [CreateDuplicateMatchAction(SyncSide.B, CreateItem("a1"), CreateItem("b1"))];
+        List<SyncAction> actionsBtoA = [CreateDuplicateMatchAction(SyncSide.A, CreateItem("b1"), CreateItem("a1"))];
+
+        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.SideAWins), actionsAtoB, actionsBtoA);
+
+        Assert.Equal(SyncActionKind.Update, actionsAtoB[0].Kind);
+        Assert.Equal(SyncActionKind.NoOp, actionsBtoA[0].Kind);
+    }
+
+    [Fact]
+    public void ResolveConflictingActionsKeepsOnlySideBUpdateWhenPolicyIsSideBWins()
+    {
+        List<SyncAction> actionsAtoB = [CreateDuplicateMatchAction(SyncSide.B, CreateItem("a1"), CreateItem("b1"))];
+        List<SyncAction> actionsBtoA = [CreateDuplicateMatchAction(SyncSide.A, CreateItem("b1"), CreateItem("a1"))];
+
+        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.SideBWins), actionsAtoB, actionsBtoA);
+
+        Assert.Equal(SyncActionKind.NoOp, actionsAtoB[0].Kind);
+        Assert.Equal(SyncActionKind.Update, actionsBtoA[0].Kind);
+    }
+
+    [Fact]
+    public void ResolveConflictingActionsMakesBothNoOpWhenPolicyIsSkip()
+    {
+        List<SyncAction> actionsAtoB = [CreateDuplicateMatchAction(SyncSide.B, CreateItem("a1"), CreateItem("b1"))];
+        List<SyncAction> actionsBtoA = [CreateDuplicateMatchAction(SyncSide.A, CreateItem("b1"), CreateItem("a1"))];
+
+        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.Skip), actionsAtoB, actionsBtoA);
+
+        Assert.Equal(SyncActionKind.NoOp, actionsAtoB[0].Kind);
+        Assert.Equal(SyncActionKind.NoOp, actionsBtoA[0].Kind);
+    }
+
+    [Fact]
+    public void ResolveConflictingActionsUsesLastWriteWinsForDuplicateMatches()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        List<SyncAction> actionsAtoB =
+        [
+            CreateDuplicateMatchAction(
+                SyncSide.B,
+                CreateItem("a1", lastModified: now),
+                CreateItem("b1", lastModified: now.AddMinutes(-1)))
+        ];
+        List<SyncAction> actionsBtoA =
+        [
+            CreateDuplicateMatchAction(
+                SyncSide.A,
+                CreateItem("b1", lastModified: now.AddMinutes(-1)),
+                CreateItem("a1", lastModified: now))
+        ];
+
+        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.LastWriteWins), actionsAtoB, actionsBtoA);
+
+        Assert.Equal(SyncActionKind.Update, actionsAtoB[0].Kind);
+        Assert.Equal(SyncActionKind.NoOp, actionsBtoA[0].Kind);
+    }
+
     private static JobOptions CreateJob(
         SyncMode mode = SyncMode.Bidirectional,
         DeletePolicy deletePolicy = DeletePolicy.Mirror,
@@ -228,5 +289,15 @@ public sealed class PlannerTests
                 End = DateTimeOffset.UtcNow.AddHours(1),
                 LastModified = lastModified,
             },
+        };
+
+    private static SyncAction CreateDuplicateMatchAction(SyncSide targetSide, CanonicalItem item, CanonicalItem matchedTargetItem) =>
+        new()
+        {
+            Kind = SyncActionKind.Update,
+            TargetSide = targetSide,
+            Item = item,
+            MatchedTargetItem = matchedTargetItem,
+            Reason = "Matched existing contact on target side",
         };
 }

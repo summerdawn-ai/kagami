@@ -119,6 +119,28 @@ public sealed class JobExecutorTests : IDisposable
         Assert.Contains(logger.Entries, entry => entry.Contains("would create contact 'Contoso Ltd'", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task WhatIfLogsOnlyWinningDirectionForMirroredDuplicateMatchUpdates()
+    {
+        FakeConnector connectorA = new();
+        FakeConnector connectorB = new();
+        connectorA.Seed(CreateContactItem("a1", "v1", "Ada Langenfeld", email: "ada@example.com"));
+        connectorB.Seed(CreateContactItem("b1", "v1", "Ada Langenfeld", email: " ADA@example.com "));
+
+        InMemoryLogger<JobExecutor> logger = new();
+        JobExecutor executor = CreateExecutor(logger);
+
+        await executor.ExecuteAsync(
+            "job-1",
+            CreateJob(conflictPolicy: ConflictPolicy.SideAWins),
+            connectorA,
+            connectorB,
+            whatIf: true);
+
+        Assert.Contains(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side B", StringComparison.Ordinal));
+        Assert.DoesNotContain(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side A", StringComparison.Ordinal));
+    }
+
     private JobExecutor CreateExecutor(ILogger<JobExecutor>? logger = null) =>
         new(
             new Planner(NullLogger<Planner>.Instance),
@@ -128,7 +150,7 @@ public sealed class JobExecutorTests : IDisposable
             leaseRepository,
             logger ?? NullLogger<JobExecutor>.Instance);
 
-    private static JobOptions CreateJob() =>
+    private static JobOptions CreateJob(ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins) =>
         new()
         {
             Enabled = true,
@@ -137,10 +159,10 @@ public sealed class JobExecutorTests : IDisposable
             EndpointB = "endpointB",
             SyncMode = SyncMode.Bidirectional,
             DeletePolicy = DeletePolicy.Mirror,
-            ConflictPolicy = ConflictPolicy.LastWriteWins,
+            ConflictPolicy = conflictPolicy,
         };
 
-    private static CanonicalItem CreateContactItem(string id, string version, string displayName, string? organization = null) =>
+    private static CanonicalItem CreateContactItem(string id, string version, string displayName, string? organization = null, string? email = null) =>
         new()
         {
             EntityType = EntityType.Contact,
@@ -150,7 +172,7 @@ public sealed class JobExecutorTests : IDisposable
             {
                 DisplayName = displayName,
                 Organization = organization,
-                Emails = [new ContactEmail { Address = GenerateTestEmail(displayName) }],
+                Emails = [new ContactEmail { Address = email ?? GenerateTestEmail(displayName) }],
             },
         };
 

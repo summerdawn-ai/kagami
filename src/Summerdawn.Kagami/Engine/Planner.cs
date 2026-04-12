@@ -64,6 +64,36 @@ public sealed class Planner(ILogger<Planner> logger)
         return PlanActions(sideBItems, currentSideAItems, existingLinks, SyncSide.B, SyncSide.A, jobOptions, force);
     }
 
+    /// <summary>
+    /// Resolves mirrored bidirectional actions that target the same pair of items in opposite directions.
+    /// </summary>
+    public void ResolveConflictingActions(
+        JobOptions jobOptions,
+        IList<SyncAction> actionsAtoB,
+        IList<SyncAction> actionsBtoA)
+    {
+        foreach (SyncAction actionA in actionsAtoB)
+        {
+            if (!IsMirroredConflictCandidate(actionA))
+            {
+                continue;
+            }
+
+            SyncAction? actionB = actionsBtoA.FirstOrDefault(action =>
+                IsMirroredConflictCandidate(action)
+                && string.Equals(actionA.Item!.SourceId, action.MatchedTargetItem!.SourceId, StringComparison.Ordinal)
+                && string.Equals(actionA.MatchedTargetItem!.SourceId, action.Item!.SourceId, StringComparison.Ordinal));
+
+            if (actionB is null)
+            {
+                continue;
+            }
+
+            ApplyResolvedAction(actionA, ResolveConflict(actionA.Item!, actionA.MatchedTargetItem, SyncSide.A, SyncSide.B, jobOptions));
+            ApplyResolvedAction(actionB, ResolveConflict(actionB.Item!, actionB.MatchedTargetItem, SyncSide.B, SyncSide.A, jobOptions));
+        }
+    }
+
     private IReadOnlyList<SyncAction> PlanActions(
         IReadOnlyList<CanonicalItem> sourceItems,
         IReadOnlyList<CanonicalItem> currentTargetItems,
@@ -338,6 +368,17 @@ public sealed class Planner(ILogger<Planner> logger)
             CanonicalContact contact => contact.LastModified,
             _ => null,
         };
+
+    private static bool IsMirroredConflictCandidate(SyncAction action) =>
+        action.Kind != SyncActionKind.NoOp
+        && action.Item is not null
+        && action.MatchedTargetItem is not null;
+
+    private static void ApplyResolvedAction(SyncAction action, SyncAction resolvedAction)
+    {
+        action.Kind = resolvedAction.Kind;
+        action.Reason = resolvedAction.Reason;
+    }
 
     private static CanonicalItem[] FindDuplicateMatches(
         CanonicalItem item,

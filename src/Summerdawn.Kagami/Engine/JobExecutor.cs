@@ -101,13 +101,13 @@ public sealed class JobExecutor(
         var pageSetB = await ReadAllPagesAsync(connectorB, jobOptions.EndpointB, cursorB, force, cancellationToken);
         IReadOnlyList<CanonicalItem> itemsB = filter is not null ? filter.Apply(pageSetB.Items) : pageSetB.Items;
 
-        // --- Plan actions from A to B ---
-        var actionsAtoB = planner.PlanFromSideA(jobOptions, itemsA, currentItemsB, existingLinks, force);
+        // --- Plan actions ---
+        var actionsAtoB = planner.PlanFromSideA(jobOptions, itemsA, currentItemsB, existingLinks, force).ToList();
+        var actionsBtoA = planner.PlanFromSideB(jobOptions, itemsB, currentItemsA, existingLinks, force).ToList();
+        planner.ResolveConflictingActions(jobOptions, actionsAtoB, actionsBtoA);
+
         logger.LogInformation("Job {JobKey}: {Count} actions planned from A to B", jobKey, actionsAtoB.Count);
         result.ActionsPlanned += actionsAtoB.Count;
-
-        // --- Plan actions from B to A ---
-        var actionsBtoA = planner.PlanFromSideB(jobOptions, itemsB, currentItemsA, existingLinks, force);
         logger.LogInformation("Job {JobKey}: {Count} actions planned from B to A", jobKey, actionsBtoA.Count);
         result.ActionsPlanned += actionsBtoA.Count;
 
