@@ -279,6 +279,52 @@ public sealed class ContactsServiceTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task ExportAsyncWritesPhotoNextToJsonWhenAvailable()
+    {
+        CanonicalItem item = MakeContact("a1", "Alice", lastName: "Smith");
+        ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
+        connectorA.Seed(item);
+
+        string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
+        try
+        {
+            await service.ExportAsync("Microsoft", dir);
+            Assert.True(File.Exists(Path.Combine(dir, "alice_smith.json")));
+            Assert.True(File.Exists(Path.Combine(dir, "alice_smith.png")));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExportAsyncDeletesExistingPhotoFilesBeforeWriting()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        string stalePhoto = Path.Combine(dir, "stale.png");
+        await File.WriteAllBytesAsync(stalePhoto, [0x01]);
+
+        connectorA.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
+        try
+        {
+            await service.ExportAsync("Microsoft", dir);
+            Assert.False(File.Exists(stalePhoto), "Stale export photo should have been deleted");
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+    }
+
     // ── SyncAsync ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -317,6 +363,23 @@ public sealed class ContactsServiceTests : IDisposable
         // Force run: re-evaluate all contacts
         var forced = await service.SyncAsync("Microsoft", "Google", force: true);
         Assert.True(forced.ActionsPlanned > 0);
+    }
+
+    [Fact]
+    public async Task SyncAsyncCopiesPhotoMetadataToDestination()
+    {
+        CanonicalItem source = MakeContact("a1", "Alice", lastName: "Smith");
+        ContactPhotoMetadata.SetPhoto(source, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
+        connectorA.Seed(source);
+
+        JobExecutionResult result = await service.SyncAsync("Microsoft", "Google");
+
+        Assert.True(result.Succeeded);
+        CanonicalItem created = Assert.Single(connectorB.Items);
+        Assert.True(ContactPhotoMetadata.TryGetPhoto(created, out byte[] photoBytes, out string contentType));
+        Assert.Equal("image/png", contentType);
+        Assert.Equal(source.Metadata["contact.photo.bytes"], created.Metadata["contact.photo.bytes"]);
+        Assert.Equal(8, photoBytes.Length);
     }
 
     private ContactsService CreateService(IConnector microsoftConnector)

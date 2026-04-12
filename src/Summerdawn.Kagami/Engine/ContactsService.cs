@@ -22,6 +22,7 @@ public sealed class ContactsService(
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
+    private static readonly string[] ExportPhotoExtensions = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".bin"];
 
     /// <summary>
     /// Fetches all contacts from the named endpoint and returns them in order.
@@ -92,7 +93,7 @@ public sealed class ContactsService(
     /// <summary>
     /// Exports contacts from the named endpoint to a local directory.
     /// One JSON file is written per contact, using the effective contact name when available.
-    /// Any existing <c>*.json</c> files in
+    /// Any existing <c>*.json</c> files and exported photo files in
     /// <paramref name="outputDirectory"/> are deleted before writing.
     /// </summary>
     /// <param name="endpointName">The endpoint key in <c>appsettings.json</c>.</param>
@@ -115,6 +116,15 @@ public sealed class ContactsService(
             logger.LogDebug("Deleted existing export file {File}", existing);
         }
 
+        foreach (string extension in ExportPhotoExtensions)
+        {
+            foreach (string existing in Directory.GetFiles(outputDirectory, $"*{extension}"))
+            {
+                File.Delete(existing);
+                logger.LogDebug("Deleted existing export photo file {File}", existing);
+            }
+        }
+
         var nameCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in items)
@@ -134,6 +144,14 @@ public sealed class ContactsService(
             string json = JsonSerializer.Serialize(payload, JsonOptions);
             await File.WriteAllTextAsync(filePath, json, cancellationToken);
             logger.LogInformation("Exported contact to {File}", filePath);
+
+            if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out string contentType))
+            {
+                string extension = ContactPhotoMetadata.GetFileExtension(contentType, photoBytes);
+                string photoPath = Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(fileName) + extension);
+                await File.WriteAllBytesAsync(photoPath, photoBytes, cancellationToken);
+                logger.LogInformation("Exported contact photo to {File}", photoPath);
+            }
         }
 
         logger.LogInformation("Exported {Count} contact(s) to {Dir}", items.Count, outputDirectory);

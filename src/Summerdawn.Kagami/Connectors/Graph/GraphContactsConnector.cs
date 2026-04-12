@@ -50,7 +50,7 @@ internal sealed class GraphContactsConnector : IConnector
         SupportsDeletes = true,
         SupportsAttendees = false,
         SupportsRecurrence = false,
-        SupportsContactPhotos = false,
+        SupportsContactPhotos = true,
         SupportsServerSideFiltering = true,
     };
 
@@ -67,9 +67,15 @@ internal sealed class GraphContactsConnector : IConnector
 
     public async Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, $"{collectionPath}/{Uri.EscapeDataString(id)}", cancellationToken);
+        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, $"{collectionPath}/{Uri.EscapeDataString(id)}?$select={Uri.EscapeDataString(ContactSelectFields)}", cancellationToken);
         using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
-        return ConvertContact(document.RootElement);
+        CanonicalItem? item = ConvertContact(document.RootElement);
+        if (item is not null && !item.IsDeleted)
+        {
+            await PopulatePhotoAsync(item, id, cancellationToken);
+        }
+
+        return item;
     }
 
     public async Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
@@ -77,7 +83,10 @@ internal sealed class GraphContactsConnector : IConnector
         using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Post, collectionPath, cancellationToken);
         request.Content = CreateJsonContent(BuildWritableContact(GetContactPayload(item)));
         using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
-        return ConvertContact(document.RootElement) ?? throw new InvalidOperationException("Graph contact create returned no payload.");
+        CanonicalItem created = ConvertContact(document.RootElement) ?? throw new InvalidOperationException("Graph contact create returned no payload.");
+        await SyncPhotoAsync(created.SourceId, item, deleteWhenAbsent: false, cancellationToken);
+        return await GetItemAsync(created.SourceId, cancellationToken)
+            ?? throw new InvalidOperationException("Graph contact create succeeded but the created item could not be reloaded.");
     }
 
     public async Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
@@ -91,6 +100,7 @@ internal sealed class GraphContactsConnector : IConnector
 
         using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
+        await SyncPhotoAsync(item.SourceId, item, deleteWhenAbsent: true, cancellationToken);
         return await GetItemAsync(item.SourceId, cancellationToken)
             ?? throw new InvalidOperationException("Graph contact update succeeded but the updated item could not be reloaded.");
     }
@@ -115,6 +125,11 @@ internal sealed class GraphContactsConnector : IConnector
                 CanonicalItem? item = ConvertContact(element);
                 if (item is not null)
                 {
+                    if (!item.IsDeleted)
+                    {
+                        await PopulatePhotoAsync(item, item.SourceId, cancellationToken);
+                    }
+
                     items.Add(item);
                 }
             }
@@ -281,6 +296,65 @@ internal sealed class GraphContactsConnector : IConnector
             Version = ReadString(element, "@odata.etag"),
             Metadata = new Dictionary<string, string>(),
         });
+    }
+
+    private async Task PopulatePhotoAsync(CanonicalItem item, string id, CancellationToken cancellationToken)
+    {
+        (byte[] photoBytes, string contentType)? photo = await DownloadPhotoAsync(id, cancellationToken);
+        if (photo is null)
+        {
+            ContactPhotoMetadata.SetNoPhoto(item);
+            return;
+        }
+
+        ContactPhotoMetadata.SetPhoto(item, photo.Value.photoBytes, photo.Value.contentType);
+    }
+
+    private async Task<(byte[] photoBytes, string contentType)?> DownloadPhotoAsync(string id, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
+        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        await EnsureSuccessAsync(response, cancellationToken);
+        byte[] photoBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        if (photoBytes.Length == 0)
+        {
+            return null;
+        }
+
+        string contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+        return (photoBytes, contentType);
+    }
+
+    private async Task SyncPhotoAsync(string id, CanonicalItem item, bool deleteWhenAbsent, CancellationToken cancellationToken)
+    {
+        if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out string contentType))
+        {
+            using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Put, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
+            request.Content = new ByteArrayContent(photoBytes);
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+            await EnsureSuccessAsync(response, cancellationToken);
+            return;
+        }
+
+        if (!deleteWhenAbsent || !ContactPhotoMetadata.HasKnownAbsence(item))
+        {
+            return;
+        }
+
+        using HttpRequestMessage deleteRequest = await CreateRequestAsync(HttpMethod.Delete, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
+        using HttpResponseMessage deleteResponse = await httpClient.SendAsync(deleteRequest, cancellationToken);
+        if (deleteResponse.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return;
+        }
+
+        await EnsureSuccessAsync(deleteResponse, cancellationToken);
     }
 
     private static void AddPhones(ICollection<ContactPhone> phones, JsonElement element, string propertyName, string label)
