@@ -22,7 +22,7 @@ public sealed class ContactsService(
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
-    private static readonly string[] ExportPhotoExtensions = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".bin"];
+    private static readonly string[] ExportPhotoExtensions = [".png", ".jpg", ".gif", ".bmp", ".webp", ".bin"];
 
     /// <summary>
     /// Fetches all contacts from the named endpoint and returns them in order.

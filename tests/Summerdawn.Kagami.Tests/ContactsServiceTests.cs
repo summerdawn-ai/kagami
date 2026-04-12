@@ -280,7 +280,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsyncWritesPhotoNextToJsonWhenAvailable()
+    public async Task ExportAsyncWritesPhotoNextToJson()
     {
         CanonicalItem item = MakeContact("a1", "Alice", lastName: "Smith");
         ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
@@ -310,11 +310,14 @@ public sealed class ContactsServiceTests : IDisposable
         string stalePhoto = Path.Combine(dir, "stale.png");
         await File.WriteAllBytesAsync(stalePhoto, [0x01]);
 
-        connectorA.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
+        CanonicalItem item = MakeContact("a1", "Alice", lastName: "Smith");
+        ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
+        connectorA.Seed(item);
         try
         {
             await service.ExportAsync("Microsoft", dir);
             Assert.False(File.Exists(stalePhoto), "Stale export photo should have been deleted");
+            Assert.True(File.Exists(Path.Combine(dir, "alice_smith.png")));
         }
         finally
         {
