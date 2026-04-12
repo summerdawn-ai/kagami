@@ -13,192 +13,264 @@ public sealed class Planner(ILogger<Planner> logger)
     private static readonly ContactMatchComparer ContactMatchComparer = new();
 
     /// <summary>
-    /// Computes the actions required to synchronize side-B for new/changed items observed on side A.
+    /// Computes the full set of sync actions from current snapshots of both sides and existing links.
     /// </summary>
+    /// <remarks>
+    /// Planning is performed in three passes:
+    /// <list type="number">
+    ///   <item>Linked pairs are evaluated first; their endpoints are reserved so they can never
+    ///   appear as duplicate-match candidates.</item>
+    ///   <item>Unlinked items on side A are matched against unreserved side-B items.</item>
+    ///   <item>Unlinked items on side B are matched against unreserved side-A items.</item>
+    /// </list>
+    /// The returned list never contains two actions that share the same source item or the same
+    /// target item.
+    /// </remarks>
     /// <param name="jobOptions">The job configuration.</param>
-    /// <param name="sideAItems">Items observed on side A.</param>
-    /// <param name="currentSideBItems">Current items observed on side B.</param>
+    /// <param name="sideAItems">Current items observed on side A.</param>
+    /// <param name="sideBItems">Current items observed on side B.</param>
     /// <param name="existingLinks">Current link state rows for this job.</param>
     /// <param name="force">
     /// When <c>true</c>, the HasChanged short-circuit is bypassed and all in-scope linked items
     /// are re-evaluated regardless of whether their version/hash has changed.
     /// </param>
-    public IReadOnlyList<SyncAction> PlanFromSideA(
+    public IReadOnlyList<SyncAction> PlanActions(
         JobOptions jobOptions,
         IReadOnlyList<CanonicalItem> sideAItems,
-        IReadOnlyList<CanonicalItem> currentSideBItems,
-        IReadOnlyList<LinkStateRow> existingLinks,
-        bool force = false)
-    {
-        if (jobOptions.SyncMode == SyncMode.BToA)
-        {
-            return [];
-        }
-
-        return PlanActions(sideAItems, currentSideBItems, existingLinks, SyncSide.A, SyncSide.B, jobOptions, force);
-    }
-
-    /// <summary>
-    /// Computes the actions required to synchronize side-A for new/changed items observed on side B.
-    /// </summary>
-    /// <param name="jobOptions">The job configuration.</param>
-    /// <param name="sideBItems">Items observed on side B.</param>
-    /// <param name="currentSideAItems">Current items observed on side A.</param>
-    /// <param name="existingLinks">Current link state rows for this job.</param>
-    /// <param name="force">
-    /// When <c>true</c>, the HasChanged short-circuit is bypassed and all in-scope linked items
-    /// are re-evaluated regardless of whether their version/hash has changed.
-    /// </param>
-    public IReadOnlyList<SyncAction> PlanFromSideB(
-        JobOptions jobOptions,
         IReadOnlyList<CanonicalItem> sideBItems,
-        IReadOnlyList<CanonicalItem> currentSideAItems,
         IReadOnlyList<LinkStateRow> existingLinks,
-        bool force = false)
-    {
-        if (jobOptions.SyncMode == SyncMode.AToB)
-        {
-            return [];
-        }
-
-        return PlanActions(sideBItems, currentSideAItems, existingLinks, SyncSide.B, SyncSide.A, jobOptions, force);
-    }
-
-    /// <summary>
-    /// Resolves mirrored bidirectional actions that target the same pair of items in opposite directions.
-    /// </summary>
-    public void ResolveConflictingActions(
-        JobOptions jobOptions,
-        IList<SyncAction> actionsAtoB,
-        IList<SyncAction> actionsBtoA)
-    {
-        foreach (SyncAction actionA in actionsAtoB)
-        {
-            if (!IsMirroredConflictCandidate(actionA))
-            {
-                continue;
-            }
-
-            SyncAction? actionB = actionsBtoA.FirstOrDefault(action =>
-                IsMirroredConflictCandidate(action)
-                && string.Equals(actionA.Item!.SourceId, action.MatchedTargetItem!.SourceId, StringComparison.Ordinal)
-                && string.Equals(actionA.MatchedTargetItem!.SourceId, action.Item!.SourceId, StringComparison.Ordinal));
-
-            if (actionB is null)
-            {
-                continue;
-            }
-
-            ApplyResolvedAction(actionA, ResolveConflict(actionA.Item!, actionA.MatchedTargetItem, SyncSide.A, SyncSide.B, jobOptions));
-            ApplyResolvedAction(actionB, ResolveConflict(actionB.Item!, actionB.MatchedTargetItem, SyncSide.B, SyncSide.A, jobOptions));
-        }
-    }
-
-    private IReadOnlyList<SyncAction> PlanActions(
-        IReadOnlyList<CanonicalItem> sourceItems,
-        IReadOnlyList<CanonicalItem> currentTargetItems,
-        IReadOnlyList<LinkStateRow> existingLinks,
-        SyncSide sourceSide,
-        SyncSide targetSide,
-        JobOptions jobOptions,
         bool force = false)
     {
         var actions = new List<SyncAction>();
-        var currentTargetItemsById = currentTargetItems.ToDictionary(item => item.SourceId);
-        var linkedTargetIds = existingLinks
-            .Select(link => targetSide == SyncSide.B ? link.SideBId : link.SideAId)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Cast<string>()
+
+        var itemsAById = sideAItems.ToDictionary(i => i.SourceId, StringComparer.Ordinal);
+        var itemsBById = sideBItems.ToDictionary(i => i.SourceId, StringComparer.Ordinal);
+
+        var linkedAIds = existingLinks
+            .Select(l => l.SideAId)
             .ToHashSet(StringComparer.Ordinal);
-        var linksBySourceId = targetSide == SyncSide.B
-            ? existingLinks.ToDictionary(l => l.SideAId)
-            : existingLinks.Where(l => l.SideBId != null).ToDictionary(l => l.SideBId!);
-        var duplicateMatchesBySourceId = BuildDuplicateMatchesBySourceId(sourceItems, currentTargetItems, linkedTargetIds, linksBySourceId);
-        var duplicateTargetMatchCounts = duplicateMatchesBySourceId
-            .Where(match => match.Value.Length == 1)
-            .GroupBy(match => match.Value[0].SourceId, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        var linkedBIds = existingLinks
+            .Where(l => l.SideBId != null)
+            .Select(l => l.SideBId!)
+            .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var item in sourceItems)
+        // Reservation sets prevent two actions from sharing the same source or target item.
+        var reservedAIds = new HashSet<string>(StringComparer.Ordinal);
+        var reservedBIds = new HashSet<string>(StringComparer.Ordinal);
+
+        // Pass 1: evaluate existing linked pairs. Linked endpoints are always reserved so that
+        // they can never be matched as duplicate candidates in subsequent passes.
+        foreach (LinkStateRow link in existingLinks)
         {
-            if (item.IsDeleted)
+            itemsAById.TryGetValue(link.SideAId, out CanonicalItem? currentA);
+            CanonicalItem? currentB = link.SideBId != null ? itemsBById.GetValueOrDefault(link.SideBId) : null;
+
+            reservedAIds.Add(link.SideAId);
+            if (link.SideBId != null)
             {
-                if (jobOptions.DeletePolicy == DeletePolicy.Ignore)
-                {
-                    continue;
-                }
+                reservedBIds.Add(link.SideBId);
+            }
 
-                if (linksBySourceId.TryGetValue(item.SourceId, out var existingForDelete))
-                {
-                    string? deleteId = targetSide == SyncSide.B ? existingForDelete.SideBId : existingForDelete.SideAId;
-                    if (deleteId != null)
-                    {
-                        actions.Add(new SyncAction
-                        {
-                            Kind = SyncActionKind.Delete,
-                            TargetSide = targetSide,
-                            DeleteId = deleteId,
-                            Reason = "Source item deleted",
-                        });
-                    }
-                }
+            SyncAction? action = EvaluateLinkedPair(link, currentA, currentB, jobOptions, force);
+            if (action != null)
+            {
+                actions.Add(action);
+            }
+        }
 
+        // Pass 2: unlinked A items → target B (only when sync mode allows A→B).
+        if (jobOptions.SyncMode != SyncMode.BToA)
+        {
+            PlanUnlinkedItems(
+                jobOptions,
+                sideAItems,
+                sideBItems,
+                SyncSide.B,
+                linkedAIds,
+                linkedBIds,
+                reservedAIds,
+                reservedBIds,
+                actions);
+        }
+
+        // Pass 3: unlinked B items → target A (only when sync mode allows B→A).
+        if (jobOptions.SyncMode != SyncMode.AToB)
+        {
+            PlanUnlinkedItems(
+                jobOptions,
+                sideBItems,
+                sideAItems,
+                SyncSide.A,
+                linkedBIds,
+                linkedAIds,
+                reservedBIds,
+                reservedAIds,
+                actions);
+        }
+
+        return actions;
+    }
+
+    private static SyncAction? EvaluateLinkedPair(
+        LinkStateRow link,
+        CanonicalItem? currentA,
+        CanonicalItem? currentB,
+        JobOptions jobOptions,
+        bool force)
+    {
+        // Deletion on side A takes priority.
+        if (currentA?.IsDeleted == true)
+        {
+            if (jobOptions.SyncMode != SyncMode.BToA
+                && jobOptions.DeletePolicy != DeletePolicy.Ignore
+                && link.SideBId != null)
+            {
+                return new SyncAction
+                {
+                    Kind = SyncActionKind.Delete,
+                    TargetSide = SyncSide.B,
+                    DeleteId = link.SideBId,
+                    Reason = "Source item deleted",
+                };
+            }
+
+            return null;
+        }
+
+        // Deletion on side B.
+        if (currentB?.IsDeleted == true)
+        {
+            if (jobOptions.SyncMode != SyncMode.AToB && jobOptions.DeletePolicy != DeletePolicy.Ignore)
+            {
+                return new SyncAction
+                {
+                    Kind = SyncActionKind.Delete,
+                    TargetSide = SyncSide.A,
+                    DeleteId = link.SideAId,
+                    Reason = "Source item deleted",
+                };
+            }
+
+            return null;
+        }
+
+        bool aChanged = currentA != null && (force || HasChanged(currentA, link, SyncSide.A));
+        bool bChanged = currentB != null && (force || HasChanged(currentB, link, SyncSide.B));
+
+        return jobOptions.SyncMode switch
+        {
+            SyncMode.AToB when !aChanged => null,
+            SyncMode.AToB when bChanged => ResolveConflict(currentA!, currentB, SyncSide.A, SyncSide.B, jobOptions),
+            SyncMode.AToB => new SyncAction
+            {
+                Kind = SyncActionKind.Update,
+                TargetSide = SyncSide.B,
+                Item = currentA,
+                Reason = "Item changed on source side",
+            },
+
+            SyncMode.BToA when !bChanged => null,
+            SyncMode.BToA when aChanged => ResolveConflict(currentB!, currentA, SyncSide.B, SyncSide.A, jobOptions),
+            SyncMode.BToA => new SyncAction
+            {
+                Kind = SyncActionKind.Update,
+                TargetSide = SyncSide.A,
+                Item = currentB,
+                Reason = "Item changed on source side",
+            },
+
+            // Bidirectional
+            _ when !aChanged && !bChanged => null,
+            _ when aChanged && !bChanged => new SyncAction
+            {
+                Kind = SyncActionKind.Update,
+                TargetSide = SyncSide.B,
+                Item = currentA,
+                Reason = "Item changed on source side",
+            },
+            _ when !aChanged => new SyncAction
+            {
+                Kind = SyncActionKind.Update,
+                TargetSide = SyncSide.A,
+                Item = currentB,
+                Reason = "Item changed on source side",
+            },
+            // Both changed: resolve using conflict policy. Prefer the A-originating direction
+            // as the primary so that SideAWins and LastWriteWins work naturally; SideBWins is
+            // handled by checking the policy explicitly.
+            _ when jobOptions.ConflictPolicy == ConflictPolicy.SideBWins && currentB != null => new SyncAction
+            {
+                Kind = SyncActionKind.Update,
+                TargetSide = SyncSide.A,
+                Item = currentB,
+                Reason = "Conflict: side B wins per policy",
+            },
+            _ => ResolveConflict(currentA!, currentB, SyncSide.A, SyncSide.B, jobOptions),
+        };
+    }
+
+    /// <summary>
+    /// Plans actions for unlinked source items against the eligible pool of target items.
+    /// </summary>
+    /// <param name="jobOptions">Job configuration.</param>
+    /// <param name="sourceItems">All items on the source side.</param>
+    /// <param name="targetItems">All items on the target side.</param>
+    /// <param name="targetSide">Which side is the target.</param>
+    /// <param name="linkedSourceIds">Source-side IDs that are already part of an existing link.</param>
+    /// <param name="linkedTargetIds">Target-side IDs that are already part of an existing link.</param>
+    /// <param name="reservedSourceIds">
+    /// Source IDs already claimed by a planned action; updated in place as new actions are added.
+    /// </param>
+    /// <param name="reservedTargetIds">
+    /// Target IDs already claimed by a planned action; updated in place as new actions are added.
+    /// </param>
+    /// <param name="actions">Accumulator list for planned actions.</param>
+    private void PlanUnlinkedItems(
+        JobOptions jobOptions,
+        IReadOnlyList<CanonicalItem> sourceItems,
+        IReadOnlyList<CanonicalItem> targetItems,
+        SyncSide targetSide,
+        IReadOnlySet<string> linkedSourceIds,
+        IReadOnlySet<string> linkedTargetIds,
+        HashSet<string> reservedSourceIds,
+        HashSet<string> reservedTargetIds,
+        List<SyncAction> actions)
+    {
+        // Eligible target pool: unlinked, unreserved, not deleted.
+        var eligibleTargets = targetItems
+            .Where(t => !t.IsDeleted && !linkedTargetIds.Contains(t.SourceId) && !reservedTargetIds.Contains(t.SourceId))
+            .ToList();
+
+        var unlinkedSources = sourceItems
+            .Where(s => !s.IsDeleted && !linkedSourceIds.Contains(s.SourceId) && !reservedSourceIds.Contains(s.SourceId))
+            .ToList();
+
+        // Build a candidate map: for each source item, which eligible target items match it?
+        var candidatesBySourceId = new Dictionary<string, CanonicalItem[]>(StringComparer.Ordinal);
+        foreach (CanonicalItem item in unlinkedSources)
+        {
+            candidatesBySourceId[item.SourceId] = FindDuplicateMatches(item, eligibleTargets);
+        }
+
+        // For each eligible target that appears as the unique candidate for exactly one source,
+        // count how many sources point to it. If > 1 the match is ambiguous (many-to-one).
+        var competitionForTarget = candidatesBySourceId
+            .Where(kv => kv.Value.Length == 1)
+            .GroupBy(kv => kv.Value[0].SourceId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+
+        foreach (CanonicalItem item in unlinkedSources)
+        {
+            // Re-check: a previous iteration in this pass may have reserved this source.
+            if (reservedSourceIds.Contains(item.SourceId))
+            {
                 continue;
             }
 
-            if (!linksBySourceId.TryGetValue(item.SourceId, out var link))
+            CanonicalItem[] candidates = candidatesBySourceId[item.SourceId];
+
+            if (candidates.Length == 0)
             {
-                CanonicalItem[] duplicateMatches = duplicateMatchesBySourceId.GetValueOrDefault(item.SourceId, []);
-                if (duplicateMatches.Length == 1)
-                {
-                    if (duplicateTargetMatchCounts[duplicateMatches[0].SourceId] > 1)
-                    {
-                        logger.LogWarning(
-                            "Item {SourceId} matches target contact {TargetId}, but that target also matches other source contacts on side {TargetSide}; skipping auto-linking",
-                            item.SourceId,
-                            duplicateMatches[0].SourceId,
-                            targetSide);
-
-                        actions.Add(new SyncAction
-                        {
-                            Kind = SyncActionKind.NoOp,
-                            TargetSide = targetSide,
-                            Item = item,
-                            Reason = "Target contact matches multiple source contacts",
-                        });
-                        continue;
-                    }
-
-                    actions.Add(new SyncAction
-                    {
-                        Kind = SyncActionKind.Update,
-                        TargetSide = targetSide,
-                        Item = item,
-                        MatchedTargetItem = duplicateMatches[0],
-                        Reason = "Matched existing contact on target side",
-                    });
-                    continue;
-                }
-
-                if (duplicateMatches.Length > 1)
-                {
-                    logger.LogWarning(
-                        "Item {SourceId} has {MatchCount} matching contacts on side {TargetSide}; skipping auto-linking",
-                        item.SourceId,
-                        duplicateMatches.Length,
-                        targetSide);
-
-                    actions.Add(new SyncAction
-                    {
-                        Kind = SyncActionKind.NoOp,
-                        TargetSide = targetSide,
-                        Item = item,
-                        Reason = "Multiple matching contacts on target side",
-                    });
-                    continue;
-                }
-
-                // New item — create on target side
                 actions.Add(new SyncAction
                 {
                     Kind = SyncActionKind.Create,
@@ -206,41 +278,82 @@ public sealed class Planner(ILogger<Planner> logger)
                     Item = item,
                     Reason = "New item on source side",
                 });
+                reservedSourceIds.Add(item.SourceId);
                 continue;
             }
 
-            // Check if item has changed (skip check when force is requested)
-            bool changed = force || HasChanged(item, link, sourceSide);
-            if (!changed)
+            if (candidates.Length > 1)
             {
-                logger.LogDebug("Item {Id} has not changed, skipping", item.SourceId);
+                logger.LogWarning(
+                    "Item {SourceId} has {MatchCount} matching contacts on side {TargetSide}; skipping auto-linking",
+                    item.SourceId,
+                    candidates.Length,
+                    targetSide);
+
+                actions.Add(new SyncAction
+                {
+                    Kind = SyncActionKind.NoOp,
+                    TargetSide = targetSide,
+                    Item = item,
+                    Reason = "Multiple matching contacts on target side",
+                });
                 continue;
             }
 
-            // Check for conflict (both sides changed)
-            CanonicalItem? currentTargetItem = TryGetCurrentTargetItem(link, targetSide, currentTargetItemsById);
-            bool targetChanged = HasTargetChanged(currentTargetItem, link, targetSide);
-            if (targetChanged)
+            // Exactly one candidate.
+            CanonicalItem target = candidates[0];
+
+            if (reservedTargetIds.Contains(target.SourceId))
             {
-                actions.Add(ResolveConflict(item, currentTargetItem, sourceSide, targetSide, jobOptions));
+                // The target was claimed by a previous action after the eligible pool was built.
+                // The linked endpoint is unavailable as a candidate, so treat as zero matches → create.
+                actions.Add(new SyncAction
+                {
+                    Kind = SyncActionKind.Create,
+                    TargetSide = targetSide,
+                    Item = item,
+                    Reason = "New item on source side",
+                });
+                reservedSourceIds.Add(item.SourceId);
                 continue;
             }
 
+            if (competitionForTarget.GetValueOrDefault(target.SourceId, 0) > 1)
+            {
+                // Multiple source items compete for this target → ambiguous, skip.
+                logger.LogWarning(
+                    "Item {SourceId} matches target contact {TargetId}, but that target also matches other source contacts on side {TargetSide}; skipping auto-linking",
+                    item.SourceId,
+                    target.SourceId,
+                    targetSide);
+
+                actions.Add(new SyncAction
+                {
+                    Kind = SyncActionKind.NoOp,
+                    TargetSide = targetSide,
+                    Item = item,
+                    Reason = "Target contact matches multiple source contacts",
+                });
+                continue;
+            }
+
+            // Clean 1:1 match.
             actions.Add(new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = targetSide,
                 Item = item,
-                Reason = "Item changed on source side",
+                MatchedTargetItem = target,
+                Reason = "Matched existing contact on target side",
             });
+            reservedSourceIds.Add(item.SourceId);
+            reservedTargetIds.Add(target.SourceId);
         }
-
-        return actions;
     }
 
-    private static bool HasChanged(CanonicalItem item, LinkStateRow link, SyncSide sourceSide)
+    private static bool HasChanged(CanonicalItem item, LinkStateRow link, SyncSide side)
     {
-        if (sourceSide == SyncSide.A)
+        if (side == SyncSide.A)
         {
             if (item.Version != null && link.SideAVersion != null)
             {
@@ -265,22 +378,8 @@ public sealed class Planner(ILogger<Planner> logger)
             }
         }
 
-        // Without version/hash info, assume changed
+        // Without version/hash info, assume changed.
         return true;
-    }
-
-    private static bool HasTargetChanged(CanonicalItem? item, LinkStateRow link, SyncSide targetSide)
-    {
-        return item is not null && HasChanged(item, link, targetSide);
-    }
-
-    private static CanonicalItem? TryGetCurrentTargetItem(
-        LinkStateRow link,
-        SyncSide targetSide,
-        IReadOnlyDictionary<string, CanonicalItem> currentTargetItemsById)
-    {
-        string? targetId = targetSide == SyncSide.B ? link.SideBId : link.SideAId;
-        return targetId is not null && currentTargetItemsById.TryGetValue(targetId, out CanonicalItem? item) ? item : null;
     }
 
     private static SyncAction ResolveConflict(
@@ -288,9 +387,8 @@ public sealed class Planner(ILogger<Planner> logger)
         CanonicalItem? targetItem,
         SyncSide sourceSide,
         SyncSide targetSide,
-        JobOptions jobOptions)
-    {
-        return jobOptions.ConflictPolicy switch
+        JobOptions jobOptions) =>
+        jobOptions.ConflictPolicy switch
         {
             ConflictPolicy.SideAWins when sourceSide == SyncSide.A => new SyncAction
             {
@@ -329,7 +427,6 @@ public sealed class Planner(ILogger<Planner> logger)
             },
             _ => ResolveLastWriteWinsConflict(sourceItem, targetItem, sourceSide, targetSide),
         };
-    }
 
     private static SyncAction ResolveLastWriteWinsConflict(
         CanonicalItem sourceItem,
@@ -369,55 +466,17 @@ public sealed class Planner(ILogger<Planner> logger)
             _ => null,
         };
 
-    private static bool IsMirroredConflictCandidate(SyncAction action) =>
-        action.Kind != SyncActionKind.NoOp
-        && action.Item is not null
-        && action.MatchedTargetItem is not null;
-
-    private static void ApplyResolvedAction(SyncAction action, SyncAction resolvedAction)
-    {
-        action.Kind = resolvedAction.Kind;
-        action.Reason = resolvedAction.Reason;
-    }
-
     private static CanonicalItem[] FindDuplicateMatches(
         CanonicalItem item,
-        IReadOnlyList<CanonicalItem> currentTargetItems,
-        IReadOnlySet<string> linkedTargetIds)
+        IReadOnlyList<CanonicalItem> eligibleTargetItems)
     {
         if (item.Payload is not CanonicalContact)
         {
             return [];
         }
 
-        return [.. currentTargetItems
+        return [.. eligibleTargetItems
             .Where(targetItem => !targetItem.IsDeleted)
-            .Where(targetItem => !linkedTargetIds.Contains(targetItem.SourceId))
             .Where(targetItem => ContactMatchComparer.IsMatch(item, targetItem))];
-    }
-
-    private static Dictionary<string, CanonicalItem[]> BuildDuplicateMatchesBySourceId(
-        IReadOnlyList<CanonicalItem> sourceItems,
-        IReadOnlyList<CanonicalItem> currentTargetItems,
-        IReadOnlySet<string> linkedTargetIds,
-        IReadOnlyDictionary<string, LinkStateRow> linksBySourceId)
-    {
-        Dictionary<string, CanonicalItem[]> matches = new(StringComparer.Ordinal);
-
-        foreach (CanonicalItem item in sourceItems)
-        {
-            if (item.IsDeleted || linksBySourceId.ContainsKey(item.SourceId))
-            {
-                continue;
-            }
-
-            CanonicalItem[] duplicateMatches = FindDuplicateMatches(item, currentTargetItems, linkedTargetIds);
-            if (duplicateMatches.Length > 0)
-            {
-                matches[item.SourceId] = duplicateMatches;
-            }
-        }
-
-        return matches;
     }
 }
