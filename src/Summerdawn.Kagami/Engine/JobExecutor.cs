@@ -80,9 +80,11 @@ public sealed class JobExecutor(
 
         IReadOnlyList<LinkStateRow> existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
         JobExecutionResult result = new() { JobKey = jobKey };
+        string filterScope = filter?.Scope ?? string.Empty;
 
         // --- Poll side A ---
-        string? cursorA = await cursorRepo.GetCursorAsync(jobOptions.EndpointA, cancellationToken);
+        EndpointCursorState? cursorStateA = await cursorRepo.GetCursorAsync(jobKey, jobOptions.EndpointA, cancellationToken);
+        string? cursorA = GetApplicableCursor(jobKey, jobOptions.EndpointA, cursorStateA, filterScope);
         var pageSetA = await ReadAllPagesAsync(connectorA, jobOptions.EndpointA, cursorA, force, cancellationToken);
         IReadOnlyList<CanonicalItem> itemsA = filter is not null ? filter.Apply(pageSetA.Items) : pageSetA.Items;
 
@@ -94,7 +96,8 @@ public sealed class JobExecutor(
         IReadOnlyList<CanonicalItem> currentItemsB = filter is not null ? filter.Apply(currentPageSetB.Items) : currentPageSetB.Items;
 
         // --- Poll side B ---
-        string? cursorB = await cursorRepo.GetCursorAsync(jobOptions.EndpointB, cancellationToken);
+        EndpointCursorState? cursorStateB = await cursorRepo.GetCursorAsync(jobKey, jobOptions.EndpointB, cancellationToken);
+        string? cursorB = GetApplicableCursor(jobKey, jobOptions.EndpointB, cursorStateB, filterScope);
         var pageSetB = await ReadAllPagesAsync(connectorB, jobOptions.EndpointB, cursorB, force, cancellationToken);
         IReadOnlyList<CanonicalItem> itemsB = filter is not null ? filter.Apply(pageSetB.Items) : pageSetB.Items;
 
@@ -125,12 +128,12 @@ public sealed class JobExecutor(
 
             if (pageSetA.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(jobOptions.EndpointA, pageSetA.Cursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(jobKey, jobOptions.EndpointA, filterScope, pageSetA.Cursor, cancellationToken);
             }
 
             if (pageSetB.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(jobOptions.EndpointB, pageSetB.Cursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(jobKey, jobOptions.EndpointB, filterScope, pageSetB.Cursor, cancellationToken);
             }
         }
 
@@ -318,6 +321,32 @@ public sealed class JobExecutor(
         }
 
         return new PageSet(items, finalCursor);
+    }
+
+    private string? GetApplicableCursor(
+        string jobKey,
+        string endpointName,
+        EndpointCursorState? cursorState,
+        string currentScope)
+    {
+        if (cursorState is null)
+        {
+            return null;
+        }
+
+        if (string.Equals(cursorState.Scope, currentScope, StringComparison.Ordinal))
+        {
+            return cursorState.Cursor;
+        }
+
+        logger.LogInformation(
+            "Ignoring saved cursor for job {JobKey}, endpoint {EndpointName} because stored scope '{StoredScope}' differs from current scope '{CurrentScope}'",
+            jobKey,
+            endpointName,
+            cursorState.Scope,
+            currentScope);
+
+        return null;
     }
 
     private async Task<PageSet> ReadCurrentPagesAsync(

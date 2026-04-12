@@ -87,8 +87,8 @@ public sealed class SyncHost(
         var linkRepo = new LinkStateRepository(stateDb);
         await linkRepo.DeleteByJobAsync(jobKey, cancellationToken);
         var cursorRepo = new EndpointCursorRepository(stateDb);
-        await cursorRepo.DeleteCursorAsync(job.EndpointA, cancellationToken);
-        await cursorRepo.DeleteCursorAsync(job.EndpointB, cancellationToken);
+        await cursorRepo.DeleteCursorAsync(jobKey, job.EndpointA, cancellationToken);
+        await cursorRepo.DeleteCursorAsync(jobKey, job.EndpointB, cancellationToken);
         logger.LogInformation("Reset job {JobKey}: link state and cursors cleared", jobKey);
     }
 
