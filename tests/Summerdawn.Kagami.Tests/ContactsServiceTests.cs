@@ -142,6 +142,22 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ListAsyncWithFilterLoadsPhotosOnlyForMatchedContacts()
+    {
+        LazyPhotoConnector lazyConnector = new(
+            MakeContact("a1", "Alice"),
+            MakeContact("a2", "Bob"));
+        ContactsService lazyService = CreateService(lazyConnector);
+
+        var filter = ContactFilter.Parse("startswith(name,'A')")!;
+        IReadOnlyList<CanonicalItem> items = await lazyService.ListAsync("Microsoft", filter);
+
+        CanonicalItem item = Assert.Single(items);
+        Assert.Equal("Alice", ((CanonicalContact)item.Payload!).DisplayName);
+        Assert.Equal(["a1"], lazyConnector.LoadedPhotoIds);
+    }
+
+    [Fact]
     public async Task ListAsyncThrowsForUnknownEndpoint()
     {
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -385,6 +401,24 @@ public sealed class ContactsServiceTests : IDisposable
         Assert.Equal(8, photoBytes.Length);
     }
 
+    [Fact]
+    public async Task SyncAsyncWithFilterLoadsPhotosOnlyForMatchedContacts()
+    {
+        LazyPhotoConnector lazyConnector = new(
+            MakeContact("a1", "Alice"),
+            MakeContact("a2", "Bob"));
+        ContactsService lazyService = CreateService(lazyConnector);
+        var filter = ContactFilter.Parse("startswith(name,'A')")!;
+
+        JobExecutionResult result = await lazyService.SyncAsync("Microsoft", "Google", filter: filter);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(["a1"], lazyConnector.LoadedPhotoIds);
+        CanonicalItem created = Assert.Single(connectorB.Items);
+        Assert.Equal("Alice", ((CanonicalContact)created.Payload!).DisplayName);
+        Assert.True(ContactPhotoMetadata.TryGetPhoto(created, out _, out _));
+    }
+
     private ContactsService CreateService(IConnector microsoftConnector)
     {
         FakeConnectorFactory pagedFactory = new();
@@ -457,6 +491,60 @@ public sealed class ContactsServiceTests : IDisposable
 
         public Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
             Task.FromResult<CanonicalItem?>(null);
+
+        public Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default) =>
+            Task.FromResult(item);
+
+        public Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default) =>
+            Task.FromResult(item);
+
+        public Task DeleteItemAsync(string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class LazyPhotoConnector(params CanonicalItem[] items) : IConnector
+    {
+        public ConnectorCapabilities Capabilities { get; } = new()
+        {
+            ConnectorType = "lazy-photo-test",
+            SupportsIncrementalSync = true,
+            SupportsDeletes = true,
+            SupportsContactPhotos = true,
+        };
+
+        public List<string> LoadedPhotoIds { get; } = [];
+
+        public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default)
+        {
+            foreach (CanonicalItem item in items)
+            {
+                ContactPhotoLoader.Attach(item, _ =>
+                {
+                    LoadedPhotoIds.Add(item.SourceId);
+                    ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
+                    return Task.CompletedTask;
+                });
+            }
+
+            return Task.FromResult(new IncrementalPage
+            {
+                Items = items,
+                NextCursor = "1",
+                HasMore = false,
+            });
+        }
+
+        public Task<IncrementalPage> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new IncrementalPage
+            {
+                Items = [],
+                NextCursor = cursor,
+                HasMore = false,
+            });
+
+        public Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
+            Task.FromResult(items.FirstOrDefault(item => item.SourceId == id));
 
         public Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default) =>
             Task.FromResult(item);

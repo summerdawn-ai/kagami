@@ -160,7 +160,7 @@ internal sealed class GoogleContactsConnector : IConnector
                 {
                     if (!item.IsDeleted)
                     {
-                        await PopulatePhotoAsync(item, person, cancellationToken);
+                        ContactPhotoLoader.Attach(item, ct => PopulatePhotoAsync(item, person, ct));
                     }
 
                     items.Add(item);

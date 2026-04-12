@@ -127,7 +127,7 @@ internal sealed class GraphContactsConnector : IConnector
                 {
                     if (!item.IsDeleted)
                     {
-                        await PopulatePhotoAsync(item, item.SourceId, cancellationToken);
+                        ContactPhotoLoader.Attach(item, ct => PopulatePhotoAsync(item, item.SourceId, ct));
                     }
 
                     items.Add(item);

@@ -69,6 +69,7 @@ public sealed class ContactsService(
                     continue;
                 }
 
+                await ContactPhotoLoader.EnsureLoadedAsync(item, cancellationToken);
                 items.Add(item);
                 if (maxItems is not null && items.Count >= maxItems.Value)
                 {

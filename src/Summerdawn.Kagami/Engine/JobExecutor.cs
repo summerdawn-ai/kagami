@@ -98,6 +98,7 @@ public sealed class JobExecutor(
 
         if (!whatIf)
         {
+            await EnsureActionItemsLoadedAsync(actionsAtoB, cancellationToken);
             await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsAtoB, connectorB, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.B, cancellationToken);
             existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
 
@@ -124,6 +125,7 @@ public sealed class JobExecutor(
 
         if (!whatIf)
         {
+            await EnsureActionItemsLoadedAsync(actionsBtoA, cancellationToken);
             await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsBtoA, connectorA, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.A, cancellationToken);
             existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
 
@@ -337,6 +339,17 @@ public sealed class JobExecutor(
         return updateSide == SyncSide.B
             ? existingLinks.FirstOrDefault(link => link.SideAId == sourceId)
             : existingLinks.FirstOrDefault(link => link.SideBId == sourceId);
+    }
+
+    private static async Task EnsureActionItemsLoadedAsync(IReadOnlyList<SyncAction> actions, CancellationToken cancellationToken)
+    {
+        foreach (SyncAction action in actions)
+        {
+            if (action.Kind is SyncActionKind.Create or SyncActionKind.Update && action.Item is not null)
+            {
+                await ContactPhotoLoader.EnsureLoadedAsync(action.Item, cancellationToken);
+            }
+        }
     }
 
     private static CanonicalItem CreateTargetItem(CanonicalItem sourceItem, LinkStateRow link, SyncSide updateSide) =>
