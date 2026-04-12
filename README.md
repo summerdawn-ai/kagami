@@ -51,30 +51,16 @@ dotnet run --project src/Summerdawn.Kagami.Cli -- contacts --help
 dotnet run --project src/Summerdawn.Kagami.Cli -- jobs --help
 ```
 
-### Legacy commands (preserved for backwards compatibility)
-
-```bash
-# Run all due jobs once
-dotnet run --project src/Summerdawn.Kagami.Cli -- once --config appsettings.json
-# Run all due jobs continuously
-dotnet run --project src/Summerdawn.Kagami.Cli -- run --config appsettings.json
-# Reset sync state for a job
-dotnet run --project src/Summerdawn.Kagami.Cli -- reset contacts-sync --config appsettings.json
-```
-
 ## CLI Usage
 
-Kagami exposes the following commands:
+Kagami exposes two top-level command groups:
 
 ```text
-# Legacy top-level commands (still supported)
-kagami run
-kagami once
-kagami reset <job-key>
-
 # Scheduled-job management
 kagami jobs list
-kagami jobs run [--job=<key>] [--all] [--what-if]
+kagami jobs run [--job=<key>] [--once] [--all] [--what-if]
+kagami jobs reset --job=<key>
+kagami jobs reset --all
 
 # Interactive contact operations
 kagami contacts list   --from=<endpoint> [--filter=<expr>]
@@ -95,11 +81,29 @@ kagami jobs list --config appsettings.json
 
 #### `kagami jobs run`
 
-Run all enabled jobs once (equivalent to the legacy `once` command):
+Run all enabled jobs once (default), a single named job, or continuously:
 
 ```bash
-kagami jobs run --all --config appsettings.json
+# Run all due jobs once and exit (default)
+kagami jobs run --config appsettings.json
+
+# Run a single job with what-if
 kagami jobs run --job contacts-sync --what-if --config appsettings.json
+
+# Run continuously, polling on configured schedules
+kagami jobs run --all --config appsettings.json
+```
+
+#### `kagami jobs reset`
+
+Clear cursors and link state for one or all jobs:
+
+```bash
+# Reset a single job
+kagami jobs reset --job contacts-sync --config appsettings.json
+
+# Reset all configured jobs
+kagami jobs reset --all --config appsettings.json
 ```
 
 ### Contacts commands

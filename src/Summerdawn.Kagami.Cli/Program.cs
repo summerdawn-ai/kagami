@@ -34,58 +34,14 @@ public static class Program
 
         var jobOption = new Option<string?>("--job", "-j")
         {
-            Description = "Run only the named job key",
+            Description = "Target a specific named job key",
             Required = false,
         };
 
-        // ── Legacy top-level commands (preserved for backwards compatibility) ──
-
-        var runCommand = new Command("run", "Run continuously, polling on configured schedules")
-        {
-            configOption,
-        };
-        runCommand.SetAction(async parseResult =>
-        {
-            string? configPath = parseResult.GetValue(configOption);
-            var host = BuildSyncHost(configPath);
-            await host.RunContinuousAsync(CancellationToken.None);
-        });
-
-        var onceCommand = new Command("once", "Execute all due jobs once and exit")
-        {
-            configOption,
-            whatIfOption,
-            jobOption,
-        };
-        onceCommand.SetAction(async parseResult =>
-        {
-            string? configPath = parseResult.GetValue(configOption);
-            bool whatIf = parseResult.GetValue(whatIfOption);
-            string? jobKey = parseResult.GetValue(jobOption);
-            var host = BuildSyncHost(configPath);
-            await host.RunOnceAsync(whatIf, jobKey, CancellationToken.None);
-        });
-
-        var jobArgument = new Argument<string>("job-key")
-        {
-            Description = "The job key to reset",
-        };
-        var resetCommand = new Command("reset", "Reset stored sync state for a job")
-        {
-            jobArgument,
-            configOption,
-        };
-        resetCommand.SetAction(async parseResult =>
-        {
-            string? configPath = parseResult.GetValue(configOption);
-            string jobKey = parseResult.GetValue(jobArgument)!;
-            var host = BuildSyncHost(configPath);
-            await host.ResetJobAsync(jobKey, CancellationToken.None);
-        });
-
         // ── jobs command group ────────────────────────────────────────────
 
-        var jobsListCommand = new Command("list", "List configured jobs")
+        // jobs list
+        var jobsListCommand = new Command("list", "List all configured jobs")
         {
             configOption,
         };
@@ -108,9 +64,16 @@ public static class Program
             }
         });
 
+        // jobs run
+        var jobsRunOnceOption = new Option<bool>("--once")
+        {
+            Description = "Execute all due jobs once and exit (default behavior; provide --all for continuous mode)",
+            Arity = ArgumentArity.Zero,
+        };
+
         var jobsRunAllOption = new Option<bool>("--all")
         {
-            Description = "Run all enabled jobs",
+            Description = "Run continuously, polling all jobs on their configured schedules",
             Arity = ArgumentArity.Zero,
         };
 
@@ -119,6 +82,7 @@ public static class Program
             configOption,
             whatIfOption,
             jobOption,
+            jobsRunOnceOption,
             jobsRunAllOption,
         };
         jobsRunCommand.SetAction(async parseResult =>
@@ -126,14 +90,69 @@ public static class Program
             string? configPath = parseResult.GetValue(configOption);
             bool whatIf = parseResult.GetValue(whatIfOption);
             string? jobKey = parseResult.GetValue(jobOption);
+            bool runAll = parseResult.GetValue(jobsRunAllOption);
             var host = BuildSyncHost(configPath);
-            await host.RunOnceAsync(whatIf, jobKey, CancellationToken.None);
+
+            if (runAll)
+            {
+                // Continuous mode: run until cancelled
+                await host.RunContinuousAsync(CancellationToken.None);
+            }
+            else
+            {
+                // Default: run all due jobs once (or a single named job)
+                await host.RunOnceAsync(whatIf, jobKey, CancellationToken.None);
+            }
+        });
+
+        // jobs reset
+        var jobsResetAllOption = new Option<bool>("--all")
+        {
+            Description = "Reset stored sync state for all configured jobs",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var jobsResetCommand = new Command("reset", "Reset stored sync state for one or all jobs")
+        {
+            configOption,
+            jobOption,
+            jobsResetAllOption,
+        };
+        jobsResetCommand.SetAction(async parseResult =>
+        {
+            string? configPath = parseResult.GetValue(configOption);
+            string? jobKey = parseResult.GetValue(jobOption);
+            bool resetAll = parseResult.GetValue(jobsResetAllOption);
+
+            if (!resetAll && string.IsNullOrWhiteSpace(jobKey))
+            {
+                Console.Error.WriteLine("Error: Specify --job=<key> to reset a single job, or --all to reset every job.");
+                return;
+            }
+
+            var host = BuildSyncHost(configPath);
+            var kagamiOptions = BuildKagamiOptions(configPath);
+
+            if (resetAll)
+            {
+                foreach (string key in kagamiOptions.Jobs.Keys)
+                {
+                    await host.ResetJobAsync(key, CancellationToken.None);
+                    Console.WriteLine($"Reset job: {key}");
+                }
+            }
+            else
+            {
+                await host.ResetJobAsync(jobKey!, CancellationToken.None);
+                Console.WriteLine($"Reset job: {jobKey}");
+            }
         });
 
         var jobsCommand = new Command("jobs", "Manage and run configured sync jobs")
         {
             jobsListCommand,
             jobsRunCommand,
+            jobsResetCommand,
         };
 
         // ── contacts command group ────────────────────────────────────────
@@ -276,9 +295,6 @@ public static class Program
 
         var rootCommand = new RootCommand("Kagami — polling-first calendar and contact synchronization")
         {
-            runCommand,
-            onceCommand,
-            resetCommand,
             jobsCommand,
             contactsCommand,
         };
