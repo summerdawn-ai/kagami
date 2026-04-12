@@ -262,16 +262,30 @@ public sealed class Planner(ILogger<Planner> logger)
     {
         return jobOptions.ConflictPolicy switch
         {
-            ConflictPolicy.SideAWins when targetSide == SyncSide.B => new SyncAction
+            ConflictPolicy.SideAWins when sourceSide == SyncSide.A => new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = targetSide,
                 Item = sourceItem,
                 Reason = "Conflict: side A wins per policy",
             },
-            ConflictPolicy.SideBWins when targetSide == SyncSide.A => new SyncAction
+            ConflictPolicy.SideAWins => new SyncAction
+            {
+                Kind = SyncActionKind.NoOp,
+                TargetSide = targetSide,
+                Item = sourceItem,
+                Reason = "Conflict: side A wins per policy",
+            },
+            ConflictPolicy.SideBWins when sourceSide == SyncSide.B => new SyncAction
             {
                 Kind = SyncActionKind.Update,
+                TargetSide = targetSide,
+                Item = sourceItem,
+                Reason = "Conflict: side B wins per policy",
+            },
+            ConflictPolicy.SideBWins => new SyncAction
+            {
+                Kind = SyncActionKind.NoOp,
                 TargetSide = targetSide,
                 Item = sourceItem,
                 Reason = "Conflict: side B wins per policy",

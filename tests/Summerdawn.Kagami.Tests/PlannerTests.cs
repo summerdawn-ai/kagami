@@ -86,6 +86,98 @@ public sealed class PlannerTests
     }
 
     [Fact]
+    public void PlanFromSideAResolvesConflictWithSideAWinsPolicy()
+    {
+        var link = new LinkStateRow
+        {
+            JobKey = "job-1",
+            EntityType = EntityType.CalendarEvent,
+            SideAId = "a1",
+            SideBId = "b1",
+            SideAVersion = "v1",
+            SideBVersion = "v1",
+        };
+
+        var actions = planner.PlanFromSideA(
+            CreateJob(conflictPolicy: ConflictPolicy.SideAWins),
+            [CreateItem("a1", "v2")],
+            [CreateItem("b1", "v2b")],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
+    }
+
+    [Fact]
+    public void PlanFromSideBResolvesConflictWithSideAWinsPolicy()
+    {
+        var link = new LinkStateRow
+        {
+            JobKey = "job-1",
+            EntityType = EntityType.CalendarEvent,
+            SideAId = "a1",
+            SideBId = "b1",
+            SideAVersion = "v1",
+            SideBVersion = "v1",
+        };
+
+        var actions = planner.PlanFromSideB(
+            CreateJob(conflictPolicy: ConflictPolicy.SideAWins),
+            [CreateItem("b1", "v2")],
+            [CreateItem("a1", "v2a")],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+    }
+
+    [Fact]
+    public void PlanFromSideAResolvesConflictWithSideBWinsPolicy()
+    {
+        var link = new LinkStateRow
+        {
+            JobKey = "job-1",
+            EntityType = EntityType.CalendarEvent,
+            SideAId = "a1",
+            SideBId = "b1",
+            SideAVersion = "v1",
+            SideBVersion = "v1",
+        };
+
+        var actions = planner.PlanFromSideA(
+            CreateJob(conflictPolicy: ConflictPolicy.SideBWins),
+            [CreateItem("a1", "v2")],
+            [CreateItem("b1", "v2b")],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+    }
+
+    [Fact]
+    public void PlanFromSideBResolvesConflictWithSideBWinsPolicy()
+    {
+        var link = new LinkStateRow
+        {
+            JobKey = "job-1",
+            EntityType = EntityType.CalendarEvent,
+            SideAId = "a1",
+            SideBId = "b1",
+            SideAVersion = "v1",
+            SideBVersion = "v1",
+        };
+
+        var actions = planner.PlanFromSideB(
+            CreateJob(conflictPolicy: ConflictPolicy.SideBWins),
+            [CreateItem("b1", "v2")],
+            [CreateItem("a1", "v2a")],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
+    }
+
+    [Fact]
     public void PlanFromSideAUpdatesWhenOnlySourceChanged()
     {
         var link = new LinkStateRow
