@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Docs/">
+    <File Path="README.md" />
+  </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
     <File Path=".gitignore" />

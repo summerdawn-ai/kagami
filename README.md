@@ -20,6 +20,9 @@ For contacts, it currently supports:
 - Contact categories / labels
   - Graph `categories`
   - Google contact-group memberships / labels
+- Interactive CLI commands to list, export, and sync contacts between configured endpoints
+- OData-style in-memory contact filters for list, export, and sync operations
+- `--force` mode to re-evaluate all in-scope contacts even when no versions changed
 - Headless unattended auth suitable for local/server daemon use
 - `--what-if` mode that logs each planned create / update / delete without writing changes
 
@@ -63,7 +66,7 @@ kagami jobs reset --job=<key>
 kagami jobs reset --all
 
 # Interactive contact operations
-kagami contacts list   --from=<endpoint> [--filter=<expr>]
+kagami contacts list   --from=<endpoint> [--filter=<expr>] [--all]
 kagami contacts export --from=<endpoint> --to=<dir> [--filter=<expr>]
 kagami contacts sync   --from=<endpoint> --to=<endpoint> [--mode=bidi|a-to-b|b-to-a]
                        [--what-if] [--filter=<expr>] [--force]
@@ -113,10 +116,14 @@ The `--from` and `--to` options reference **endpoint names** as defined in your
 
 #### `kagami contacts list`
 
-Fetch and display all contacts from a configured endpoint:
+Fetch and display contacts from a configured endpoint.
+By default, `kagami contacts list` returns up to 100 matching contacts; use `--all` to fetch the full result set:
 
 ```bash
 kagami contacts list --from Microsoft --config appsettings.json
+
+# Fetch every matching contact
+kagami contacts list --from Microsoft --all --config appsettings.json
 ```
 
 Optionally restrict scope with an OData-style filter (see [Filter expressions](#filter-expressions)):
@@ -129,7 +136,7 @@ kagami contacts list --from Microsoft --filter "startswith(name,'A')" --config a
 
 Export contacts as one JSON file per contact into a local directory.
 Existing `*.json` files in the destination are deleted before writing.
-Files are named `lastname_firstname[_N].json`; a numeric suffix is added for duplicate names.
+Files are named from the effective contact name (display name, otherwise organization), sanitized to a filesystem-safe slug such as `alice_smith.json`; a numeric suffix is added for duplicate names. If no usable name exists, Kagami falls back to the contact ID.
 
 ```bash
 kagami contacts export --from Microsoft --to ./export --config appsettings.json
@@ -152,7 +159,7 @@ kagami contacts sync --from Microsoft --to Google --what-if --config appsettings
 # Force: re-evaluate all in-scope contacts even if unchanged
 kagami contacts sync --from Microsoft --to Google --force --config appsettings.json
 
-# Filter: only synchronize contacts whose display name starts with 'A'
+# Filter: only synchronize contacts whose effective name starts with 'A'
 kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')" --config appsettings.json
 ```
 
@@ -169,18 +176,19 @@ algorithm with new fields where a regular incremental run would be a no-op.
 
 ##### `--filter`
 
-Accepts an OData-style expression that restricts the scope of the command on **both** sides.
-Contacts not matching the filter are completely unaffected — they are neither read from the
-source beyond what the provider returns, nor written to the destination.
+Accepts an OData-style expression that is applied in memory to fetched contacts.
+For sync operations, only matching contacts are planned or written; out-of-scope contacts are left untouched on both sides.
 
 #### Filter expressions
 
 | Expression | Meaning |
 |---|---|
-| `startswith(name,'A')` | Display name starts with `A` (case-insensitive) |
-| `endswith(name,'son')` | Display name ends with `son` (case-insensitive) |
-| `contains(name,'Smith')` | Display name contains `Smith` (case-insensitive) |
-| `name eq 'Alice'` | Display name is exactly `Alice` (case-insensitive) |
+| `startswith(name,'A')` | Effective contact name starts with `A` (case-insensitive) |
+| `endswith(name,'son')` | Effective contact name ends with `son` (case-insensitive) |
+| `contains(name,'Smith')` | Effective contact name contains `Smith` (case-insensitive) |
+| `name eq 'Alice'` | Effective contact name is exactly `Alice` (case-insensitive) |
+
+`name` maps to the effective contact name: `DisplayName` when present, otherwise `Organization`.
 
 
 ## Configuration
