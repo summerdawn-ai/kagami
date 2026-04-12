@@ -2,6 +2,7 @@ namespace Summerdawn.Kagami.Engine;
 
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
+using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
 /// <summary>
@@ -64,59 +65,51 @@ public sealed class JobExecutor(
 
         // --- Poll side A ---
         string? cursorA = await cursorRepo.GetCursorAsync(jobOptions.EndpointA, cancellationToken);
-        IncrementalPage pageA;
-        if (cursorA is null)
-        {
-            logger.LogInformation("No cursor for {Endpoint}, performing initial full sync", jobOptions.EndpointA);
-            pageA = await connectorA.GetInitialPageAsync(cancellationToken);
-        }
-        else
-        {
-            pageA = await connectorA.GetIncrementalPageAsync(cursorA, cancellationToken);
-        }
+        var pageSetA = await ReadAllPagesAsync(connectorA, jobOptions.EndpointA, cursorA, cancellationToken);
 
         // --- Plan actions from A to B ---
-        var actionsAtoB = planner.PlanFromSideA(jobOptions, pageA.Items, existingLinks);
+        var actionsAtoB = planner.PlanFromSideA(jobOptions, pageSetA.Items, existingLinks);
         logger.LogInformation("Job {JobKey}: {Count} actions planned from A to B", jobKey, actionsAtoB.Count);
         result.ActionsPlanned += actionsAtoB.Count;
+
+        if (whatIf)
+        {
+            LogPlannedActions(jobKey, actionsAtoB);
+        }
 
         if (!whatIf)
         {
             await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsAtoB, connectorB, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.B, cancellationToken);
             existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
 
-            if (pageA.NextCursor is not null)
+            if (pageSetA.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(jobOptions.EndpointA, pageA.NextCursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(jobOptions.EndpointA, pageSetA.Cursor, cancellationToken);
             }
         }
 
         // --- Poll side B ---
         string? cursorB = await cursorRepo.GetCursorAsync(jobOptions.EndpointB, cancellationToken);
-        IncrementalPage pageB;
-        if (cursorB is null)
-        {
-            logger.LogInformation("No cursor for {Endpoint}, performing initial full sync", jobOptions.EndpointB);
-            pageB = await connectorB.GetInitialPageAsync(cancellationToken);
-        }
-        else
-        {
-            pageB = await connectorB.GetIncrementalPageAsync(cursorB, cancellationToken);
-        }
+        var pageSetB = await ReadAllPagesAsync(connectorB, jobOptions.EndpointB, cursorB, cancellationToken);
 
         // --- Plan actions from B to A ---
-        var actionsBtoA = planner.PlanFromSideB(jobOptions, pageB.Items, existingLinks);
+        var actionsBtoA = planner.PlanFromSideB(jobOptions, pageSetB.Items, existingLinks);
         logger.LogInformation("Job {JobKey}: {Count} actions planned from B to A", jobKey, actionsBtoA.Count);
         result.ActionsPlanned += actionsBtoA.Count;
+
+        if (whatIf)
+        {
+            LogPlannedActions(jobKey, actionsBtoA);
+        }
 
         if (!whatIf)
         {
             await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsBtoA, connectorA, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.A, cancellationToken);
             existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
 
-            if (pageB.NextCursor is not null)
+            if (pageSetB.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(jobOptions.EndpointB, pageB.NextCursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(jobOptions.EndpointB, pageSetB.Cursor, cancellationToken);
             }
         }
 
@@ -170,31 +163,30 @@ public sealed class JobExecutor(
 
                 case SyncActionKind.Update when action.Item is not null:
                 {
-                    var updated = await targetConnector.UpdateItemAsync(action.Item, cancellationToken);
+                    LinkStateRow? link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId);
+                    if (link is null)
+                    {
+                        continue;
+                    }
+
+                    CanonicalItem targetItem = CreateTargetItem(action.Item, link, updateSide);
+                    var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
                     await operationLog.AppendAsync(jobKey, entityType, "update", updated.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
-                    string sourceId = action.Item.SourceId;
-                    LinkStateRow? link = updateSide == SyncSide.B
-                        ? linksBySideAId.GetValueOrDefault(sourceId)
-                        : linksBySideBId.GetValueOrDefault(sourceId);
-
-                    if (link is not null)
+                    if (updateSide == SyncSide.B)
                     {
-                        if (updateSide == SyncSide.B)
-                        {
-                            link.SideBVersion = updated.Version;
-                            link.SideBHash = updated.ContentHash;
-                        }
-                        else
-                        {
-                            link.SideAVersion = updated.Version;
-                            link.SideAHash = updated.ContentHash;
-                        }
-
-                        link.LastSyncedAt = DateTimeOffset.UtcNow;
-                        link.LastSyncResult = "updated";
-                        await linkStateRepository.UpsertAsync(link, cancellationToken);
+                        link.SideBVersion = updated.Version;
+                        link.SideBHash = updated.ContentHash;
                     }
+                    else
+                    {
+                        link.SideAVersion = updated.Version;
+                        link.SideAHash = updated.ContentHash;
+                    }
+
+                    link.LastSyncedAt = DateTimeOffset.UtcNow;
+                    link.LastSyncResult = "updated";
+                    await linkStateRepository.UpsertAsync(link, cancellationToken);
 
                     break;
                 }
@@ -229,4 +221,104 @@ public sealed class JobExecutor(
             }
         }
     }
+
+    private async Task<PageSet> ReadAllPagesAsync(
+        IConnector connector,
+        string endpointName,
+        string? cursor,
+        CancellationToken cancellationToken)
+    {
+        IncrementalPage page;
+        if (cursor is null)
+        {
+            logger.LogInformation("No cursor for {Endpoint}, performing initial full sync", endpointName);
+            page = await connector.GetInitialPageAsync(cancellationToken);
+        }
+        else
+        {
+            page = await connector.GetIncrementalPageAsync(cursor, cancellationToken);
+        }
+
+        List<CanonicalItem> items = [.. page.Items];
+        string? finalCursor = page.NextCursor;
+
+        while (page.HasMore)
+        {
+            if (page.NextCursor is null)
+            {
+                throw new InvalidOperationException($"Connector returned HasMore=true without a cursor for endpoint '{endpointName}'.");
+            }
+
+            page = await connector.GetIncrementalPageAsync(page.NextCursor, cancellationToken);
+            items.AddRange(page.Items);
+            finalCursor = page.NextCursor;
+        }
+
+        return new PageSet(items, finalCursor);
+    }
+
+    private void LogPlannedActions(string jobKey, IReadOnlyList<SyncAction> actions)
+    {
+        foreach (SyncAction action in actions.Where(a => a.Kind is SyncActionKind.Create or SyncActionKind.Update or SyncActionKind.Delete))
+        {
+            string verb = action.Kind switch
+            {
+                SyncActionKind.Create => "create",
+                SyncActionKind.Update => "update",
+                SyncActionKind.Delete => "delete",
+                _ => action.Kind.ToString().ToLowerInvariant(),
+            };
+
+            logger.LogInformation(
+                "What-if job {JobKey}: would {Verb} {Description} on side {TargetSide} ({Reason})",
+                jobKey,
+                verb,
+                DescribeActionTarget(action),
+                action.TargetSide,
+                action.Reason ?? "no reason provided");
+        }
+    }
+
+    private static string DescribeActionTarget(SyncAction action)
+    {
+        if (action.Item?.Payload is CanonicalContact contact)
+        {
+            string name = string.IsNullOrWhiteSpace(contact.DisplayName)
+                ? action.Item.SourceId
+                : contact.DisplayName;
+            string primaryEmail = contact.Emails.FirstOrDefault()?.Address ?? "no-email";
+            return $"contact '{name}' <{primaryEmail}> (sourceId={action.Item.SourceId})";
+        }
+
+        if (action.Item is not null)
+        {
+            return $"item '{action.Item.SourceId}'";
+        }
+
+        return $"item '{action.DeleteId}'";
+    }
+
+    private static LinkStateRow? FindLinkForUpdate(
+        IReadOnlyList<LinkStateRow> existingLinks,
+        SyncSide updateSide,
+        string sourceId)
+    {
+        return updateSide == SyncSide.B
+            ? existingLinks.FirstOrDefault(link => link.SideAId == sourceId)
+            : existingLinks.FirstOrDefault(link => link.SideBId == sourceId);
+    }
+
+    private static CanonicalItem CreateTargetItem(CanonicalItem sourceItem, LinkStateRow link, SyncSide updateSide) =>
+        new()
+        {
+            EntityType = sourceItem.EntityType,
+            Payload = sourceItem.Payload,
+            SourceId = updateSide == SyncSide.B ? link.SideBId! : link.SideAId,
+            Version = updateSide == SyncSide.B ? link.SideBVersion : link.SideAVersion,
+            ContentHash = sourceItem.ContentHash,
+            IsDeleted = sourceItem.IsDeleted,
+            Metadata = new Dictionary<string, string>(sourceItem.Metadata),
+        };
+
+    private sealed record PageSet(IReadOnlyList<CanonicalItem> Items, string? Cursor);
 }

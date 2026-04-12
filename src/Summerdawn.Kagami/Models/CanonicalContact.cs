@@ -35,6 +35,9 @@ public sealed class CanonicalContact
     /// <summary>Notes / biography.</summary>
     public string? Notes { get; set; }
 
+    /// <summary>Categories or labels attached to the contact.</summary>
+    public List<string> Categories { get; set; } = [];
+
     /// <summary>Birthday.</summary>
     public DateOnly? Birthday { get; set; }
 
