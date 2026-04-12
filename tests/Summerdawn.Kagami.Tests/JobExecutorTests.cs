@@ -159,7 +159,8 @@ public sealed class JobExecutorTests : IDisposable
 
     private sealed class PagedConnector(params IncrementalPage[] pages) : IConnector
     {
-        private readonly Queue<IncrementalPage> queuedPages = new(pages);
+        private readonly IncrementalPage[] pages = pages;
+        private int index;
 
         public ConnectorCapabilities Capabilities { get; } = new()
         {
@@ -171,10 +172,10 @@ public sealed class JobExecutorTests : IDisposable
         public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(queuedPages.Dequeue());
+            Task.FromResult(GetPage(reset: true));
 
         public Task<IncrementalPage> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
-            Task.FromResult(queuedPages.Dequeue());
+            Task.FromResult(GetPage());
 
         public Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
             Task.FromResult<CanonicalItem?>(null);
@@ -186,5 +187,22 @@ public sealed class JobExecutorTests : IDisposable
             Task.FromResult(item);
 
         public Task DeleteItemAsync(string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        private IncrementalPage GetPage(bool reset = false)
+        {
+            if (pages.Length == 0)
+            {
+                throw new InvalidOperationException("At least one page is required.");
+            }
+
+            if (reset)
+            {
+                index = 0;
+            }
+
+            int currentIndex = Math.Min(index, pages.Length - 1);
+            index++;
+            return pages[currentIndex];
+        }
     }
 }

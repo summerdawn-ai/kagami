@@ -23,6 +23,7 @@ public sealed class Planner(ILogger<Planner> logger)
     public IReadOnlyList<SyncAction> PlanFromSideA(
         JobOptions jobOptions,
         IReadOnlyList<CanonicalItem> sideAItems,
+        IReadOnlyList<CanonicalItem> currentSideBItems,
         IReadOnlyList<LinkStateRow> existingLinks,
         bool force = false)
     {
@@ -31,7 +32,7 @@ public sealed class Planner(ILogger<Planner> logger)
             return [];
         }
 
-        return PlanActions(sideAItems, existingLinks, SyncSide.B, jobOptions, force);
+        return PlanActions(sideAItems, currentSideBItems, existingLinks, SyncSide.A, SyncSide.B, jobOptions, force);
     }
 
     /// <summary>
@@ -47,6 +48,7 @@ public sealed class Planner(ILogger<Planner> logger)
     public IReadOnlyList<SyncAction> PlanFromSideB(
         JobOptions jobOptions,
         IReadOnlyList<CanonicalItem> sideBItems,
+        IReadOnlyList<CanonicalItem> currentSideAItems,
         IReadOnlyList<LinkStateRow> existingLinks,
         bool force = false)
     {
@@ -55,17 +57,20 @@ public sealed class Planner(ILogger<Planner> logger)
             return [];
         }
 
-        return PlanActions(sideBItems, existingLinks, SyncSide.A, jobOptions, force);
+        return PlanActions(sideBItems, currentSideAItems, existingLinks, SyncSide.B, SyncSide.A, jobOptions, force);
     }
 
     private IReadOnlyList<SyncAction> PlanActions(
         IReadOnlyList<CanonicalItem> sourceItems,
+        IReadOnlyList<CanonicalItem> currentTargetItems,
         IReadOnlyList<LinkStateRow> existingLinks,
+        SyncSide sourceSide,
         SyncSide targetSide,
         JobOptions jobOptions,
         bool force = false)
     {
         var actions = new List<SyncAction>();
+        var currentTargetItemsById = currentTargetItems.ToDictionary(item => item.SourceId);
         var linksBySourceId = targetSide == SyncSide.B
             ? existingLinks.ToDictionary(l => l.SideAId)
             : existingLinks.Where(l => l.SideBId != null).ToDictionary(l => l.SideBId!);
@@ -111,7 +116,7 @@ public sealed class Planner(ILogger<Planner> logger)
             }
 
             // Check if item has changed (skip check when force is requested)
-            bool changed = force || HasChanged(item, link, targetSide == SyncSide.B ? SyncSide.A : SyncSide.B);
+            bool changed = force || HasChanged(item, link, sourceSide);
             if (!changed)
             {
                 logger.LogDebug("Item {Id} has not changed, skipping", item.SourceId);
@@ -119,10 +124,11 @@ public sealed class Planner(ILogger<Planner> logger)
             }
 
             // Check for conflict (both sides changed)
-            bool targetChanged = HasTargetChanged(link, targetSide);
+            CanonicalItem? currentTargetItem = TryGetCurrentTargetItem(link, targetSide, currentTargetItemsById);
+            bool targetChanged = HasTargetChanged(currentTargetItem, link, targetSide);
             if (targetChanged)
             {
-                actions.Add(ResolveConflict(item, link, targetSide, jobOptions));
+                actions.Add(ResolveConflict(item, currentTargetItem, sourceSide, targetSide, jobOptions));
                 continue;
             }
 
@@ -169,48 +175,89 @@ public sealed class Planner(ILogger<Planner> logger)
         return true;
     }
 
-    private static bool HasTargetChanged(LinkStateRow link, SyncSide targetSide)
+    private static bool HasTargetChanged(CanonicalItem? item, LinkStateRow link, SyncSide targetSide)
     {
-        // A simplified check — in production this would compare versions
-        // against what was known when last synced
-        _ = link;
-        _ = targetSide;
-        return false;
+        return item is not null && HasChanged(item, link, targetSide);
     }
 
-    private static SyncAction ResolveConflict(CanonicalItem item, LinkStateRow link, SyncSide targetSide, JobOptions jobOptions)
+    private static CanonicalItem? TryGetCurrentTargetItem(
+        LinkStateRow link,
+        SyncSide targetSide,
+        IReadOnlyDictionary<string, CanonicalItem> currentTargetItemsById)
     {
-        _ = link;
+        string? targetId = targetSide == SyncSide.B ? link.SideBId : link.SideAId;
+        return targetId is not null && currentTargetItemsById.TryGetValue(targetId, out CanonicalItem? item) ? item : null;
+    }
+
+    private static SyncAction ResolveConflict(
+        CanonicalItem sourceItem,
+        CanonicalItem? targetItem,
+        SyncSide sourceSide,
+        SyncSide targetSide,
+        JobOptions jobOptions)
+    {
         return jobOptions.ConflictPolicy switch
         {
             ConflictPolicy.SideAWins when targetSide == SyncSide.B => new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = targetSide,
-                Item = item,
+                Item = sourceItem,
                 Reason = "Conflict: side A wins per policy",
             },
             ConflictPolicy.SideBWins when targetSide == SyncSide.A => new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = targetSide,
-                Item = item,
+                Item = sourceItem,
                 Reason = "Conflict: side B wins per policy",
             },
             ConflictPolicy.Skip => new SyncAction
             {
                 Kind = SyncActionKind.NoOp,
                 TargetSide = targetSide,
-                Item = item,
+                Item = sourceItem,
                 Reason = "Conflict: skipped per policy",
             },
-            _ => new SyncAction
+            _ => ResolveLastWriteWinsConflict(sourceItem, targetItem, sourceSide, targetSide),
+        };
+    }
+
+    private static SyncAction ResolveLastWriteWinsConflict(
+        CanonicalItem sourceItem,
+        CanonicalItem? targetItem,
+        SyncSide sourceSide,
+        SyncSide targetSide)
+    {
+        DateTimeOffset? sourceLastModified = GetLastModified(sourceItem);
+        DateTimeOffset? targetLastModified = GetLastModified(targetItem);
+
+        bool sourceWins = sourceLastModified > targetLastModified
+            || (sourceLastModified == targetLastModified && sourceSide == SyncSide.A)
+            || (sourceLastModified is not null && targetLastModified is null);
+
+        return sourceWins
+            ? new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = targetSide,
-                Item = item,
+                Item = sourceItem,
                 Reason = "Conflict: last write wins per policy",
-            },
-        };
+            }
+            : new SyncAction
+            {
+                Kind = SyncActionKind.NoOp,
+                TargetSide = targetSide,
+                Item = sourceItem,
+                Reason = "Conflict: target side wins per last-write-wins policy",
+            };
     }
+
+    private static DateTimeOffset? GetLastModified(CanonicalItem? item) =>
+        item?.Payload switch
+        {
+            CanonicalCalendarEvent calendarEvent => calendarEvent.LastModified,
+            CanonicalContact contact => contact.LastModified,
+            _ => null,
+        };
 }
