@@ -1,5 +1,7 @@
 namespace Summerdawn.Kagami.Tests.TestSupport;
 
+using Microsoft.Data.Sqlite;
+
 public sealed class TestDatabasePath : IDisposable
 {
     public TestDatabasePath()
@@ -16,6 +18,8 @@ public sealed class TestDatabasePath : IDisposable
 
     public void Dispose()
     {
+        SqliteConnection.ClearAllPools();
+
         if (File.Exists(Path))
         {
             File.Delete(Path);

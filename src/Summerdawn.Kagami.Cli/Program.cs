@@ -188,21 +188,29 @@ public static class Program
             DefaultValueFactory = _ => "bidi",
         };
 
+        var allOption = new Option<bool>("--all")
+        {
+            Description = "Fetch and display all matching contacts",
+            Arity = ArgumentArity.Zero,
+        };
+
         // contacts list
         var contactsListCommand = new Command("list", "List contacts from a configured endpoint")
         {
             configOption,
             fromOption,
             filterOption,
+            allOption,
         };
         contactsListCommand.SetAction(async parseResult =>
         {
             string? configPath = parseResult.GetValue(configOption);
             string from = parseResult.GetValue(fromOption)!;
             string? filter = parseResult.GetValue(filterOption);
+            bool all = parseResult.GetValue(allOption);
             var svc = BuildContactsService(configPath);
             var contactFilter = ContactFilter.Parse(filter);
-            var items = await svc.ListAsync(from, contactFilter, CancellationToken.None);
+            var items = await svc.ListAsync(from, contactFilter, all ? null : 100, CancellationToken.None);
             if (items.Count == 0)
             {
                 Console.WriteLine("No contacts found.");
@@ -225,7 +233,9 @@ public static class Program
             }
 
             Console.WriteLine();
-            Console.WriteLine($"Total: {items.Count} contact(s)");
+            Console.WriteLine(all
+                ? $"Total: {items.Count} contact(s)"
+                : $"Showing {items.Count} contact(s) (default limit: 100; use --all to fetch everything)");
         });
 
         // contacts export

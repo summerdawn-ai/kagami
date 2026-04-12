@@ -2,6 +2,7 @@ namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 using Summerdawn.Kagami.Configuration;
+using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
@@ -64,6 +65,54 @@ public sealed class ContactsServiceTests : IDisposable
         var items = await service.ListAsync("Microsoft");
 
         Assert.Equal(2, items.Count);
+    }
+
+    [Fact]
+    public async Task ListAsyncReturnsAllContactsAcrossPages()
+    {
+        ContactsService pagedService = CreateService(
+            new PagedConnector(
+                new IncrementalPage
+                {
+                    Items = [MakeContact("a1", "Alice")],
+                    HasMore = true,
+                    NextCursor = "page-2",
+                },
+                new IncrementalPage
+                {
+                    Items = [MakeContact("a2", "Bob")],
+                    HasMore = false,
+                    NextCursor = "delta-token",
+                }));
+
+        var items = await pagedService.ListAsync("Microsoft");
+
+        Assert.Equal(2, items.Count);
+        Assert.Equal(["a1", "a2"], items.Select(item => item.SourceId));
+    }
+
+    [Fact]
+    public async Task ListAsyncHonorsMaxItemsAcrossPages()
+    {
+        ContactsService pagedService = CreateService(
+            new PagedConnector(
+                new IncrementalPage
+                {
+                    Items = Enumerable.Range(1, 60).Select(index => MakeContact($"a{index}", $"Contact {index}")).ToArray(),
+                    HasMore = true,
+                    NextCursor = "page-2",
+                },
+                new IncrementalPage
+                {
+                    Items = Enumerable.Range(61, 60).Select(index => MakeContact($"a{index}", $"Contact {index}")).ToArray(),
+                    HasMore = false,
+                    NextCursor = "delta-token",
+                }));
+
+        var items = await pagedService.ListAsync("Microsoft", filter: null, maxItems: 100);
+
+        Assert.Equal(100, items.Count);
+        Assert.Equal("a100", items[^1].SourceId);
     }
 
     [Fact]
@@ -215,6 +264,37 @@ public sealed class ContactsServiceTests : IDisposable
         Assert.True(forced.ActionsPlanned > 0);
     }
 
+    private ContactsService CreateService(IConnector microsoftConnector)
+    {
+        FakeConnectorFactory pagedFactory = new();
+        pagedFactory.Register("Microsoft", microsoftConnector);
+        pagedFactory.Register("Google", connectorB);
+
+        var options = new KagamiOptions
+        {
+            Endpoints =
+            {
+                ["Microsoft"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
+                ["Google"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
+            },
+        };
+
+        var executor = new JobExecutor(
+            new Planner(NullLogger<Planner>.Instance),
+            new LinkStateRepository(db),
+            new EndpointCursorRepository(db),
+            new OperationLogRepository(db),
+            new LeaseRepository(db),
+            NullLogger<JobExecutor>.Instance);
+
+        return new ContactsService(
+            options,
+            pagedFactory,
+            executor,
+            db,
+            NullLogger<ContactsService>.Instance);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private static CanonicalItem MakeContact(string id, string firstName, string lastName = "")
@@ -232,5 +312,36 @@ public sealed class ContactsServiceTests : IDisposable
             Version = "v1",
             Payload = contact,
         };
+    }
+
+    private sealed class PagedConnector(params IncrementalPage[] pages) : IConnector
+    {
+        private readonly Queue<IncrementalPage> queuedPages = new(pages);
+
+        public ConnectorCapabilities Capabilities { get; } = new()
+        {
+            ConnectorType = "paged-test",
+            SupportsIncrementalSync = true,
+            SupportsDeletes = true,
+        };
+
+        public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(queuedPages.Dequeue());
+
+        public Task<IncrementalPage> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
+            Task.FromResult(queuedPages.Dequeue());
+
+        public Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
+            Task.FromResult<CanonicalItem?>(null);
+
+        public Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default) =>
+            Task.FromResult(item);
+
+        public Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default) =>
+            Task.FromResult(item);
+
+        public Task DeleteItemAsync(string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

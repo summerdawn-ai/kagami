@@ -5,9 +5,9 @@ using Summerdawn.Kagami.Connectors;
 
 public sealed class FakeConnectorFactory : IConnectorFactory
 {
-    private readonly Dictionary<string, FakeConnector> connectors = [];
+    private readonly Dictionary<string, IConnector> connectors = [];
 
-    public void Register(string endpointName, FakeConnector connector) => connectors[endpointName] = connector;
+    public void Register(string endpointName, IConnector connector) => connectors[endpointName] = connector;
 
     public IConnector Create(string endpointName, EndpointOptions endpoint, CredentialOptions? credential)
     {

@@ -33,18 +33,61 @@ public sealed class ContactsService(
     public async Task<IReadOnlyList<CanonicalItem>> ListAsync(
         string endpointName,
         ContactFilter? filter = null,
+        CancellationToken cancellationToken = default) =>
+        await ListAsync(endpointName, filter, null, cancellationToken);
+
+    /// <summary>
+    /// Fetches contacts from the named endpoint and returns them in order.
+    /// </summary>
+    /// <param name="endpointName">The endpoint key in <c>appsettings.json</c> (e.g. <c>Microsoft</c>).</param>
+    /// <param name="filter">Optional OData-style filter to apply in memory.</param>
+    /// <param name="maxItems">Optional maximum number of matching items to return.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task<IReadOnlyList<CanonicalItem>> ListAsync(
+        string endpointName,
+        ContactFilter? filter,
+        int? maxItems,
         CancellationToken cancellationToken = default)
     {
-        var connector = BuildConnector(endpointName);
-        await connector.AuthenticateAsync(cancellationToken);
-        var page = await connector.GetInitialPageAsync(cancellationToken);
-        IReadOnlyList<CanonicalItem> items = page.Items;
-        if (filter is not null)
+        if (maxItems < 0)
         {
-            items = filter.Apply(items);
+            throw new ArgumentOutOfRangeException(nameof(maxItems), "Maximum item count must be zero or greater.");
         }
 
-        return items;
+        var connector = BuildConnector(endpointName);
+        await connector.AuthenticateAsync(cancellationToken);
+
+        List<CanonicalItem> items = [];
+        var page = await connector.GetInitialPageAsync(cancellationToken);
+
+        while (true)
+        {
+            foreach (CanonicalItem item in page.Items)
+            {
+                if (filter is not null && !filter.Matches(item))
+                {
+                    continue;
+                }
+
+                items.Add(item);
+                if (maxItems is not null && items.Count >= maxItems.Value)
+                {
+                    return items;
+                }
+            }
+
+            if (!page.HasMore)
+            {
+                return items;
+            }
+
+            if (page.NextCursor is null)
+            {
+                throw new InvalidOperationException($"Connector returned HasMore=true without a cursor for endpoint '{endpointName}'.");
+            }
+
+            page = await connector.GetIncrementalPageAsync(page.NextCursor, cancellationToken);
+        }
     }
 
     /// <summary>
