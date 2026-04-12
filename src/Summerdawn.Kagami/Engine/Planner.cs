@@ -13,40 +13,57 @@ public sealed class Planner(ILogger<Planner> logger)
     /// <summary>
     /// Computes the actions required to synchronize side-B for new/changed items observed on side A.
     /// </summary>
+    /// <param name="jobOptions">The job configuration.</param>
+    /// <param name="sideAItems">Items observed on side A.</param>
+    /// <param name="existingLinks">Current link state rows for this job.</param>
+    /// <param name="force">
+    /// When <c>true</c>, the HasChanged short-circuit is bypassed and all in-scope linked items
+    /// are re-evaluated regardless of whether their version/hash has changed.
+    /// </param>
     public IReadOnlyList<SyncAction> PlanFromSideA(
         JobOptions jobOptions,
         IReadOnlyList<CanonicalItem> sideAItems,
-        IReadOnlyList<LinkStateRow> existingLinks)
+        IReadOnlyList<LinkStateRow> existingLinks,
+        bool force = false)
     {
         if (jobOptions.SyncMode == SyncMode.BToA)
         {
             return [];
         }
 
-        return PlanActions(sideAItems, existingLinks, SyncSide.B, jobOptions);
+        return PlanActions(sideAItems, existingLinks, SyncSide.B, jobOptions, force);
     }
 
     /// <summary>
     /// Computes the actions required to synchronize side-A for new/changed items observed on side B.
     /// </summary>
+    /// <param name="jobOptions">The job configuration.</param>
+    /// <param name="sideBItems">Items observed on side B.</param>
+    /// <param name="existingLinks">Current link state rows for this job.</param>
+    /// <param name="force">
+    /// When <c>true</c>, the HasChanged short-circuit is bypassed and all in-scope linked items
+    /// are re-evaluated regardless of whether their version/hash has changed.
+    /// </param>
     public IReadOnlyList<SyncAction> PlanFromSideB(
         JobOptions jobOptions,
         IReadOnlyList<CanonicalItem> sideBItems,
-        IReadOnlyList<LinkStateRow> existingLinks)
+        IReadOnlyList<LinkStateRow> existingLinks,
+        bool force = false)
     {
         if (jobOptions.SyncMode == SyncMode.AToB)
         {
             return [];
         }
 
-        return PlanActions(sideBItems, existingLinks, SyncSide.A, jobOptions);
+        return PlanActions(sideBItems, existingLinks, SyncSide.A, jobOptions, force);
     }
 
     private IReadOnlyList<SyncAction> PlanActions(
         IReadOnlyList<CanonicalItem> sourceItems,
         IReadOnlyList<LinkStateRow> existingLinks,
         SyncSide targetSide,
-        JobOptions jobOptions)
+        JobOptions jobOptions,
+        bool force = false)
     {
         var actions = new List<SyncAction>();
         var linksBySourceId = targetSide == SyncSide.B
@@ -93,8 +110,8 @@ public sealed class Planner(ILogger<Planner> logger)
                 continue;
             }
 
-            // Check if item has changed
-            bool changed = HasChanged(item, link, targetSide == SyncSide.B ? SyncSide.A : SyncSide.B);
+            // Check if item has changed (skip check when force is requested)
+            bool changed = force || HasChanged(item, link, targetSide == SyncSide.B ? SyncSide.A : SyncSide.B);
             if (!changed)
             {
                 logger.LogDebug("Item {Id} has not changed, skipping", item.SourceId);

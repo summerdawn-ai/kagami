@@ -104,7 +104,7 @@ public sealed class SyncHost(
             options.Credentials.TryGetValue(endpointB.Credential, out var credB);
             var connA = connectorFactory.Create(jobOptions.EndpointA, endpointA, credA);
             var connB = connectorFactory.Create(jobOptions.EndpointB, endpointB, credB);
-            await executor.ExecuteAsync(jobKey, jobOptions, connA, connB, whatIf, cancellationToken);
+            await executor.ExecuteAsync(jobKey, jobOptions, connA, connB, whatIf, cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {
