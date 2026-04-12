@@ -1,0 +1,231 @@
+namespace Summerdawn.Kagami.Connectors.Google;
+
+using System.Diagnostics;
+using System.Net;
+using System.Text;
+using System.Text.Json;
+
+internal sealed class GoogleOAuthCredential
+{
+    private const string AuthEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
+    private const string TokenEndpoint = "https://oauth2.googleapis.com/token";
+    private const string RedirectUri = "http://localhost:4189/";
+    private static readonly TimeSpan TokenExpiryBuffer = TimeSpan.FromMinutes(5);
+
+    private readonly string clientId;
+    private readonly string clientSecret;
+    private readonly string userLogin;
+    private readonly IReadOnlyList<string> scopes;
+    private readonly HttpClient httpClient;
+    private string? accessToken;
+    private string? refreshToken;
+    private DateTimeOffset tokenExpiry;
+
+    public GoogleOAuthCredential(
+        string clientId,
+        string clientSecret,
+        string userLogin,
+        IReadOnlyList<string> scopes,
+        HttpClient httpClient)
+    {
+        this.clientId = clientId;
+        this.clientSecret = clientSecret;
+        this.userLogin = userLogin;
+        this.scopes = scopes;
+        this.httpClient = httpClient;
+
+        GoogleTokenCache? cached = GoogleTokenCache.Load(userLogin);
+        if (cached is not null)
+        {
+            accessToken = cached.AccessToken;
+            refreshToken = cached.RefreshToken;
+            tokenExpiry = cached.Expiry;
+        }
+    }
+
+    public async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrEmpty(accessToken) && DateTimeOffset.UtcNow < tokenExpiry - TokenExpiryBuffer)
+        {
+            return accessToken;
+        }
+
+        if (!string.IsNullOrEmpty(refreshToken))
+        {
+            bool refreshed = await TryRefreshTokenAsync(cancellationToken);
+            if (refreshed)
+            {
+                return accessToken!;
+            }
+        }
+
+        await AuthorizeInteractivelyAsync(cancellationToken);
+        return accessToken!;
+    }
+
+    private async Task<bool> TryRefreshTokenAsync(CancellationToken cancellationToken)
+    {
+        FormUrlEncodedContent body = new([
+            new KeyValuePair<string, string>("client_id", clientId),
+            new KeyValuePair<string, string>("client_secret", clientSecret),
+            new KeyValuePair<string, string>("refresh_token", refreshToken!),
+            new KeyValuePair<string, string>("grant_type", "refresh_token"),
+        ]);
+
+        HttpResponseMessage response = await httpClient.PostAsync(TokenEndpoint, body, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return false;
+        }
+
+        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using JsonDocument doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        JsonElement root = doc.RootElement;
+
+        string? newAccessToken = root.TryGetProperty("access_token", out JsonElement atElem) ? atElem.GetString() : null;
+        if (string.IsNullOrEmpty(newAccessToken))
+        {
+            return false;
+        }
+
+        accessToken = newAccessToken;
+        int expiresIn = root.TryGetProperty("expires_in", out JsonElement expElem) ? expElem.GetInt32() : 3600;
+        tokenExpiry = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(expiresIn);
+
+        if (root.TryGetProperty("refresh_token", out JsonElement rtElem) && rtElem.GetString() is string newRefreshToken)
+        {
+            refreshToken = newRefreshToken;
+        }
+
+        PersistTokens();
+        return true;
+    }
+
+    private async Task AuthorizeInteractivelyAsync(CancellationToken cancellationToken)
+    {
+        string state = Guid.NewGuid().ToString("N");
+        string scopeString = string.Join(" ", scopes);
+
+        string authUrl = AuthEndpoint
+            + "?client_id=" + Uri.EscapeDataString(clientId)
+            + "&redirect_uri=" + Uri.EscapeDataString(RedirectUri)
+            + "&response_type=code"
+            + "&scope=" + Uri.EscapeDataString(scopeString)
+            + "&state=" + state
+            + "&access_type=offline"
+            + "&prompt=consent"
+            + "&login_hint=" + Uri.EscapeDataString(userLogin);
+
+        Console.WriteLine("Opening browser for Google OAuth authorization...");
+        Console.WriteLine("If the browser does not open automatically, navigate to:");
+        Console.WriteLine(authUrl);
+
+        OpenBrowser(authUrl);
+
+        string code = await ListenForCallbackAsync(state, cancellationToken);
+        await ExchangeCodeAsync(code, cancellationToken);
+    }
+
+    private static async Task<string> ListenForCallbackAsync(string expectedState, CancellationToken cancellationToken)
+    {
+        using HttpListener listener = new();
+        listener.Prefixes.Add(RedirectUri);
+        listener.Start();
+
+        try
+        {
+            using CancellationTokenRegistration registration = cancellationToken.Register(listener.Stop);
+            HttpListenerContext context;
+            try
+            {
+                context = await listener.GetContextAsync();
+            }
+            catch (HttpListenerException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
+
+            string? code = context.Request.QueryString["code"];
+            string? state = context.Request.QueryString["state"];
+            string? error = context.Request.QueryString["error"];
+
+            string html = string.IsNullOrEmpty(error)
+                ? "<html><body><h2>Authorization successful! You may close this tab.</h2></body></html>"
+                : $"<html><body><h2>Authorization failed: {WebUtility.HtmlEncode(error)}. You may close this tab.</h2></body></html>";
+
+            byte[] htmlBytes = Encoding.UTF8.GetBytes(html);
+            context.Response.ContentType = "text/html; charset=utf-8";
+            context.Response.ContentLength64 = htmlBytes.Length;
+            await context.Response.OutputStream.WriteAsync(htmlBytes, cancellationToken);
+            context.Response.Close();
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                throw new InvalidOperationException($"Google OAuth authorization failed: {error}");
+            }
+
+            if (state != expectedState)
+            {
+                throw new InvalidOperationException("Google OAuth state parameter mismatch.");
+            }
+
+            return code ?? throw new InvalidOperationException("Google OAuth callback did not include an authorization code.");
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    private async Task ExchangeCodeAsync(string code, CancellationToken cancellationToken)
+    {
+        FormUrlEncodedContent body = new([
+            new KeyValuePair<string, string>("code", code),
+            new KeyValuePair<string, string>("client_id", clientId),
+            new KeyValuePair<string, string>("client_secret", clientSecret),
+            new KeyValuePair<string, string>("redirect_uri", RedirectUri),
+            new KeyValuePair<string, string>("grant_type", "authorization_code"),
+        ]);
+
+        HttpResponseMessage response = await httpClient.PostAsync(TokenEndpoint, body, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using JsonDocument doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        JsonElement root = doc.RootElement;
+
+        accessToken = root.GetProperty("access_token").GetString()
+            ?? throw new InvalidOperationException("Token exchange response did not include an access token.");
+        int expiresIn = root.TryGetProperty("expires_in", out JsonElement expElem) ? expElem.GetInt32() : 3600;
+        tokenExpiry = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(expiresIn);
+
+        if (root.TryGetProperty("refresh_token", out JsonElement rtElem) && rtElem.GetString() is string newRefreshToken)
+        {
+            refreshToken = newRefreshToken;
+        }
+
+        PersistTokens();
+    }
+
+    private static void OpenBrowser(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
+        }
+        catch
+        {
+            // Browser open is best-effort; the user can navigate to the printed URL manually.
+        }
+    }
+
+    private void PersistTokens()
+    {
+        GoogleTokenCache.Save(userLogin, new GoogleTokenCache
+        {
+            AccessToken = accessToken,
+            RefreshToken = refreshToken,
+            Expiry = tokenExpiry,
+        });
+    }
+}
