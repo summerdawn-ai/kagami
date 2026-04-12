@@ -63,7 +63,7 @@ internal sealed class GoogleContactsConnector : IConnector
 
     public async Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
-        string requestUri = $"https://people.googleapis.com/v1/{Uri.EscapeDataString(id)}?personFields={Uri.EscapeDataString(PersonFields)}";
+        string requestUri = $"{BuildPersonRequestUri(id)}?personFields={Uri.EscapeDataString(PersonFields)}";
         using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
         CanonicalItem? item = ConvertPerson(document.RootElement);
@@ -100,7 +100,7 @@ internal sealed class GoogleContactsConnector : IConnector
         }
 
         string updateFields = Uri.EscapeDataString("names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships");
-        string requestUri = $"https://people.googleapis.com/v1/{Uri.EscapeDataString(item.SourceId)}:updateContact?updatePersonFields={updateFields}&personFields={Uri.EscapeDataString(PersonFields)}";
+        string requestUri = $"{BuildPersonRequestUri(item.SourceId)}:updateContact?updatePersonFields={updateFields}&personFields={Uri.EscapeDataString(PersonFields)}";
         using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Patch, requestUri, cancellationToken);
         request.Content = CreateJsonContent(personBuilder.Build());
         using JsonDocument _ = await SendForJsonAsync(request, cancellationToken);
@@ -111,11 +111,13 @@ internal sealed class GoogleContactsConnector : IConnector
 
     public async Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
     {
-        string requestUri = $"https://people.googleapis.com/v1/{Uri.EscapeDataString(id)}:deleteContact";
+        string requestUri = $"{BuildPersonRequestUri(id)}:deleteContact";
         using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Delete, requestUri, cancellationToken);
         using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
     }
+
+    private static string BuildPersonRequestUri(string resourceName) => $"https://people.googleapis.com/v1/{resourceName}";
 
     private async Task<IncrementalPage> GetConnectionsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
     {
