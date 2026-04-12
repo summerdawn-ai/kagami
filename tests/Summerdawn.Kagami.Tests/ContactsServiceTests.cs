@@ -129,6 +129,19 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ListAsyncAppliesFilterUsingOrganizationWhenDisplayNameIsEmpty()
+    {
+        connectorA.Seed(MakeContact("a1", displayName: string.Empty, organization: "Contoso Ltd"));
+        connectorA.Seed(MakeContact("a2", "Bob"));
+
+        var filter = ContactFilter.Parse("contains(name,'Contoso')")!;
+        var items = await service.ListAsync("Microsoft", filter);
+
+        Assert.Single(items);
+        Assert.Equal("Contoso Ltd", ((CanonicalContact)items[0].Payload!).Organization);
+    }
+
+    [Fact]
     public async Task ListAsyncThrowsForUnknownEndpoint()
     {
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -159,7 +172,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsyncUsesLastnameFirstnameNaming()
+    public async Task ExportAsyncUsesDisplayNameForFileName()
     {
         connectorA.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
@@ -168,7 +181,7 @@ public sealed class ContactsServiceTests : IDisposable
             await service.ExportAsync("Microsoft", dir);
             var files = Directory.GetFiles(dir, "*.json");
             Assert.Single(files);
-            Assert.Equal("smith_alice.json", Path.GetFileName(files[0]));
+            Assert.Equal("alice_smith.json", Path.GetFileName(files[0]));
         }
         finally
         {
@@ -189,8 +202,8 @@ public sealed class ContactsServiceTests : IDisposable
         {
             await service.ExportAsync("Microsoft", dir);
             var files = Directory.GetFiles(dir, "*.json").Select(Path.GetFileName).Order().ToList();
-            Assert.Contains("smith_alice.json", files);
-            Assert.Contains("smith_alice_2.json", files);
+            Assert.Contains("alice_smith.json", files);
+            Assert.Contains("alice_smith_2.json", files);
         }
         finally
         {
@@ -214,6 +227,48 @@ public sealed class ContactsServiceTests : IDisposable
         {
             await service.ExportAsync("Microsoft", dir);
             Assert.False(File.Exists(stale), "Stale export file should have been deleted");
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExportAsyncUsesOrganizationWhenDisplayNameIsEmpty()
+    {
+        connectorA.Seed(MakeContact("a1", displayName: string.Empty, organization: "Contoso Ltd"));
+        string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
+        try
+        {
+            await service.ExportAsync("Microsoft", dir);
+            var files = Directory.GetFiles(dir, "*.json");
+            Assert.Single(files);
+            Assert.Equal("contoso_ltd.json", Path.GetFileName(files[0]));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExportAsyncFallsBackToIdWhenNameIsMissing()
+    {
+        connectorA.Seed(MakeContact("contact-42", displayName: string.Empty));
+        string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
+        try
+        {
+            await service.ExportAsync("Microsoft", dir);
+            var files = Directory.GetFiles(dir, "*.json");
+            Assert.Single(files);
+            Assert.Equal("contact_42.json", Path.GetFileName(files[0]));
         }
         finally
         {
@@ -297,13 +352,14 @@ public sealed class ContactsServiceTests : IDisposable
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private static CanonicalItem MakeContact(string id, string firstName, string lastName = "")
+    private static CanonicalItem MakeContact(string id, string displayName, string lastName = "", string? organization = null)
     {
         var contact = new CanonicalContact
         {
-            GivenName = firstName,
+            GivenName = displayName,
             FamilyName = string.IsNullOrEmpty(lastName) ? null : lastName,
-            DisplayName = string.IsNullOrEmpty(lastName) ? firstName : $"{firstName} {lastName}",
+            DisplayName = string.IsNullOrEmpty(lastName) ? displayName : $"{displayName} {lastName}",
+            Organization = organization,
         };
         return new CanonicalItem
         {

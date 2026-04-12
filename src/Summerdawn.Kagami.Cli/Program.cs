@@ -211,13 +211,17 @@ public static class Program
             var svc = BuildContactsService(configPath);
             var contactFilter = ContactFilter.Parse(filter);
             var items = await svc.ListAsync(from, contactFilter, all ? null : 100, CancellationToken.None);
+            items = items
+                .OrderBy(ContactName.GetNameOrId, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
             if (items.Count == 0)
             {
                 Console.WriteLine("No contacts found.");
                 return;
             }
 
-            Console.WriteLine($"{"Display Name",-35} {"Email",-35} {"Phone"}");
+            Console.WriteLine($"{"Name",-35} {"Email",-35} {"Phone"}");
             Console.WriteLine(new string('-', 95));
             foreach (var item in items)
             {
@@ -229,7 +233,7 @@ public static class Program
 
                 string email = contact.Emails.Count > 0 ? contact.Emails[0].Address : string.Empty;
                 string phone = contact.Phones.Count > 0 ? contact.Phones[0].Number : string.Empty;
-                Console.WriteLine($"{contact.DisplayName,-35} {email,-35} {phone}");
+                Console.WriteLine($"{ContactName.GetNameOrId(item),-35} {email,-35} {phone}");
             }
 
             Console.WriteLine();

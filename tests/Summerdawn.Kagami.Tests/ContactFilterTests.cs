@@ -85,6 +85,15 @@ public sealed class ContactFilterTests
         Assert.False(f.Matches(MakeContact("Alice Smith")));
     }
 
+    [Fact]
+    public void NameFallsBackToOrganization()
+    {
+        var f = ContactFilter.Parse("contains(name,'Contoso')");
+        Assert.NotNull(f);
+        Assert.True(f.Matches(MakeContact(displayName: string.Empty, organization: "Contoso Ltd")));
+        Assert.False(f.Matches(MakeContact(displayName: string.Empty, organization: "Fabrikam")));
+    }
+
     // ── Apply ─────────────────────────────────────────────────────────────
 
     [Fact]
@@ -143,11 +152,11 @@ public sealed class ContactFilterTests
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private static CanonicalItem MakeContact(string displayName) =>
+    private static CanonicalItem MakeContact(string displayName, string? organization = null) =>
         new()
         {
             EntityType = "contact",
             SourceId = Guid.NewGuid().ToString("N"),
-            Payload = new CanonicalContact { DisplayName = displayName },
+            Payload = new CanonicalContact { DisplayName = displayName, Organization = organization },
         };
 }

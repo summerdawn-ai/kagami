@@ -1,6 +1,5 @@
 namespace Summerdawn.Kagami.Engine;
 
-using System.Text;
 using System.Text.Json;
 
 using Summerdawn.Kagami.Configuration;
@@ -92,8 +91,8 @@ public sealed class ContactsService(
 
     /// <summary>
     /// Exports contacts from the named endpoint to a local directory.
-    /// One JSON file is written per contact, using the naming scheme
-    /// <c>lastname_firstname[_N].json</c>. Any existing <c>*.json</c> files in
+    /// One JSON file is written per contact, using the effective contact name when available.
+    /// Any existing <c>*.json</c> files in
     /// <paramref name="outputDirectory"/> are deleted before writing.
     /// </summary>
     /// <param name="endpointName">The endpoint key in <c>appsettings.json</c>.</param>
@@ -207,84 +206,5 @@ public sealed class ContactsService(
     }
 
     private static string BuildExportBaseName(CanonicalItem item)
-    {
-        string lastName = string.Empty;
-        string firstName = string.Empty;
-
-        if (item.Payload is CanonicalContact contact)
-        {
-            lastName = contact.FamilyName ?? string.Empty;
-            firstName = contact.GivenName ?? string.Empty;
-
-            // Fall back to display name split if individual name parts are absent.
-            // LastIndexOf treats the last whitespace-delimited word as the surname, which
-            // is a reasonable heuristic for most Western display names (e.g., compound
-            // first names or middle names will be grouped with GivenName).
-            if (string.IsNullOrWhiteSpace(lastName) && string.IsNullOrWhiteSpace(firstName))
-            {
-                string display = contact.DisplayName ?? string.Empty;
-                int spaceIdx = display.LastIndexOf(' ');
-                if (spaceIdx > 0)
-                {
-                    // Everything before the last space → given name(s); last word → surname
-                    firstName = display[..spaceIdx].Trim();
-                    lastName = display[(spaceIdx + 1)..].Trim();
-                }
-                else
-                {
-                    lastName = display;
-                }
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(lastName) && string.IsNullOrWhiteSpace(firstName))
-        {
-            // Last resort: use the provider ID
-            return SanitizeSegment(item.SourceId);
-        }
-
-        var sb = new StringBuilder();
-        if (!string.IsNullOrWhiteSpace(lastName))
-        {
-            sb.Append(SanitizeSegment(lastName));
-        }
-
-        if (!string.IsNullOrWhiteSpace(firstName))
-        {
-            if (sb.Length > 0)
-            {
-                sb.Append('_');
-            }
-
-            sb.Append(SanitizeSegment(firstName));
-        }
-
-        return sb.ToString();
-    }
-
-    private static string SanitizeSegment(string value)
-    {
-        var sb = new StringBuilder(value.Length);
-        foreach (char c in value)
-        {
-            if (char.IsLetterOrDigit(c))
-            {
-                sb.Append(char.ToLowerInvariant(c));
-            }
-            else if (c is ' ' or '-' or '.' or '\'' && sb.Length > 0)
-            {
-                // Replace word-separating punctuation with underscore
-                sb.Append('_');
-            }
-        }
-
-        // Collapse consecutive underscores
-        string result = sb.ToString().Trim('_');
-        while (result.Contains("__", StringComparison.Ordinal))
-        {
-            result = result.Replace("__", "_", StringComparison.Ordinal);
-        }
-
-        return string.IsNullOrEmpty(result) ? "unknown" : result;
-    }
+        => ContactName.BuildExportBaseName(item);
 }
