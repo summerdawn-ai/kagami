@@ -475,8 +475,6 @@ public sealed class Planner(ILogger<Planner> logger)
             return [];
         }
 
-        return [.. eligibleTargetItems
-            .Where(targetItem => !targetItem.IsDeleted)
-            .Where(targetItem => ContactMatchComparer.IsMatch(item, targetItem))];
+        return [.. eligibleTargetItems.Where(targetItem => ContactMatchComparer.IsMatch(item, targetItem))];
     }
 }
