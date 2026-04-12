@@ -12,6 +12,7 @@ internal sealed class GoogleContactsConnector : IConnector
 {
     private const string ContactsScope = "https://www.googleapis.com/auth/contacts";
     private const string PersonFields = "metadata,names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships";
+    private static readonly DateOnly DefaultBirthday = new(1900, 1, 1);
 
     private readonly HttpClient httpClient;
     private readonly ILogger<GoogleContactsConnector> logger;
@@ -549,9 +550,15 @@ internal sealed class GoogleContactsConnector : IConnector
         }
 
         JsonElement date = birthdays[0].GetProperty("date");
-        int year = date.TryGetProperty("year", out JsonElement yearElement) && yearElement.TryGetInt32(out int parsedYear) ? parsedYear : 1900;
-        int month = date.TryGetProperty("month", out JsonElement monthElement) && monthElement.TryGetInt32(out int parsedMonth) ? parsedMonth : 1;
-        int day = date.TryGetProperty("day", out JsonElement dayElement) && dayElement.TryGetInt32(out int parsedDay) ? parsedDay : 1;
+        int year = date.TryGetProperty("year", out JsonElement yearElement) && yearElement.TryGetInt32(out int parsedYear)
+            ? parsedYear
+            : DefaultBirthday.Year;
+        int month = date.TryGetProperty("month", out JsonElement monthElement) && monthElement.TryGetInt32(out int parsedMonth)
+            ? parsedMonth
+            : DefaultBirthday.Month;
+        int day = date.TryGetProperty("day", out JsonElement dayElement) && dayElement.TryGetInt32(out int parsedDay)
+            ? parsedDay
+            : DefaultBirthday.Day;
         return new DateOnly(year, month, day);
     }
 

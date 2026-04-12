@@ -286,7 +286,7 @@ public sealed class JobExecutor(
             string name = string.IsNullOrWhiteSpace(contact.DisplayName)
                 ? action.Item.SourceId
                 : contact.DisplayName;
-            return $"contact '{name}' (sourceId={action.Item.SourceId})";
+            return $"contact '{name}'";
         }
 
         if (action.Item is not null)

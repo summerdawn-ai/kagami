@@ -12,6 +12,7 @@ using Summerdawn.Kagami.Models;
 internal sealed class GraphContactsConnector : IConnector
 {
     private const string GraphScope = "https://graph.microsoft.com/.default";
+    private const string ContactSelectFields = "id,displayName,givenName,middleName,surname,emailAddresses,businessPhones,homePhones,mobilePhone,companyName,jobTitle,personalNotes,birthday,categories,homeAddress,businessAddress,otherAddress,lastModifiedDateTime";
 
     private readonly HttpClient httpClient;
     private readonly TokenCredential credential;
@@ -59,7 +60,7 @@ internal sealed class GraphContactsConnector : IConnector
     }
 
     public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
-        GetPageAsync($"{collectionPath}/delta?$select=id,displayName,givenName,middleName,surname,emailAddresses,businessPhones,homePhones,mobilePhone,companyName,jobTitle,personalNotes,birthday,categories,homeAddress,businessAddress,otherAddress,lastModifiedDateTime", cancellationToken);
+        GetPageAsync($"{collectionPath}/delta?$select={Uri.EscapeDataString(ContactSelectFields)}", cancellationToken);
 
     public Task<IncrementalPage> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
         GetPageAsync(cursor, cancellationToken);

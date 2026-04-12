@@ -134,9 +134,12 @@ public sealed class JobExecutorTests : IDisposable
             Payload = new CanonicalContact
             {
                 DisplayName = displayName,
-                Emails = [new ContactEmail { Address = $"{displayName.Replace(" ", ".", StringComparison.OrdinalIgnoreCase).ToLowerInvariant()}@example.com" }],
+                Emails = [new ContactEmail { Address = GenerateTestEmail(displayName) }],
             },
         };
+
+    private static string GenerateTestEmail(string displayName) =>
+        $"{displayName.Replace(" ", ".", StringComparison.OrdinalIgnoreCase).ToLowerInvariant()}@example.com";
 
     private sealed class PagedConnector(params IncrementalPage[] pages) : IConnector
     {

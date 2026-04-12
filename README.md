@@ -336,4 +336,4 @@ dotnet test
 
 ## License
 
-This project is licensed under the MIT License. See `LICENSE.md` when added to the repository.
+This project is intended to be MIT-licensed.
