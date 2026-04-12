@@ -101,7 +101,10 @@ internal static class ContactPhotoMetadata
         if (photoBytes.Length >= 6
             && photoBytes[0] == 0x47
             && photoBytes[1] == 0x49
-            && photoBytes[2] == 0x46)
+            && photoBytes[2] == 0x46
+            && photoBytes[3] == 0x38
+            && (photoBytes[4] == 0x37 || photoBytes[4] == 0x39)
+            && photoBytes[5] == 0x61)
         {
             return "image/gif";
         }
