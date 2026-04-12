@@ -185,12 +185,41 @@ public sealed class JobExecutor(
                 case SyncActionKind.Update when action.Item is not null:
                     {
                         LinkStateRow? link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId);
-                        if (link is null)
+                        if (link is not null && action.MatchedTargetItem is not null && IsDuplicateLinkAction(link, action, updateSide))
                         {
                             continue;
                         }
 
-                        CanonicalItem targetItem = CreateTargetItem(action.Item, link, updateSide);
+                        if (link is null)
+                        {
+                            if (action.MatchedTargetItem is null)
+                            {
+                                continue;
+                            }
+
+                            CanonicalItem matchedTarget = CreateTargetItem(action.Item, null, updateSide, action.MatchedTargetItem);
+                            var matchedUpdate = await targetConnector.UpdateItemAsync(matchedTarget, cancellationToken);
+                            await operationLog.AppendAsync(jobKey, entityType, "update", matchedUpdate.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
+
+                            var matchedLink = new LinkStateRow
+                            {
+                                JobKey = jobKey,
+                                EntityType = entityType,
+                                SideAId = updateSide == SyncSide.B ? action.Item.SourceId : matchedUpdate.SourceId,
+                                SideBId = updateSide == SyncSide.B ? matchedUpdate.SourceId : action.Item.SourceId,
+                                SideAVersion = updateSide == SyncSide.B ? action.Item.Version : matchedUpdate.Version,
+                                SideBVersion = updateSide == SyncSide.B ? matchedUpdate.Version : action.Item.Version,
+                                SideAHash = updateSide == SyncSide.B ? action.Item.ContentHash : matchedUpdate.ContentHash,
+                                SideBHash = updateSide == SyncSide.B ? matchedUpdate.ContentHash : action.Item.ContentHash,
+                                OriginSide = updateSide == SyncSide.B ? "A" : "B",
+                                LastSyncedAt = DateTimeOffset.UtcNow,
+                                LastSyncResult = "updated",
+                            };
+                            await linkStateRepository.UpsertAsync(matchedLink, cancellationToken);
+                            break;
+                        }
+
+                        CanonicalItem targetItem = CreateTargetItem(action.Item, link, updateSide, action.MatchedTargetItem);
                         var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
                         await operationLog.AppendAsync(jobKey, entityType, "update", updated.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
@@ -379,17 +408,28 @@ public sealed class JobExecutor(
         }
     }
 
-    private static CanonicalItem CreateTargetItem(CanonicalItem sourceItem, LinkStateRow link, SyncSide updateSide) =>
+    private static CanonicalItem CreateTargetItem(
+        CanonicalItem sourceItem,
+        LinkStateRow? link,
+        SyncSide updateSide,
+        CanonicalItem? matchedTargetItem) =>
         new()
         {
             EntityType = sourceItem.EntityType,
             Payload = sourceItem.Payload,
-            SourceId = updateSide == SyncSide.B ? link.SideBId! : link.SideAId,
-            Version = updateSide == SyncSide.B ? link.SideBVersion : link.SideAVersion,
+            SourceId = matchedTargetItem?.SourceId ?? (updateSide == SyncSide.B ? link!.SideBId! : link!.SideAId),
+            Version = matchedTargetItem?.Version ?? (updateSide == SyncSide.B ? link!.SideBVersion : link!.SideAVersion),
             ContentHash = sourceItem.ContentHash,
             IsDeleted = sourceItem.IsDeleted,
             Metadata = new Dictionary<string, string>(sourceItem.Metadata),
         };
+
+    private static bool IsDuplicateLinkAction(LinkStateRow link, SyncAction action, SyncSide updateSide) =>
+        action.Item is not null
+        && action.MatchedTargetItem is not null
+        && (updateSide == SyncSide.B
+            ? link.SideAId == action.Item.SourceId && link.SideBId == action.MatchedTargetItem.SourceId
+            : link.SideBId == action.Item.SourceId && link.SideAId == action.MatchedTargetItem.SourceId);
 
     private sealed record PageSet(IReadOnlyList<CanonicalItem> Items, string? Cursor);
 }

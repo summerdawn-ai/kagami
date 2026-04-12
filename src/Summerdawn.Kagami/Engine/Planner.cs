@@ -10,11 +10,14 @@ using Summerdawn.Kagami.Persistence;
 /// </summary>
 public sealed class Planner(ILogger<Planner> logger)
 {
+    private static readonly ContactMatchComparer ContactMatchComparer = new();
+
     /// <summary>
     /// Computes the actions required to synchronize side-B for new/changed items observed on side A.
     /// </summary>
     /// <param name="jobOptions">The job configuration.</param>
     /// <param name="sideAItems">Items observed on side A.</param>
+    /// <param name="currentSideBItems">Current items observed on side B.</param>
     /// <param name="existingLinks">Current link state rows for this job.</param>
     /// <param name="force">
     /// When <c>true</c>, the HasChanged short-circuit is bypassed and all in-scope linked items
@@ -40,6 +43,7 @@ public sealed class Planner(ILogger<Planner> logger)
     /// </summary>
     /// <param name="jobOptions">The job configuration.</param>
     /// <param name="sideBItems">Items observed on side B.</param>
+    /// <param name="currentSideAItems">Current items observed on side A.</param>
     /// <param name="existingLinks">Current link state rows for this job.</param>
     /// <param name="force">
     /// When <c>true</c>, the HasChanged short-circuit is bypassed and all in-scope linked items
@@ -71,9 +75,19 @@ public sealed class Planner(ILogger<Planner> logger)
     {
         var actions = new List<SyncAction>();
         var currentTargetItemsById = currentTargetItems.ToDictionary(item => item.SourceId);
+        var linkedTargetIds = existingLinks
+            .Select(link => targetSide == SyncSide.B ? link.SideBId : link.SideAId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .ToHashSet(StringComparer.Ordinal);
         var linksBySourceId = targetSide == SyncSide.B
             ? existingLinks.ToDictionary(l => l.SideAId)
             : existingLinks.Where(l => l.SideBId != null).ToDictionary(l => l.SideBId!);
+        var duplicateMatchesBySourceId = BuildDuplicateMatchesBySourceId(sourceItems, currentTargetItems, linkedTargetIds, linksBySourceId);
+        var duplicateTargetMatchCounts = duplicateMatchesBySourceId
+            .Where(match => match.Value.Length == 1)
+            .GroupBy(match => match.Value[0].SourceId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
 
         foreach (var item in sourceItems)
         {
@@ -104,6 +118,56 @@ public sealed class Planner(ILogger<Planner> logger)
 
             if (!linksBySourceId.TryGetValue(item.SourceId, out var link))
             {
+                CanonicalItem[] duplicateMatches = duplicateMatchesBySourceId.GetValueOrDefault(item.SourceId, []);
+                if (duplicateMatches.Length == 1)
+                {
+                    if (duplicateTargetMatchCounts[duplicateMatches[0].SourceId] > 1)
+                    {
+                        logger.LogWarning(
+                            "Item {SourceId} matches target contact {TargetId}, but that target also matches other source contacts on side {TargetSide}; skipping auto-linking",
+                            item.SourceId,
+                            duplicateMatches[0].SourceId,
+                            targetSide);
+
+                        actions.Add(new SyncAction
+                        {
+                            Kind = SyncActionKind.NoOp,
+                            TargetSide = targetSide,
+                            Item = item,
+                            Reason = "Target contact matches multiple source contacts",
+                        });
+                        continue;
+                    }
+
+                    actions.Add(new SyncAction
+                    {
+                        Kind = SyncActionKind.Update,
+                        TargetSide = targetSide,
+                        Item = item,
+                        MatchedTargetItem = duplicateMatches[0],
+                        Reason = "Matched existing contact on target side",
+                    });
+                    continue;
+                }
+
+                if (duplicateMatches.Length > 1)
+                {
+                    logger.LogWarning(
+                        "Item {SourceId} has {MatchCount} matching contacts on side {TargetSide}; skipping auto-linking",
+                        item.SourceId,
+                        duplicateMatches.Length,
+                        targetSide);
+
+                    actions.Add(new SyncAction
+                    {
+                        Kind = SyncActionKind.NoOp,
+                        TargetSide = targetSide,
+                        Item = item,
+                        Reason = "Multiple matching contacts on target side",
+                    });
+                    continue;
+                }
+
                 // New item — create on target side
                 actions.Add(new SyncAction
                 {
@@ -260,4 +324,45 @@ public sealed class Planner(ILogger<Planner> logger)
             CanonicalContact contact => contact.LastModified,
             _ => null,
         };
+
+    private static CanonicalItem[] FindDuplicateMatches(
+        CanonicalItem item,
+        IReadOnlyList<CanonicalItem> currentTargetItems,
+        IReadOnlySet<string> linkedTargetIds)
+    {
+        if (item.Payload is not CanonicalContact)
+        {
+            return [];
+        }
+
+        return [.. currentTargetItems
+            .Where(targetItem => !targetItem.IsDeleted)
+            .Where(targetItem => !linkedTargetIds.Contains(targetItem.SourceId))
+            .Where(targetItem => ContactMatchComparer.IsMatch(item, targetItem))];
+    }
+
+    private static Dictionary<string, CanonicalItem[]> BuildDuplicateMatchesBySourceId(
+        IReadOnlyList<CanonicalItem> sourceItems,
+        IReadOnlyList<CanonicalItem> currentTargetItems,
+        IReadOnlySet<string> linkedTargetIds,
+        IReadOnlyDictionary<string, LinkStateRow> linksBySourceId)
+    {
+        Dictionary<string, CanonicalItem[]> matches = new(StringComparer.Ordinal);
+
+        foreach (CanonicalItem item in sourceItems)
+        {
+            if (item.IsDeleted || linksBySourceId.ContainsKey(item.SourceId))
+            {
+                continue;
+            }
+
+            CanonicalItem[] duplicateMatches = FindDuplicateMatches(item, currentTargetItems, linkedTargetIds);
+            if (duplicateMatches.Length > 0)
+            {
+                matches[item.SourceId] = duplicateMatches;
+            }
+        }
+
+        return matches;
+    }
 }

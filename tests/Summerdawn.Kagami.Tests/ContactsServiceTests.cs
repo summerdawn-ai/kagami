@@ -385,6 +385,38 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SyncAsyncLinksSingleDuplicateMatchInsteadOfCreating()
+    {
+        connectorA.Seed(MakeContact("a1", "Alice", email: "alice@example.com", phone: "+1 (555) 123-4567"));
+        connectorB.Seed(MakeContact("b1", "Alice", email: " Alice@example.com ", phone: "15551234567"));
+
+        var result = await service.SyncAsync("Microsoft", "Google");
+        var links = await new LinkStateRepository(db).GetByJobAsync("contacts:Microsoft:Google");
+
+        Assert.True(result.Succeeded);
+        Assert.Single(connectorB.Items, item => !item.IsDeleted);
+        Assert.Single(links);
+        Assert.Equal("a1", links[0].SideAId);
+        Assert.Equal("b1", links[0].SideBId);
+    }
+
+    [Fact]
+    public async Task SyncAsyncSkipsAutoLinkingWhenMultipleDuplicateMatchesExist()
+    {
+        connectorA.Seed(MakeContact("a1", "Alice", email: "alice@example.com"));
+        connectorB.Seed(MakeContact("b1", "Alice", email: "alice@example.com"));
+        connectorB.Seed(MakeContact("b2", "Alice", email: "alice@example.com"));
+
+        var result = await service.SyncAsync("Microsoft", "Google");
+        var links = await new LinkStateRepository(db).GetByJobAsync("contacts:Microsoft:Google");
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.ActionsPlanned > 0);
+        Assert.Equal(2, connectorB.Items.Count(item => !item.IsDeleted));
+        Assert.Empty(links);
+    }
+
+    [Fact]
     public async Task SyncAsyncCopiesPhotoMetadataToDestination()
     {
         CanonicalItem source = MakeContact("a1", "Alice", lastName: "Smith");
@@ -452,7 +484,13 @@ public sealed class ContactsServiceTests : IDisposable
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private static CanonicalItem MakeContact(string id, string displayName, string lastName = "", string? organization = null)
+    private static CanonicalItem MakeContact(
+        string id,
+        string displayName,
+        string lastName = "",
+        string? organization = null,
+        string? email = null,
+        string? phone = null)
     {
         var contact = new CanonicalContact
         {
@@ -460,6 +498,8 @@ public sealed class ContactsServiceTests : IDisposable
             FamilyName = string.IsNullOrEmpty(lastName) ? null : lastName,
             DisplayName = string.IsNullOrEmpty(lastName) ? displayName : $"{displayName} {lastName}",
             Organization = organization,
+            Emails = email is null ? [] : [new ContactEmail { Address = email }],
+            Phones = phone is null ? [] : [new ContactPhone { Number = phone }],
         };
         return new CanonicalItem
         {
