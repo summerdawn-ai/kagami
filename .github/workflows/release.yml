@@ -1,0 +1,188 @@
+name: Release
+run-name: Release v${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (SemVer, e.g., 1.0.0 or 1.0.0-preview.1)'
+        required: true
+        type: string
+      publish_nuget:
+        description: 'Publish NuGet packages'
+        required: false
+        type: boolean
+        default: true
+      publish_binaries:
+        description: 'Publish CLI binaries'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      is_prerelease: ${{ steps.check_version.outputs.is_prerelease }}
+    steps:
+      - name: Validate version format
+        id: check_version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          # Validate semantic version format (1.2.3 or 1.2.3-suffix)
+          # Suffix must be alphanumeric segments separated by dots or hyphens (no consecutive separators)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*)?$'; then
+            echo "Error: Version must be a valid semantic version (e.g., 1.0.0 or 1.0.0-preview.1)"
+            exit 1
+          fi
+          # Determine if it's a prerelease (contains hyphen)
+          if echo "$VERSION" | grep -q '-'; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      
+      - name: Restore dependencies
+        run: dotnet restore Kagami.slnx
+      
+      - name: Build solution
+        run: dotnet build Kagami.slnx -c Release --no-restore -p:Version=${{ github.event.inputs.version }}
+      
+      - name: Pack NuGet packages
+        run: |
+          dotnet pack src/Summerdawn.Kagami/Summerdawn.Kagami.csproj -c Release --no-build -p:Version=${{ github.event.inputs.version }} -o ./nupkgs
+      
+      - name: Upload NuGet packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkgs
+          path: ./nupkgs/*.nupkg
+          retention-days: 1
+
+  build-binaries:
+    needs: [validate, build]
+    if: ${{ github.event.inputs.publish_binaries == 'true' }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: win-arm64
+            os: windows-latest
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+          - rid: osx-x64
+            os: macos-latest
+          - rid: osx-arm64
+            os: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Build Binaries for ${{ matrix.rid }}
+        run: dotnet publish src/Summerdawn.Kagami/Summerdawn.Kagami.csproj -c Release -r ${{ matrix.rid }} --self-contained -p:PublishAot=true -p:DebugSymbols=false -p:GenerateDocumentationFile=false -p:NoWarn=IDE0005 -p:IncludeNativeLibrariesForSelfExtract=true -p:StaticWebAssetsEnabled=false -p:IsTransformWebConfigDisabled=true -p:Version=${{ github.event.inputs.version }} -o ./publish/${{ matrix.rid }}
+
+      - name: Package Binaries for ${{ matrix.rid }} (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd ./publish/${{ matrix.rid }}
+          Compress-Archive -Path * -DestinationPath ../../Kagami-${{ github.event.inputs.version }}-${{ matrix.rid }}.zip -CompressionLevel Optimal
+
+      - name: Package Binaries for ${{ matrix.rid }} (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd ./publish/${{ matrix.rid }}
+          zip -r ../../Kagami-${{ github.event.inputs.version }}-${{ matrix.rid }}.zip .
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.rid }}
+          path: Kagami-${{ github.event.inputs.version }}-${{ matrix.rid }}.zip
+          retention-days: 1
+  
+  create-release:
+    needs: [validate, build, build-binaries]
+    if: ${{ always() && needs.build.result == 'success' && (needs['build-binaries'].result == 'success' || needs['build-binaries'].result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Release v${{ github.event.inputs.version }}
+          draft: false
+          prerelease: ${{ needs.validate.outputs.is_prerelease }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  attach-binaries-to-release:
+    needs: create-release
+    if: ${{ github.event.inputs.publish_binaries == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+      
+      - name: Publish binaries to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          files: artifacts/binaries-*/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-nuget:
+    needs: create-release
+    if: ${{ github.event.inputs.publish_nuget == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download NuGet packages
+        uses: actions/download-artifact@v4
+        with:
+          name: nupkgs
+          path: ./nupkgs
+      
+      - name: Publish NuGet packages
+        run: |
+          dotnet nuget push ./nupkgs/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

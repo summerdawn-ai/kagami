@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "Summerdawn.Kagami.Cli": {
+    "Summerdawn.Kagami": {
       "commandName": "Project",
       "commandLineArgs": "contacts list --from=Google"
     }

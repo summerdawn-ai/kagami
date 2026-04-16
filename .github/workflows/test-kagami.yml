@@ -3,6 +3,9 @@ name: Test Kagami
 on:
   workflow_dispatch:
   pull_request:
+    paths:
+      - 'src/Summerdawn.Kagami/**'
+      - 'tests/Summerdawn.Kagami.Tests/**'
 
 permissions:
   contents: read
