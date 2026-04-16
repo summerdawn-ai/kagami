@@ -108,21 +108,21 @@ public sealed class SyncHost(
     {
         try
         {
-            if (!options.Endpoints.TryGetValue(jobOptions.Source, out var endpointA))
+            if (!options.Endpoints.TryGetValue(jobOptions.Source, out var sourceEndpoint))
             {
                 throw new InvalidOperationException($"Endpoint '{jobOptions.Source}' not found.");
             }
 
-            if (!options.Endpoints.TryGetValue(jobOptions.Destination, out var endpointB))
+            if (!options.Endpoints.TryGetValue(jobOptions.Destination, out var destinationEndpoint))
             {
                 throw new InvalidOperationException($"Endpoint '{jobOptions.Destination}' not found.");
             }
 
-            credentials.TryGetValue(jobOptions.Source, out var credA);
-            credentials.TryGetValue(jobOptions.Destination, out var credB);
-            var connA = connectorFactory.Create(jobOptions.Source, endpointA, credA
+            credentials.TryGetValue(jobOptions.Source, out var sourceCredential);
+            credentials.TryGetValue(jobOptions.Destination, out var destinationCredential);
+            var connA = connectorFactory.Create(jobOptions.Source, sourceEndpoint, sourceCredential
                 ?? throw new InvalidOperationException($"No credential resolved for endpoint '{jobOptions.Source}'."));
-            var connB = connectorFactory.Create(jobOptions.Destination, endpointB, credB
+            var connB = connectorFactory.Create(jobOptions.Destination, destinationEndpoint, destinationCredential
                 ?? throw new InvalidOperationException($"No credential resolved for endpoint '{jobOptions.Destination}'."));
             await executor.ExecuteAsync(jobKey, jobOptions, connA, connB, whatIf, cancellationToken: cancellationToken);
         }

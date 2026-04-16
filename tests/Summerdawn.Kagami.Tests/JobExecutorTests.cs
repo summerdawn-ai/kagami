@@ -35,12 +35,12 @@ public sealed class JobExecutorTests : IDisposable
     [Fact]
     public async Task ExecuteAsyncUpdatesUsingTargetProviderId()
     {
-        FakeConnector connectorA = new();
-        FakeConnector connectorB = new();
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
 
-        connectorA.Seed(CreateContactItem("a1", "v1", "Alice Original"));
-        connectorB.Seed(CreateContactItem("b1", "v1", "Alice Original"));
-        await connectorA.UpdateItemAsync(CreateContactItem("a1", "v2", "Alice Updated"));
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice Original"));
+        destinationConnector.Seed(CreateContactItem("b1", "v1", "Alice Original"));
+        await sourceConnector.UpdateItemAsync(CreateContactItem("a1", "v2", "Alice Updated"));
 
         await linkStateRepository.UpsertAsync(new LinkStateRow
         {
@@ -56,19 +56,19 @@ public sealed class JobExecutorTests : IDisposable
 
         var executor = CreateExecutor();
 
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
-        var updatedTarget = await connectorB.GetItemAsync("b1");
+        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var updatedTarget = await destinationConnector.GetItemAsync("b1");
 
         Assert.True(result.Succeeded);
         Assert.NotNull(updatedTarget);
         Assert.Equal("Alice Updated", ((CanonicalContact)updatedTarget.Payload!).DisplayName);
-        Assert.Null(await connectorB.GetItemAsync("a1"));
+        Assert.Null(await destinationConnector.GetItemAsync("a1"));
     }
 
     [Fact]
     public async Task ExecuteAsyncAggregatesMultiPageConnectorReads()
     {
-        PagedConnector connectorA = new(
+        PagedConnector sourceConnector = new(
             new IncrementalPage
             {
                 Items = [CreateContactItem("a1", "v1", "Alice One")],
@@ -81,10 +81,10 @@ public sealed class JobExecutorTests : IDisposable
                 HasMore = false,
                 NextCursor = "delta-token",
             });
-        FakeConnector connectorB = new();
+        FakeConnector destinationConnector = new();
         var executor = CreateExecutor();
 
-        JobExecutionResult result = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, whatIf: true);
+        JobExecutionResult result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
 
         Assert.True(result.Succeeded);
         Assert.Equal(2, result.ActionsPlanned);
@@ -93,14 +93,14 @@ public sealed class JobExecutorTests : IDisposable
     [Fact]
     public async Task WhatIfLogsEachPlannedContactOperation()
     {
-        FakeConnector connectorA = new();
-        FakeConnector connectorB = new();
-        connectorA.Seed(CreateContactItem("a1", "v1", "Alice Logging"));
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice Logging"));
 
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
 
-        await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, whatIf: true);
+        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
 
         Assert.Contains(logger.Entries, entry => entry.Contains("would create contact 'Alice Logging'", StringComparison.Ordinal));
     }
@@ -108,14 +108,14 @@ public sealed class JobExecutorTests : IDisposable
     [Fact]
     public async Task WhatIfLogsOrganizationWhenDisplayNameIsEmpty()
     {
-        FakeConnector connectorA = new();
-        FakeConnector connectorB = new();
-        connectorA.Seed(CreateContactItem("a1", "v1", string.Empty, organization: "Contoso Ltd"));
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", string.Empty, organization: "Contoso Ltd"));
 
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
 
-        await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, whatIf: true);
+        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
 
         Assert.Contains(logger.Entries, entry => entry.Contains("would create contact 'Contoso Ltd'", StringComparison.Ordinal));
     }
@@ -123,10 +123,10 @@ public sealed class JobExecutorTests : IDisposable
     [Fact]
     public async Task WhatIfLogsOnlyWinningDirectionForMirroredDuplicateMatchUpdates()
     {
-        FakeConnector connectorA = new();
-        FakeConnector connectorB = new();
-        connectorA.Seed(CreateContactItem("a1", "v1", "Ada Langenfeld", email: "ada@example.com"));
-        connectorB.Seed(CreateContactItem("b1", "v1", "Ada Langenfeld", email: " ADA@example.com "));
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Ada Langenfeld", email: "ada@example.com"));
+        destinationConnector.Seed(CreateContactItem("b1", "v1", "Ada Langenfeld", email: " ADA@example.com "));
 
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
@@ -134,8 +134,8 @@ public sealed class JobExecutorTests : IDisposable
         await executor.ExecuteAsync(
             "job-1",
             CreateJob(conflictPolicy: ConflictPolicy.SourceWins),
-            connectorA,
-            connectorB,
+            sourceConnector,
+            destinationConnector,
             whatIf: true);
 
         Assert.Contains(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side Destination", StringComparison.Ordinal));
@@ -145,18 +145,18 @@ public sealed class JobExecutorTests : IDisposable
     [Fact]
     public async Task ApplyActionsAsync_SingleContactFailure_ContinuesToNextContact()
     {
-        FakeConnector connectorA = new();
-        FailingCreateConnector connectorB = new(throwForSourceId: "a1");
-        connectorA.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
-        connectorA.Seed(CreateContactItem("a2", "v1", "Bob", email: "bob@example.com"));
+        FakeConnector sourceConnector = new();
+        FailingCreateConnector destinationConnector = new(throwForSourceId: "a1");
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+        sourceConnector.Seed(CreateContactItem("a2", "v1", "Bob", email: "bob@example.com"));
 
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
 
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
+        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
 
         Assert.True(result.Succeeded);
-        Assert.Contains(connectorB.Items, i => ((CanonicalContact)i.Payload!).DisplayName == "Bob" && !i.IsDeleted);
+        Assert.Contains(destinationConnector.Items, i => ((CanonicalContact)i.Payload!).DisplayName == "Bob" && !i.IsDeleted);
         Assert.Contains(logger.Entries, e => e.Contains("a1", StringComparison.Ordinal) && e.Contains("failed", StringComparison.Ordinal));
     }
 

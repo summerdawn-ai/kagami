@@ -23,8 +23,8 @@ public sealed class JobExecutor(
     /// </summary>
     /// <param name="jobKey">The job key used for lease and state tracking.</param>
     /// <param name="jobOptions">The job configuration.</param>
-    /// <param name="connectorA">Connector for source side.</param>
-    /// <param name="connectorB">Connector for destination side.</param>
+    /// <param name="sourceConnector">Connector for source side.</param>
+    /// <param name="destinationConnector">Connector for destination side.</param>
     /// <param name="whatIf">When <c>true</c>, no writes are performed; planned actions are logged.</param>
     /// <param name="filter">
     /// Optional in-memory contact filter. Only items matching the filter are included in planning;
@@ -38,8 +38,8 @@ public sealed class JobExecutor(
     public async Task<JobExecutionResult> ExecuteAsync(
         string jobKey,
         JobOptions jobOptions,
-        IConnector connectorA,
-        IConnector connectorB,
+        IConnector sourceConnector,
+        IConnector destinationConnector,
         bool whatIf = false,
         ContactFilter? filter = null,
         bool force = false,
@@ -55,7 +55,7 @@ public sealed class JobExecutor(
 
         try
         {
-            return await RunJobAsync(jobKey, jobOptions, connectorA, connectorB, whatIf, filter, force, cancellationToken);
+            return await RunJobAsync(jobKey, jobOptions, sourceConnector, destinationConnector, whatIf, filter, force, cancellationToken);
         }
         finally
         {
@@ -66,8 +66,8 @@ public sealed class JobExecutor(
     private async Task<JobExecutionResult> RunJobAsync(
         string jobKey,
         JobOptions jobOptions,
-        IConnector connectorA,
-        IConnector connectorB,
+        IConnector sourceConnector,
+        IConnector destinationConnector,
         bool whatIf,
         ContactFilter? filter,
         bool force,
@@ -75,36 +75,36 @@ public sealed class JobExecutor(
     {
         logger.LogInformation("Starting job {JobKey} (whatIf={WhatIf}, force={Force})", jobKey, whatIf, force);
 
-        await connectorA.AuthenticateAsync(cancellationToken);
-        await connectorB.AuthenticateAsync(cancellationToken);
+        await sourceConnector.AuthenticateAsync(cancellationToken);
+        await destinationConnector.AuthenticateAsync(cancellationToken);
 
         var existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
         JobExecutionResult result = new() { JobKey = jobKey };
         string filterScope = filter?.Scope ?? string.Empty;
 
         // --- Read current snapshots from both sides ---
-        var currentPageSetA = await ReadCurrentPagesAsync(connectorA, jobOptions.Source, cancellationToken);
-        var currentItemsA = filter is not null ? filter.Apply(currentPageSetA.Items) : currentPageSetA.Items;
+        var currentSourcePageSet = await ReadCurrentPagesAsync(sourceConnector, jobOptions.Source, cancellationToken);
+        var currentSourceItems = filter is not null ? filter.Apply(currentSourcePageSet.Items) : currentSourcePageSet.Items;
 
-        var currentPageSetB = await ReadCurrentPagesAsync(connectorB, jobOptions.Destination, cancellationToken);
-        var currentItemsB = filter is not null ? filter.Apply(currentPageSetB.Items) : currentPageSetB.Items;
+        var currentDestinationPageSet = await ReadCurrentPagesAsync(destinationConnector, jobOptions.Destination, cancellationToken);
+        var currentDestinationItems = filter is not null ? filter.Apply(currentDestinationPageSet.Items) : currentDestinationPageSet.Items;
 
         // --- Poll incremental changes (for cursor tracking) ---
-        var cursorStateA = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Source, cancellationToken);
-        string? cursorA = GetApplicableCursor(jobKey, jobOptions.Source, cursorStateA, filterScope);
-        var pageSetA = await ReadAllPagesAsync(connectorA, jobOptions.Source, cursorA, force, cancellationToken);
+        var sourceCursorState = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Source, cancellationToken);
+        string? sourceCursor = GetApplicableCursor(jobKey, jobOptions.Source, sourceCursorState, filterScope);
+        var sourcePageSet = await ReadAllPagesAsync(sourceConnector, jobOptions.Source, sourceCursor, force, cancellationToken);
 
-        var cursorStateB = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Destination, cancellationToken);
-        string? cursorB = GetApplicableCursor(jobKey, jobOptions.Destination, cursorStateB, filterScope);
-        var pageSetB = await ReadAllPagesAsync(connectorB, jobOptions.Destination, cursorB, force, cancellationToken);
+        var destinationCursorState = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Destination, cancellationToken);
+        string? destinationCursor = GetApplicableCursor(jobKey, jobOptions.Destination, destinationCursorState, filterScope);
+        var destinationPageSet = await ReadAllPagesAsync(destinationConnector, jobOptions.Destination, destinationCursor, force, cancellationToken);
 
         // --- Plan actions (single pass over full current state from both sides) ---
-        var actions = planner.PlanActions(jobOptions, currentItemsA, currentItemsB, existingLinks, force);
+        var actions = planner.PlanActions(jobOptions, currentSourceItems, currentDestinationItems, existingLinks, force);
 
-        var actionsToB = actions.Where(a => a.TargetSide == SyncSide.Destination).ToList();
-        var actionsToA = actions.Where(a => a.TargetSide == SyncSide.Source).ToList();
+        var actionsToDestination = actions.Where(a => a.TargetSide == SyncSide.Destination).ToList();
+        var actionsToSource = actions.Where(a => a.TargetSide == SyncSide.Source).ToList();
 
-        logger.LogInformation("Job {JobKey}: {Count} actions targeting destination, {CountA} targeting source", jobKey, actionsToB.Count, actionsToA.Count);
+        logger.LogInformation("Job {JobKey}: {Count} actions targeting destination, {CountA} targeting source", jobKey, actionsToDestination.Count, actionsToSource.Count);
         result.ActionsPlanned += actions.Count;
 
         if (whatIf)
@@ -114,21 +114,21 @@ public sealed class JobExecutor(
 
         if (!whatIf)
         {
-            await EnsureActionItemsLoadedAsync(actionsToB, cancellationToken);
-            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToB, connectorB, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.Destination, cancellationToken);
+            await EnsureActionItemsLoadedAsync(actionsToDestination, cancellationToken);
+            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToDestination, destinationConnector, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.Destination, cancellationToken);
             existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
 
-            await EnsureActionItemsLoadedAsync(actionsToA, cancellationToken);
-            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToA, connectorA, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.Source, cancellationToken);
+            await EnsureActionItemsLoadedAsync(actionsToSource, cancellationToken);
+            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToSource, sourceConnector, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.Source, cancellationToken);
 
-            if (pageSetA.Cursor is not null)
+            if (sourcePageSet.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(jobKey, jobOptions.Source, filterScope, pageSetA.Cursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(jobKey, jobOptions.Source, filterScope, sourcePageSet.Cursor, cancellationToken);
             }
 
-            if (pageSetB.Cursor is not null)
+            if (destinationPageSet.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(jobKey, jobOptions.Destination, filterScope, pageSetB.Cursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(jobKey, jobOptions.Destination, filterScope, destinationPageSet.Cursor, cancellationToken);
             }
         }
 

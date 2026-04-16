@@ -204,8 +204,8 @@ public sealed class ContactsService(
     {
         await stateDb.InitializeAsync(cancellationToken);
 
-        var connectorA = BuildConnector(fromEndpoint);
-        var connectorB = BuildConnector(toEndpoint);
+        var sourceConnector = BuildConnector(fromEndpoint);
+        var destinationConnector = BuildConnector(toEndpoint);
 
         // Derive a stable job key from the two endpoint names so that sync state
         // is persisted consistently across invocations of the same contacts sync command.
@@ -225,8 +225,8 @@ public sealed class ContactsService(
         return await jobExecutor.ExecuteAsync(
             jobKey,
             jobOptions,
-            connectorA,
-            connectorB,
+            sourceConnector,
+            destinationConnector,
             whatIf,
             filter,
             force,

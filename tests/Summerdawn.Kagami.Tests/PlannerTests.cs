@@ -7,6 +7,7 @@ using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
 namespace Summerdawn.Kagami.Tests;
+
 public sealed class PlannerTests
 {
     private readonly Planner planner = new(NullLogger<Planner>.Instance);
@@ -315,19 +316,19 @@ public sealed class PlannerTests
     public void PlanActions_NeverProducesTwoActionsWithSameSourceItem()
     {
         // Build a scenario with multiple unlinked items to exercise a variety of paths.
-        var sideA = new[]
+        var sourceItems = new[]
         {
             CreateItem("a1", "v1"),
             CreateItem("a2", "v2"),
             CreateItem("a3", "v3"),
         };
-        var sideB = new[]
+        var destinationItems = new[]
         {
             CreateItem("b1", "v1"),
         };
         var links = new[] { CreateLink("a1", "b1") };
 
-        var actions = planner.PlanActions(CreateJob(), sideA, sideB, links);
+        var actions = planner.PlanActions(CreateJob(), sourceItems, destinationItems, links);
 
         var sourceIds = actions
             .Where(a => a.Item is not null)
