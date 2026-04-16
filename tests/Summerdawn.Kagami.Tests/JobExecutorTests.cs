@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -11,6 +10,7 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
+namespace Summerdawn.Kagami.Tests;
 public sealed class JobExecutorTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
@@ -54,10 +54,10 @@ public sealed class JobExecutorTests : IDisposable
             DestinationHash = "old-b",
         });
 
-        JobExecutor executor = CreateExecutor();
+        var executor = CreateExecutor();
 
-        JobExecutionResult result = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
-        CanonicalItem? updatedTarget = await connectorB.GetItemAsync("b1");
+        var result = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
+        var updatedTarget = await connectorB.GetItemAsync("b1");
 
         Assert.True(result.Succeeded);
         Assert.NotNull(updatedTarget);
@@ -82,7 +82,7 @@ public sealed class JobExecutorTests : IDisposable
                 NextCursor = "delta-token",
             });
         FakeConnector connectorB = new();
-        JobExecutor executor = CreateExecutor();
+        var executor = CreateExecutor();
 
         JobExecutionResult result = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, whatIf: true);
 
@@ -98,7 +98,7 @@ public sealed class JobExecutorTests : IDisposable
         connectorA.Seed(CreateContactItem("a1", "v1", "Alice Logging"));
 
         InMemoryLogger<JobExecutor> logger = new();
-        JobExecutor executor = CreateExecutor(logger);
+        var executor = CreateExecutor(logger);
 
         await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, whatIf: true);
 
@@ -113,7 +113,7 @@ public sealed class JobExecutorTests : IDisposable
         connectorA.Seed(CreateContactItem("a1", "v1", string.Empty, organization: "Contoso Ltd"));
 
         InMemoryLogger<JobExecutor> logger = new();
-        JobExecutor executor = CreateExecutor(logger);
+        var executor = CreateExecutor(logger);
 
         await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, whatIf: true);
 
@@ -129,7 +129,7 @@ public sealed class JobExecutorTests : IDisposable
         connectorB.Seed(CreateContactItem("b1", "v1", "Ada Langenfeld", email: " ADA@example.com "));
 
         InMemoryLogger<JobExecutor> logger = new();
-        JobExecutor executor = CreateExecutor(logger);
+        var executor = CreateExecutor(logger);
 
         await executor.ExecuteAsync(
             "job-1",
@@ -140,6 +140,24 @@ public sealed class JobExecutorTests : IDisposable
 
         Assert.Contains(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side Destination", StringComparison.Ordinal));
         Assert.DoesNotContain(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side Source", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ApplyActionsAsync_SingleContactFailure_ContinuesToNextContact()
+    {
+        FakeConnector connectorA = new();
+        FailingCreateConnector connectorB = new(throwForSourceId: "a1");
+        connectorA.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+        connectorA.Seed(CreateContactItem("a2", "v1", "Bob", email: "bob@example.com"));
+
+        InMemoryLogger<JobExecutor> logger = new();
+        var executor = CreateExecutor(logger);
+
+        var result = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
+
+        Assert.True(result.Succeeded);
+        Assert.Contains(connectorB.Items, i => ((CanonicalContact)i.Payload!).DisplayName == "Bob" && !i.IsDeleted);
+        Assert.Contains(logger.Entries, e => e.Contains("a1", StringComparison.Ordinal) && e.Contains("failed", StringComparison.Ordinal));
     }
 
     private JobExecutor CreateExecutor(ILogger<JobExecutor>? logger = null) =>

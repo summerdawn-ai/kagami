@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -7,6 +6,7 @@ using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
+namespace Summerdawn.Kagami.Tests;
 public sealed class PlannerTests
 {
     private readonly Planner planner = new(NullLogger<Planner>.Instance);
@@ -327,7 +327,7 @@ public sealed class PlannerTests
         };
         var links = new[] { CreateLink("a1", "b1") };
 
-        IReadOnlyList<SyncAction> actions = planner.PlanActions(CreateJob(), sideA, sideB, links);
+        var actions = planner.PlanActions(CreateJob(), sideA, sideB, links);
 
         var sourceIds = actions
             .Where(a => a.Item is not null)
@@ -345,7 +345,7 @@ public sealed class PlannerTests
         var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
         var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
 
-        IReadOnlyList<SyncAction> actions = planner.PlanActions(
+        var actions = planner.PlanActions(
             CreateJob(SyncMode.Forward),
             [a1, a2],
             [b1],

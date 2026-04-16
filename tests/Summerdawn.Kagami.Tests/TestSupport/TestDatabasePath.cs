@@ -1,7 +1,7 @@
-namespace Summerdawn.Kagami.Tests.TestSupport;
 
 using Microsoft.Data.Sqlite;
 
+namespace Summerdawn.Kagami.Tests.TestSupport;
 public sealed class TestDatabasePath : IDisposable
 {
     public TestDatabasePath()

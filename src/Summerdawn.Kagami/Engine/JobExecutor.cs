@@ -137,7 +137,7 @@ public sealed class JobExecutor(
         return result;
     }
 
-    private static async Task ApplyActionsAsync(
+    private async Task ApplyActionsAsync(
         string jobKey,
         string entityType,
         IReadOnlyList<SyncAction> actions,
@@ -155,121 +155,138 @@ public sealed class JobExecutor(
 
         foreach (var action in actions)
         {
-            switch (action.Kind)
+            try
             {
-                case SyncActionKind.Create when action.Item is not null:
-                    {
-                        var created = await targetConnector.CreateItemAsync(action.Item, cancellationToken);
-                        await operationLog.AppendAsync(jobKey, entityType, "create", created.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
-
-                        var link = new LinkStateRow
+                switch (action.Kind)
+                {
+                    case SyncActionKind.Create when action.Item is not null:
                         {
-                            JobKey = jobKey,
-                            EntityType = entityType,
-                            SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : created.SourceId,
-                            DestinationId = updateSide == SyncSide.Destination ? created.SourceId : action.Item.SourceId,
-                            SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : created.Version,
-                            DestinationVersion = updateSide == SyncSide.Destination ? created.Version : action.Item.Version,
-                            SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : created.ContentHash,
-                            DestinationHash = updateSide == SyncSide.Destination ? created.ContentHash : action.Item.ContentHash,
-                            OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
-                            LastSyncedAt = DateTimeOffset.UtcNow,
-                            LastSyncResult = "created",
-                        };
-                        await linkStateRepository.UpsertAsync(link, cancellationToken);
-                        break;
-                    }
+                            var created = await targetConnector.CreateItemAsync(action.Item, cancellationToken);
+                            logger.LogInformation("Job {JobKey}: created {Description} on side {Side}", jobKey, DescribeActionTarget(action), updateSide);
+                            await operationLog.AppendAsync(jobKey, entityType, "create", created.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
-                case SyncActionKind.Update when action.Item is not null:
-                    {
-                        var link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId);
-                        if (link is not null && action.MatchedTargetItem is not null && IsDuplicateLinkAction(link, action, updateSide))
-                        {
-                            continue;
+                            var link = new LinkStateRow
+                            {
+                                JobKey = jobKey,
+                                EntityType = entityType,
+                                SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : created.SourceId,
+                                DestinationId = updateSide == SyncSide.Destination ? created.SourceId : action.Item.SourceId,
+                                SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : created.Version,
+                                DestinationVersion = updateSide == SyncSide.Destination ? created.Version : action.Item.Version,
+                                SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : created.ContentHash,
+                                DestinationHash = updateSide == SyncSide.Destination ? created.ContentHash : action.Item.ContentHash,
+                                OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
+                                LastSyncedAt = DateTimeOffset.UtcNow,
+                                LastSyncResult = "created",
+                            };
+                            await linkStateRepository.UpsertAsync(link, cancellationToken);
+                            break;
                         }
 
-                        if (link is null)
+                    case SyncActionKind.Update when action.Item is not null:
                         {
-                            if (action.MatchedTargetItem is null)
+                            var link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId);
+                            if (link is not null && action.MatchedTargetItem is not null && IsDuplicateLinkAction(link, action, updateSide))
                             {
                                 continue;
                             }
 
-                            var matchedTarget = CreateTargetItem(action.Item, null, updateSide, action.MatchedTargetItem);
-                            var matchedUpdate = await targetConnector.UpdateItemAsync(matchedTarget, cancellationToken);
-                            await operationLog.AppendAsync(jobKey, entityType, "update", matchedUpdate.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
-
-                            var matchedLink = new LinkStateRow
+                            if (link is null)
                             {
-                                JobKey = jobKey,
-                                EntityType = entityType,
-                                SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : matchedUpdate.SourceId,
-                                DestinationId = updateSide == SyncSide.Destination ? matchedUpdate.SourceId : action.Item.SourceId,
-                                SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : matchedUpdate.Version,
-                                DestinationVersion = updateSide == SyncSide.Destination ? matchedUpdate.Version : action.Item.Version,
-                                SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : matchedUpdate.ContentHash,
-                                DestinationHash = updateSide == SyncSide.Destination ? matchedUpdate.ContentHash : action.Item.ContentHash,
-                                OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
-                                LastSyncedAt = DateTimeOffset.UtcNow,
-                                LastSyncResult = "updated",
-                            };
-                            await linkStateRepository.UpsertAsync(matchedLink, cancellationToken);
-                            break;
-                        }
+                                if (action.MatchedTargetItem is null)
+                                {
+                                    continue;
+                                }
 
-                        var targetItem = CreateTargetItem(action.Item, link, updateSide, action.MatchedTargetItem);
-                        var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
-                        await operationLog.AppendAsync(jobKey, entityType, "update", updated.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
+                                var matchedTarget = CreateTargetItem(action.Item, null, updateSide, action.MatchedTargetItem);
+                                var matchedUpdate = await targetConnector.UpdateItemAsync(matchedTarget, cancellationToken);
+                                logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", jobKey, DescribeActionTarget(action), updateSide);
+                                await operationLog.AppendAsync(jobKey, entityType, "update", matchedUpdate.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
-                        if (updateSide == SyncSide.Destination)
-                        {
-                            link.SourceVersion = action.Item.Version;
-                            link.SourceHash = action.Item.ContentHash;
-                            link.DestinationVersion = updated.Version;
-                            link.DestinationHash = updated.ContentHash;
-                        }
-                        else
-                        {
-                            link.DestinationVersion = action.Item.Version;
-                            link.DestinationHash = action.Item.ContentHash;
-                            link.SourceVersion = updated.Version;
-                            link.SourceHash = updated.ContentHash;
-                        }
+                                var matchedLink = new LinkStateRow
+                                {
+                                    JobKey = jobKey,
+                                    EntityType = entityType,
+                                    SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : matchedUpdate.SourceId,
+                                    DestinationId = updateSide == SyncSide.Destination ? matchedUpdate.SourceId : action.Item.SourceId,
+                                    SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : matchedUpdate.Version,
+                                    DestinationVersion = updateSide == SyncSide.Destination ? matchedUpdate.Version : action.Item.Version,
+                                    SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : matchedUpdate.ContentHash,
+                                    DestinationHash = updateSide == SyncSide.Destination ? matchedUpdate.ContentHash : action.Item.ContentHash,
+                                    OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
+                                    LastSyncedAt = DateTimeOffset.UtcNow,
+                                    LastSyncResult = "updated",
+                                };
+                                await linkStateRepository.UpsertAsync(matchedLink, cancellationToken);
+                                break;
+                            }
 
-                        link.LastSyncedAt = DateTimeOffset.UtcNow;
-                        link.LastSyncResult = "updated";
-                        await linkStateRepository.UpsertAsync(link, cancellationToken);
+                            var targetItem = CreateTargetItem(action.Item, link, updateSide, action.MatchedTargetItem);
+                            var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
+                            logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", jobKey, DescribeActionTarget(action), updateSide);
+                            await operationLog.AppendAsync(jobKey, entityType, "update", updated.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
-                        break;
-                    }
-
-                case SyncActionKind.Delete when action.DeleteId is not null:
-                    {
-                        await targetConnector.DeleteItemAsync(action.DeleteId, cancellationToken);
-                        await operationLog.AppendAsync(jobKey, entityType, "delete", action.DeleteId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
-
-                        var link = updateSide == SyncSide.Destination
-                            ? linksByDestinationId.GetValueOrDefault(action.DeleteId)
-                            : linksBySourceId.GetValueOrDefault(action.DeleteId);
-
-                        if (link is not null)
-                        {
                             if (updateSide == SyncSide.Destination)
                             {
-                                link.DestinationDeleted = true;
+                                link.SourceVersion = action.Item.Version;
+                                link.SourceHash = action.Item.ContentHash;
+                                link.DestinationVersion = updated.Version;
+                                link.DestinationHash = updated.ContentHash;
                             }
                             else
                             {
-                                link.SourceDeleted = true;
+                                link.DestinationVersion = action.Item.Version;
+                                link.DestinationHash = action.Item.ContentHash;
+                                link.SourceVersion = updated.Version;
+                                link.SourceHash = updated.ContentHash;
                             }
 
                             link.LastSyncedAt = DateTimeOffset.UtcNow;
-                            link.LastSyncResult = "deleted";
+                            link.LastSyncResult = "updated";
                             await linkStateRepository.UpsertAsync(link, cancellationToken);
+
+                            break;
                         }
 
-                        break;
-                    }
+                    case SyncActionKind.Delete when action.DeleteId is not null:
+                        {
+                            await targetConnector.DeleteItemAsync(action.DeleteId, cancellationToken);
+                            logger.LogInformation("Job {JobKey}: deleted item {ItemId} on side {Side}", jobKey, action.DeleteId, updateSide);
+                            await operationLog.AppendAsync(jobKey, entityType, "delete", action.DeleteId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
+
+                            var link = updateSide == SyncSide.Destination
+                                ? linksByDestinationId.GetValueOrDefault(action.DeleteId)
+                                : linksBySourceId.GetValueOrDefault(action.DeleteId);
+
+                            if (link is not null)
+                            {
+                                if (updateSide == SyncSide.Destination)
+                                {
+                                    link.DestinationDeleted = true;
+                                }
+                                else
+                                {
+                                    link.SourceDeleted = true;
+                                }
+
+                                link.LastSyncedAt = DateTimeOffset.UtcNow;
+                                link.LastSyncResult = "deleted";
+                                await linkStateRepository.UpsertAsync(link, cancellationToken);
+                            }
+
+                            break;
+                        }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                string itemId = action.Item?.SourceId ?? action.DeleteId ?? "unknown";
+                logger.LogError(ex, "Job {JobKey}: failed to apply {Kind} action for item {ItemId} on side {Side}; skipping",
+                    jobKey, action.Kind, itemId, updateSide);
             }
         }
     }

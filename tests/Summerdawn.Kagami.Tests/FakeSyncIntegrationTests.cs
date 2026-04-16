@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -9,6 +8,7 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
+namespace Summerdawn.Kagami.Tests;
 public sealed class FakeSyncIntegrationTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();

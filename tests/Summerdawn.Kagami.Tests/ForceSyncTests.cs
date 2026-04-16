@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -9,6 +8,7 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
+namespace Summerdawn.Kagami.Tests;
 public sealed class ForceSyncTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
@@ -129,12 +129,12 @@ public sealed class ForceSyncTests : IDisposable
         connectorA.Seed(CreateContact("a1", "Alice"));
         connectorA.Seed(CreateContact("a2", "Bob"));
 
-        ContactFilter filteredScope = ContactFilter.Parse("startswith(name,'A')")!;
+        var filteredScope = ContactFilter.Parse("startswith(name,'A')")!;
         var filteredResult = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, filter: filteredScope);
-        EndpointCursorState? filteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
+        var filteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
 
         var unfilteredResult = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
-        EndpointCursorState? unfilteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
+        var unfilteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
 
         Assert.True(filteredResult.Succeeded);
         Assert.NotNull(filteredCursor);

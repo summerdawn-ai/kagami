@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -11,6 +10,7 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
+namespace Summerdawn.Kagami.Tests;
 public sealed class ContactsServiceTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
@@ -77,7 +77,7 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ListAsyncReturnsAllContactsAcrossPages()
     {
-        ContactsService pagedService = CreateService(
+        var pagedService = CreateService(
             new PagedConnector(
                 new IncrementalPage
                 {
@@ -101,7 +101,7 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ListAsyncHonorsMaxItemsAcrossPages()
     {
-        ContactsService pagedService = CreateService(
+        var pagedService = CreateService(
             new PagedConnector(
                 new IncrementalPage
                 {
@@ -154,12 +154,12 @@ public sealed class ContactsServiceTests : IDisposable
         LazyPhotoConnector lazyConnector = new(
             MakeContact("a1", "Alice"),
             MakeContact("a2", "Bob"));
-        ContactsService lazyService = CreateService(lazyConnector);
+        var lazyService = CreateService(lazyConnector);
 
         var filter = ContactFilter.Parse("startswith(name,'A')")!;
-        IReadOnlyList<CanonicalItem> items = await lazyService.ListAsync("Microsoft", filter);
+        var items = await lazyService.ListAsync("Microsoft", filter);
 
-        CanonicalItem item = Assert.Single(items);
+        var item = Assert.Single(items);
         Assert.Equal("Alice", ((CanonicalContact)item.Payload!).DisplayName);
         Assert.Equal(["a1"], lazyConnector.LoadedPhotoIds);
     }
@@ -305,7 +305,7 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ExportAsyncWritesPhotoNextToJson()
     {
-        CanonicalItem item = MakeContact("a1", "Alice", lastName: "Smith");
+        var item = MakeContact("a1", "Alice", lastName: "Smith");
         ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
         connectorA.Seed(item);
 
@@ -333,7 +333,7 @@ public sealed class ContactsServiceTests : IDisposable
         string stalePhoto = Path.Combine(dir, "stale.png");
         await File.WriteAllBytesAsync(stalePhoto, [0x01]);
 
-        CanonicalItem item = MakeContact("a1", "Alice", lastName: "Smith");
+        var item = MakeContact("a1", "Alice", lastName: "Smith");
         ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
         connectorA.Seed(item);
         try
@@ -426,14 +426,14 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task SyncAsyncCopiesPhotoMetadataToDestination()
     {
-        CanonicalItem source = MakeContact("a1", "Alice", lastName: "Smith");
+        var source = MakeContact("a1", "Alice", lastName: "Smith");
         ContactPhotoMetadata.SetPhoto(source, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
         connectorA.Seed(source);
 
-        JobExecutionResult result = await service.SyncAsync("Microsoft", "Google");
+        var result = await service.SyncAsync("Microsoft", "Google");
 
         Assert.True(result.Succeeded);
-        CanonicalItem created = Assert.Single(connectorB.Items);
+        var created = Assert.Single(connectorB.Items);
         Assert.True(ContactPhotoMetadata.TryGetPhoto(created, out byte[] photoBytes, out string contentType));
         Assert.Equal("image/png", contentType);
         Assert.Equal(source.Metadata["contact.photo.bytes"], created.Metadata["contact.photo.bytes"]);
@@ -446,16 +446,45 @@ public sealed class ContactsServiceTests : IDisposable
         LazyPhotoConnector lazyConnector = new(
             MakeContact("a1", "Alice"),
             MakeContact("a2", "Bob"));
-        ContactsService lazyService = CreateService(lazyConnector);
+        var lazyService = CreateService(lazyConnector);
         var filter = ContactFilter.Parse("startswith(name,'A')")!;
 
-        JobExecutionResult result = await lazyService.SyncAsync("Microsoft", "Google", filter: filter);
+        var result = await lazyService.SyncAsync("Microsoft", "Google", filter: filter);
 
         Assert.True(result.Succeeded);
         Assert.Equal(["a1"], lazyConnector.LoadedPhotoIds);
-        CanonicalItem created = Assert.Single(connectorB.Items);
+        var created = Assert.Single(connectorB.Items);
         Assert.Equal("Alice", ((CanonicalContact)created.Payload!).DisplayName);
         Assert.True(ContactPhotoMetadata.TryGetPhoto(created, out _, out _));
+    }
+
+    [Fact]
+    public async Task ExportAsync_SingleContactFailure_ContinuesToNextContact()
+    {
+        connectorA.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
+        connectorA.Seed(new CanonicalItem
+        {
+            EntityType = EntityType.Contact,
+            SourceId = "broken",
+            Version = "v1",
+            Payload = new UnsupportedPayload(),
+        });
+
+        string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
+        try
+        {
+            await service.ExportAsync("Microsoft", dir);
+            string[] files = Directory.GetFiles(dir, "*.json");
+            Assert.Single(files);
+            Assert.Equal("alice_smith.json", Path.GetFileName(files[0]));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+        }
     }
 
     private ContactsService CreateService(IConnector microsoftConnector)
@@ -522,6 +551,8 @@ public sealed class ContactsServiceTests : IDisposable
         };
     }
 
+    private sealed class UnsupportedPayload { }
+
     private sealed class PagedConnector(params IncrementalPage[] pages) : IConnector
     {
         private readonly Queue<IncrementalPage> queuedPages = new(pages);
@@ -569,7 +600,7 @@ public sealed class ContactsServiceTests : IDisposable
 
         public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default)
         {
-            foreach (CanonicalItem item in items)
+            foreach (var item in items)
             {
                 ContactPhotoLoader.Attach(item, _ =>
                 {

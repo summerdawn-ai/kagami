@@ -1,8 +1,8 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 
+namespace Summerdawn.Kagami.Tests;
 public sealed class ContactFilterTests
 {
     // ── Parse returns null for empty expression ───────────────────────────

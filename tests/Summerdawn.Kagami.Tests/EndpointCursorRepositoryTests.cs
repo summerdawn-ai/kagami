@@ -1,10 +1,10 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestSupport;
 
+namespace Summerdawn.Kagami.Tests;
 public sealed class EndpointCursorRepositoryTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
@@ -26,9 +26,9 @@ public sealed class EndpointCursorRepositoryTests : IDisposable
         await repository.SetCursorAsync("job-1", "endpointA", "startswith(name,'A')", "cursor-a");
         await repository.SetCursorAsync("job-2", "endpointA", string.Empty, "cursor-b");
 
-        EndpointCursorState? job1 = await repository.GetCursorAsync("job-1", "endpointA");
-        EndpointCursorState? job2 = await repository.GetCursorAsync("job-2", "endpointA");
-        EndpointCursorState? missing = await repository.GetCursorAsync("job-3", "endpointA");
+        var job1 = await repository.GetCursorAsync("job-1", "endpointA");
+        var job2 = await repository.GetCursorAsync("job-2", "endpointA");
+        var missing = await repository.GetCursorAsync("job-3", "endpointA");
 
         Assert.NotNull(job1);
         Assert.Equal("cursor-a", job1!.Cursor);

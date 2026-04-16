@@ -1,9 +1,9 @@
-namespace Summerdawn.Kagami.Tests.TestDoubles;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 
+namespace Summerdawn.Kagami.Tests.TestDoubles;
 public sealed class FakeConnectorFactory : IConnectorFactory
 {
     private readonly Dictionary<string, IConnector> connectors = [];
