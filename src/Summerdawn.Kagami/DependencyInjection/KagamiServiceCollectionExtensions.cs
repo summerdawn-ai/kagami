@@ -19,6 +19,10 @@ public static class KagamiServiceCollectionExtensions
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Summerdawn.ai", "Kagami", "kagami-state.db");
 
+    private static readonly string DatabaseDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Summerdawn.ai", "Kagami");
+
     /// <summary>Adds Kagami core services to the DI container.</summary>
     public static IServiceCollection AddKagami(this IServiceCollection services, IConfiguration configuration)
     {
@@ -44,7 +48,7 @@ public static class KagamiServiceCollectionExtensions
 
         services.AddSingleton(sp =>
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(DatabasePath)!);
+            Directory.CreateDirectory(DatabaseDirectory);
             return new StateDatabase(DatabasePath, sp.GetRequiredService<ILogger<StateDatabase>>());
         });
         services.AddSingleton<EndpointCursorRepository>();
