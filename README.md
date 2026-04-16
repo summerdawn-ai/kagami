@@ -1,6 +1,6 @@
 # Kagami
 
-Kagami is a polling-first contact synchronization daemon and library with internal SQLite state.
+Kagami is a CLI tool and daemon to import, export and synchronize contacts.
 
 It currently supports:
 

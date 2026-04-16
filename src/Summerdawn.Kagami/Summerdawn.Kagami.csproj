@@ -9,14 +9,18 @@
     <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
   </PropertyGroup>
 
+  <!-- Settings for trimmed/AOT deployment -->
   <PropertyGroup>
+    <!-- Enable trimming and AOT analyzers and warnings and indicate that NuGet package is trim-compatible -->
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- Enable trimming-compatible configuration binding -->
     <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
   </PropertyGroup>
 
+  <!-- NuGet properties -->
   <PropertyGroup>
     <PackageId>Summerdawn.Kagami</PackageId>
-    <Description>Kagami — a polling-first calendar and contact sync library and CLI tool with internal SQLite state.</Description>
+    <Description>Kagami is a CLI tool and daemon to import, export and synchronize contacts.</Description>
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>kagami</ToolCommandName>
