@@ -250,7 +250,7 @@ Example:
       "googleContacts": {
         "Type": "google-contacts",
         "Credential": {
-          "Type": "google-oauth",
+          "Type": "GoogleOAuthCredential",
           "ClientId": "your-google-client-id.apps.googleusercontent.com",
           "ClientSecret": "replace-me"
         },
@@ -259,7 +259,7 @@ Example:
       "exchangeContacts": {
         "Type": "graph-contacts",
         "Credential": {
-          "Type": "graph-client-credentials",
+          "Type": "GraphClientCredential",
           "TenantId": "00000000-0000-0000-0000-000000000000",
           "ClientId": "11111111-1111-1111-1111-111111111111",
           "ClientSecret": "replace-me"
@@ -293,7 +293,7 @@ Named endpoint definitions. Each endpoint includes its credential inline.
 
 #### `google-contacts`
 
-Credential fields (`Type = "google-oauth"`):
+Credential fields (`Type = "GoogleOAuthCredential"`):
 
 - `ClientId`: Google OAuth client ID
 - `ClientSecret`: Google OAuth client secret
@@ -311,7 +311,7 @@ Notes:
 
 #### `graph-contacts`
 
-Credential fields (`Type = "graph-client-credentials"`):
+Credential fields (`Type = "GraphClientCredential"`):
 
 - `TenantId`: Entra tenant ID
 - `ClientId`: app registration client ID

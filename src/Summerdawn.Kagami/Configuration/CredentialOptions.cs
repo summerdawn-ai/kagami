@@ -5,12 +5,18 @@ namespace Summerdawn.Kagami.Configuration;
 /// </summary>
 public sealed class CredentialOptions
 {
+    /// <summary>Credential type value for Google OAuth 2.0.</summary>
+    public const string GoogleOAuthCredential = "GoogleOAuthCredential";
+
+    /// <summary>Credential type value for Microsoft Graph client credentials.</summary>
+    public const string GraphClientCredential = "GraphClientCredential";
+
     /// <summary>
-    /// Credential type identifier: "google-oauth" or "graph-client-credentials".
+    /// Credential type identifier: <see cref="GoogleOAuthCredential"/> or <see cref="GraphClientCredential"/>.
     /// </summary>
     public string Type { get; set; } = string.Empty;
 
-    // ── google-oauth ──────────────────────────────────────────────────────
+    // ── GoogleOAuthCredential ─────────────────────────────────────────────
 
     /// <summary>Google OAuth client ID / Microsoft app registration client ID.</summary>
     public string? ClientId { get; set; }
@@ -18,7 +24,7 @@ public sealed class CredentialOptions
     /// <summary>Google OAuth client secret / Microsoft app registration client secret.</summary>
     public string? ClientSecret { get; set; }
 
-    // ── graph-client-credentials ──────────────────────────────────────────
+    // ── GraphClientCredential ─────────────────────────────────────────────
 
     /// <summary>Entra tenant ID.</summary>
     public string? TenantId { get; set; }

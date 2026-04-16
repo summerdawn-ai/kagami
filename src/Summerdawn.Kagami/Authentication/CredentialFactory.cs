@@ -8,25 +8,25 @@ internal static class CredentialFactory
 {
     public static IConnectorCredential Create(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
     {
-        return options.Type.ToLowerInvariant() switch
+        return options.Type switch
         {
-            "google-oauth" => CreateGoogleOAuth(options, httpClient, scopes, endpointName),
-            "graph-client-credentials" => CreateGraphClientCredentials(options),
+            CredentialOptions.GoogleOAuthCredential => CreateGoogleOAuth(options, httpClient, scopes, endpointName),
+            CredentialOptions.GraphClientCredential => CreateGraphClientCredentials(options),
             _ => throw new InvalidOperationException($"Unknown credential type '{options.Type}'.")
         };
     }
 
     private static GoogleOAuthCredential CreateGoogleOAuth(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
     {
-        string clientId = RequireField(options.ClientId, "ClientId", "google-oauth");
-        string clientSecret = RequireField(options.ClientSecret, "ClientSecret", "google-oauth");
+        string clientId = RequireField(options.ClientId, "ClientId", CredentialOptions.GoogleOAuthCredential);
+        string clientSecret = RequireField(options.ClientSecret, "ClientSecret", CredentialOptions.GoogleOAuthCredential);
         return new GoogleOAuthCredential(clientId, clientSecret, endpointName, scopes, httpClient);
     }
 
     private static GraphClientCredential CreateGraphClientCredentials(CredentialOptions options)
     {
-        string tenantId = RequireField(options.TenantId, "TenantId", "graph-client-credentials");
-        string clientId = RequireField(options.ClientId, "ClientId", "graph-client-credentials");
+        string tenantId = RequireField(options.TenantId, "TenantId", CredentialOptions.GraphClientCredential);
+        string clientId = RequireField(options.ClientId, "ClientId", CredentialOptions.GraphClientCredential);
 
         if (!string.IsNullOrWhiteSpace(options.ClientSecret))
         {
@@ -41,7 +41,7 @@ internal static class CredentialFactory
             return new GraphClientCredential(new ClientCertificateCredential(tenantId, clientId, cert));
         }
 
-        throw new InvalidOperationException("graph-client-credentials requires either 'ClientSecret' or 'CertificatePath'.");
+        throw new InvalidOperationException($"{CredentialOptions.GraphClientCredential} requires either 'ClientSecret' or 'CertificatePath'.");
     }
 
     private static string RequireField(string? value, string fieldName, string credentialType)
