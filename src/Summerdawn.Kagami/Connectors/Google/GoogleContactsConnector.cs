@@ -59,7 +59,7 @@ internal sealed class GoogleContactsConnector : IConnector
 
     public async Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
-        string requestUri = $"{BuildPersonRequestUri(id)}?personFields={Uri.EscapeDataString(PersonFields)}";
+        string requestUri = $"https://people.googleapis.com/v1/{id}?personFields={Uri.EscapeDataString(PersonFields)}";
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         using var document = await SendForJsonAsync(request, cancellationToken);
         var item = ConvertPerson(document.RootElement);
@@ -96,7 +96,7 @@ internal sealed class GoogleContactsConnector : IConnector
         }
 
         string updateFields = Uri.EscapeDataString("names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships");
-        string requestUri = $"{BuildPersonRequestUri(item.SourceId)}:updateContact?updatePersonFields={updateFields}&personFields={Uri.EscapeDataString(PersonFields)}";
+        string requestUri = $"https://people.googleapis.com/v1/{item.SourceId}:updateContact?updatePersonFields={updateFields}&personFields={Uri.EscapeDataString(PersonFields)}";
         using var request = await CreateRequestAsync(HttpMethod.Patch, requestUri, cancellationToken);
         request.Content = CreateJsonContent(person);
         using var _ = await SendForJsonAsync(request, cancellationToken);
@@ -107,13 +107,11 @@ internal sealed class GoogleContactsConnector : IConnector
 
     public async Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
     {
-        string requestUri = $"{BuildPersonRequestUri(id)}:deleteContact";
+        string requestUri = $"https://people.googleapis.com/v1/{id}:deleteContact";
         using var request = await CreateRequestAsync(HttpMethod.Delete, requestUri, cancellationToken);
         using var response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
     }
-
-    private static string BuildPersonRequestUri(string resourceName) => $"https://people.googleapis.com/v1/{resourceName}";
 
     private async Task<IncrementalPage> GetConnectionsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
     {
@@ -455,7 +453,7 @@ internal sealed class GoogleContactsConnector : IConnector
         return (photoBytes, contentType);
     }
 
-    private async Task SyncPhotoAsync(string resourceName, CanonicalItem item, bool deleteWhenAbsent, CancellationToken cancellationToken)
+    private async Task SyncPhotoAsync(string personId, CanonicalItem item, bool deleteWhenAbsent, CancellationToken cancellationToken)
     {
         if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out _))
         {
@@ -463,7 +461,7 @@ internal sealed class GoogleContactsConnector : IConnector
             {
                 ["photoBytes"] = Convert.ToBase64String(photoBytes),
             };
-            string requestUri = $"https://people.googleapis.com/v1/{Uri.EscapeDataString(resourceName)}:updateContactPhoto";
+            string requestUri = $"https://people.googleapis.com/v1/{personId}:updateContactPhoto";
             using var request = await CreateRequestAsync(HttpMethod.Patch, requestUri, cancellationToken);
             request.Content = CreateJsonContent(body);
             using var response = await httpClient.SendAsync(request, cancellationToken);
@@ -476,7 +474,7 @@ internal sealed class GoogleContactsConnector : IConnector
             return;
         }
 
-        string deleteUri = $"https://people.googleapis.com/v1/{Uri.EscapeDataString(resourceName)}:deleteContactPhoto";
+        string deleteUri = $"https://people.googleapis.com/v1/{personId}:deleteContactPhoto";
         using var deleteRequest = await CreateRequestAsync(HttpMethod.Delete, deleteUri, cancellationToken);
         using var deleteResponse = await httpClient.SendAsync(deleteRequest, cancellationToken);
         if (deleteResponse.StatusCode == HttpStatusCode.NotFound)
