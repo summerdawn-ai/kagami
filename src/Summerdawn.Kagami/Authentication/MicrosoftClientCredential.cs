@@ -1,7 +1,7 @@
-namespace Summerdawn.Kagami.Authentication;
 
 using Azure.Core;
 
+namespace Summerdawn.Kagami.Authentication;
 /// <summary>
 /// Resolved Microsoft client credential wrapping an Azure <see cref="TokenCredential"/>.
 /// </summary>

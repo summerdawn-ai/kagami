@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Connectors;
 
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
@@ -7,6 +6,7 @@ using System.Text.Json;
 
 using Summerdawn.Kagami.Models;
 
+namespace Summerdawn.Kagami.Connectors;
 internal static class CanonicalItemSerializer
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

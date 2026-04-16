@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Engine;
 
 using System.Text.Json;
 
@@ -8,6 +7,7 @@ using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
+namespace Summerdawn.Kagami.Engine;
 /// <summary>
 /// High-level service for interactive contacts operations: list, export, sync, and import.
 /// </summary>
@@ -64,7 +64,7 @@ public sealed class ContactsService(
 
         while (true)
         {
-            foreach (CanonicalItem item in page.Items)
+            foreach (var item in page.Items)
             {
                 if (filter is not null && !filter.Matches(item))
                 {
@@ -328,7 +328,7 @@ public sealed class ContactsService(
         // Track which destination items were matched/upserted
         var matchedDestIds = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (CanonicalItem importItem in importedItems)
+        foreach (var importItem in importedItems)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -351,7 +351,7 @@ public sealed class ContactsService(
             else if (matches.Count == 1)
             {
                 // Update existing contact
-                CanonicalItem destItem = matches[0];
+                var destItem = matches[0];
                 matchedDestIds.Add(destItem.SourceId);
                 logger.LogInformation("Import: updating contact {Name} (matched {DestId})", importItem.SourceId, destItem.SourceId);
                 if (!whatIf)
@@ -377,7 +377,7 @@ public sealed class ContactsService(
         // Prune: delete destination contacts not matched during import
         if (prune)
         {
-            foreach (CanonicalItem destItem in activeDestItems)
+            foreach (var destItem in activeDestItems)
             {
                 if (!matchedDestIds.Contains(destItem.SourceId))
                 {

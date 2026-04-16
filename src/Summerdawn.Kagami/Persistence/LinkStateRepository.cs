@@ -1,7 +1,7 @@
-namespace Summerdawn.Kagami.Persistence;
 
 using Microsoft.Data.Sqlite;
 
+namespace Summerdawn.Kagami.Persistence;
 /// <summary>
 /// CRUD operations for link-state rows, partitioned by job key.
 /// </summary>

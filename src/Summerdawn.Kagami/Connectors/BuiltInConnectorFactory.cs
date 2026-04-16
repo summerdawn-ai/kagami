@@ -1,10 +1,10 @@
-namespace Summerdawn.Kagami.Connectors;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors.Google;
 using Summerdawn.Kagami.Connectors.Microsoft;
 
+namespace Summerdawn.Kagami.Connectors;
 /// <summary>
 /// Built-in connector factory for supported provider connectors.
 /// </summary>

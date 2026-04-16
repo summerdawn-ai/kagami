@@ -1,7 +1,7 @@
-namespace Summerdawn.Kagami.Engine;
 
 using Summerdawn.Kagami.Models;
 
+namespace Summerdawn.Kagami.Engine;
 /// <summary>
 /// Planned sync action produced by the planner.
 /// </summary>

@@ -1,7 +1,7 @@
-namespace Summerdawn.Kagami.Connectors;
 
 using Summerdawn.Kagami.Models;
 
+namespace Summerdawn.Kagami.Connectors;
 /// <summary>
 /// A page of incremental changes returned by a connector.
 /// </summary>

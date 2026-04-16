@@ -1,8 +1,8 @@
-namespace Summerdawn.Kagami.Authentication;
 
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
+namespace Summerdawn.Kagami.Authentication;
 internal sealed class GoogleTokenCache
 {
     private static readonly string StorageDirectory = Path.Combine(

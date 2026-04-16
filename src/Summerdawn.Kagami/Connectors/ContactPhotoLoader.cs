@@ -1,8 +1,9 @@
-namespace Summerdawn.Kagami.Connectors;
 
 using System.Runtime.CompilerServices;
 
 using Summerdawn.Kagami.Models;
+
+namespace Summerdawn.Kagami.Connectors;
 
 internal static class ContactPhotoLoader
 {
@@ -21,7 +22,7 @@ internal static class ContactPhotoLoader
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        if (!Loaders.TryGetValue(item, out LoaderState? state))
+        if (!Loaders.TryGetValue(item, out var state))
         {
             return;
         }

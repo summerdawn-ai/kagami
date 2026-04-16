@@ -1,10 +1,11 @@
-namespace Summerdawn.Kagami.Authentication;
 
 using System.Security.Cryptography.X509Certificates;
 
 using Azure.Identity;
 
 using Summerdawn.Kagami.Configuration;
+
+namespace Summerdawn.Kagami.Authentication;
 
 internal static class CredentialFactory
 {
@@ -37,7 +38,7 @@ internal static class CredentialFactory
 
         if (!string.IsNullOrWhiteSpace(options.CertificatePath))
         {
-            X509Certificate2 cert = string.IsNullOrWhiteSpace(options.CertificatePassword)
+            var cert = string.IsNullOrWhiteSpace(options.CertificatePassword)
                 ? X509CertificateLoader.LoadPkcs12FromFile(options.CertificatePath, null)
                 : X509CertificateLoader.LoadPkcs12FromFile(options.CertificatePath, options.CertificatePassword);
             return new MicrosoftClientCredential(new ClientCertificateCredential(tenantId, clientId, cert));

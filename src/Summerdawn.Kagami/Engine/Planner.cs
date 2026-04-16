@@ -1,9 +1,9 @@
-namespace Summerdawn.Kagami.Engine;
 
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
+namespace Summerdawn.Kagami.Engine;
 /// <summary>
 /// Derives sync actions from current job config, observed remote state, and link state.
 /// Does not store or depend on mutable job policy per item row.
@@ -60,10 +60,10 @@ public sealed class Planner(ILogger<Planner> logger)
 
         // Pass 1: evaluate existing linked pairs. Linked endpoints are always reserved so that
         // they can never be matched as duplicate candidates in subsequent passes.
-        foreach (LinkStateRow link in existingLinks)
+        foreach (var link in existingLinks)
         {
-            itemsAById.TryGetValue(link.SourceId, out CanonicalItem? currentA);
-            CanonicalItem? currentB = link.DestinationId != null ? itemsBById.GetValueOrDefault(link.DestinationId) : null;
+            itemsAById.TryGetValue(link.SourceId, out var currentA);
+            var currentB = link.DestinationId != null ? itemsBById.GetValueOrDefault(link.DestinationId) : null;
 
             reservedAIds.Add(link.SourceId);
             if (link.DestinationId != null)
@@ -71,7 +71,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 reservedBIds.Add(link.DestinationId);
             }
 
-            SyncAction? action = EvaluateLinkedPair(link, currentA, currentB, jobOptions, force);
+            var action = EvaluateLinkedPair(link, currentA, currentB, jobOptions, force);
             if (action != null)
             {
                 actions.Add(action);
@@ -247,7 +247,7 @@ public sealed class Planner(ILogger<Planner> logger)
 
         // Build a candidate map: for each source item, which eligible target items match it?
         var candidatesBySourceId = new Dictionary<string, CanonicalItem[]>(StringComparer.Ordinal);
-        foreach (CanonicalItem item in unlinkedSources)
+        foreach (var item in unlinkedSources)
         {
             candidatesBySourceId[item.SourceId] = FindDuplicateMatches(item, eligibleTargets);
         }
@@ -259,7 +259,7 @@ public sealed class Planner(ILogger<Planner> logger)
             .GroupBy(kv => kv.Value[0].SourceId, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
 
-        foreach (CanonicalItem item in unlinkedSources)
+        foreach (var item in unlinkedSources)
         {
             // Re-check: a previous iteration in this pass may have reserved this source.
             if (reservedSourceIds.Contains(item.SourceId))
@@ -267,7 +267,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 continue;
             }
 
-            CanonicalItem[] candidates = candidatesBySourceId[item.SourceId];
+            var candidates = candidatesBySourceId[item.SourceId];
 
             if (candidates.Length == 0)
             {
@@ -301,7 +301,7 @@ public sealed class Planner(ILogger<Planner> logger)
             }
 
             // Exactly one candidate.
-            CanonicalItem target = candidates[0];
+            var target = candidates[0];
 
             if (reservedTargetIds.Contains(target.SourceId))
             {
@@ -434,8 +434,8 @@ public sealed class Planner(ILogger<Planner> logger)
         SyncSide sourceSide,
         SyncSide targetSide)
     {
-        DateTimeOffset? sourceLastModified = GetLastModified(sourceItem);
-        DateTimeOffset? targetLastModified = GetLastModified(targetItem);
+        var sourceLastModified = GetLastModified(sourceItem);
+        var targetLastModified = GetLastModified(targetItem);
 
         bool sourceWins = sourceLastModified > targetLastModified
             || (sourceLastModified == targetLastModified && sourceSide == SyncSide.Source)

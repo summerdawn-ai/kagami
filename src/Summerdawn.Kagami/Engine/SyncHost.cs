@@ -1,10 +1,10 @@
-namespace Summerdawn.Kagami.Engine;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Persistence;
 
+namespace Summerdawn.Kagami.Engine;
 /// <summary>
 /// Orchestrates multiple sync jobs: builds connectors, manages concurrency, and dispatches to JobExecutor.
 /// </summary>

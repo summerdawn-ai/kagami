@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Connectors.Microsoft;
 
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http.Headers;
@@ -10,6 +9,8 @@ using Azure.Core;
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Models;
+
+namespace Summerdawn.Kagami.Connectors.Microsoft;
 
 internal sealed class MicrosoftContactsConnector : IConnector
 {
@@ -61,9 +62,9 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     public async Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, $"{collectionPath}/{Uri.EscapeDataString(id)}?$select={Uri.EscapeDataString(ContactSelectFields)}", cancellationToken);
-        using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
-        CanonicalItem? item = ConvertContact(document.RootElement);
+        using var request = await CreateRequestAsync(HttpMethod.Get, $"{collectionPath}/{Uri.EscapeDataString(id)}?$select={Uri.EscapeDataString(ContactSelectFields)}", cancellationToken);
+        using var document = await SendForJsonAsync(request, cancellationToken);
+        var item = ConvertContact(document.RootElement);
         if (item is not null && !item.IsDeleted)
         {
             await PopulatePhotoAsync(item, id, cancellationToken);
@@ -74,10 +75,10 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     public async Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
     {
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Post, collectionPath, cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Post, collectionPath, cancellationToken);
         request.Content = CreateJsonContent(BuildWritableContact(GetContactPayload(item)));
-        using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
-        CanonicalItem created = ConvertContact(document.RootElement) ?? throw new InvalidOperationException("Microsoft Contacts create returned no payload.");
+        using var document = await SendForJsonAsync(request, cancellationToken);
+        var created = ConvertContact(document.RootElement) ?? throw new InvalidOperationException("Microsoft Contacts create returned no payload.");
         await SyncPhotoAsync(created.SourceId, item, deleteWhenAbsent: false, cancellationToken);
         return await GetItemAsync(created.SourceId, cancellationToken)
             ?? throw new InvalidOperationException("Microsoft Contacts create succeeded but the created item could not be reloaded.");
@@ -85,14 +86,14 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     public async Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
     {
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Patch, $"{collectionPath}/{Uri.EscapeDataString(item.SourceId)}", cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Patch, $"{collectionPath}/{Uri.EscapeDataString(item.SourceId)}", cancellationToken);
         request.Content = CreateJsonContent(BuildWritableContact(GetContactPayload(item)));
         if (!string.IsNullOrWhiteSpace(item.Version))
         {
             request.Headers.TryAddWithoutValidation("If-Match", item.Version);
         }
 
-        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
         await SyncPhotoAsync(item.SourceId, item, deleteWhenAbsent: true, cancellationToken);
         return await GetItemAsync(item.SourceId, cancellationToken)
@@ -101,22 +102,22 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     public async Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
     {
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Delete, $"{collectionPath}/{Uri.EscapeDataString(id)}", cancellationToken);
-        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Delete, $"{collectionPath}/{Uri.EscapeDataString(id)}", cancellationToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
     private async Task<IncrementalPage> GetPageAsync(string requestUri, CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
-        using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
+        using var document = await SendForJsonAsync(request, cancellationToken);
 
         List<CanonicalItem> items = [];
-        if (document.RootElement.TryGetProperty("value", out JsonElement values))
+        if (document.RootElement.TryGetProperty("value", out var values))
         {
-            foreach (JsonElement element in values.EnumerateArray())
+            foreach (var element in values.EnumerateArray())
             {
-                CanonicalItem? item = ConvertContact(element);
+                var item = ConvertContact(element);
                 if (item is not null)
                 {
                     if (!item.IsDeleted)
@@ -129,10 +130,10 @@ internal sealed class MicrosoftContactsConnector : IConnector
             }
         }
 
-        string? nextLink = document.RootElement.TryGetProperty("@odata.nextLink", out JsonElement nextLinkElement)
+        string? nextLink = document.RootElement.TryGetProperty("@odata.nextLink", out var nextLinkElement)
             ? nextLinkElement.GetString()
             : null;
-        string? deltaLink = document.RootElement.TryGetProperty("@odata.deltaLink", out JsonElement deltaLinkElement)
+        string? deltaLink = document.RootElement.TryGetProperty("@odata.deltaLink", out var deltaLinkElement)
             ? deltaLinkElement.GetString()
             : null;
 
@@ -146,7 +147,7 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     private async Task<HttpRequestMessage> CreateRequestAsync(HttpMethod method, string requestUri, CancellationToken cancellationToken)
     {
-        AccessToken token = await credential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
+        var token = await credential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
         HttpRequestMessage request = new(method, requestUri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
         return request;
@@ -154,9 +155,9 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     private async Task<JsonDocument> SendForJsonAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        var response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
-        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
     }
 
@@ -226,7 +227,7 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     private static CanonicalItem? ConvertContact(JsonElement element)
     {
-        string? id = element.TryGetProperty("id", out JsonElement idElement) ? idElement.GetString() : null;
+        string? id = element.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
         if (string.IsNullOrWhiteSpace(id))
         {
             return null;
@@ -256,9 +257,9 @@ internal sealed class MicrosoftContactsConnector : IConnector
             Categories = ReadStringArray(element, "categories"),
         };
 
-        if (element.TryGetProperty("emailAddresses", out JsonElement emailAddresses))
+        if (element.TryGetProperty("emailAddresses", out var emailAddresses))
         {
-            foreach (JsonElement email in emailAddresses.EnumerateArray())
+            foreach (var email in emailAddresses.EnumerateArray())
             {
                 string? address = ReadString(email, "address");
                 if (!string.IsNullOrWhiteSpace(address))
@@ -296,7 +297,7 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     private async Task PopulatePhotoAsync(CanonicalItem item, string id, CancellationToken cancellationToken)
     {
-        (byte[] photoBytes, string contentType)? photo = await DownloadPhotoAsync(id, cancellationToken);
+        var photo = await DownloadPhotoAsync(id, cancellationToken);
         if (photo is null)
         {
             ContactPhotoMetadata.SetNoPhoto(item);
@@ -308,8 +309,8 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     private async Task<(byte[] photoBytes, string contentType)?> DownloadPhotoAsync(string id, CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
-        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Get, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return null;
@@ -330,10 +331,10 @@ internal sealed class MicrosoftContactsConnector : IConnector
     {
         if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out string contentType))
         {
-            using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Put, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
+            using var request = await CreateRequestAsync(HttpMethod.Put, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
             request.Content = new ByteArrayContent(photoBytes);
             request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
-            using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+            using var response = await httpClient.SendAsync(request, cancellationToken);
             await EnsureSuccessAsync(response, cancellationToken);
             return;
         }
@@ -343,8 +344,8 @@ internal sealed class MicrosoftContactsConnector : IConnector
             return;
         }
 
-        using HttpRequestMessage deleteRequest = await CreateRequestAsync(HttpMethod.Delete, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
-        using HttpResponseMessage deleteResponse = await httpClient.SendAsync(deleteRequest, cancellationToken);
+        using var deleteRequest = await CreateRequestAsync(HttpMethod.Delete, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
+        using var deleteResponse = await httpClient.SendAsync(deleteRequest, cancellationToken);
         if (deleteResponse.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return;
@@ -355,12 +356,12 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     private static void AddPhones(ICollection<ContactPhone> phones, JsonElement element, string propertyName, string label)
     {
-        if (!element.TryGetProperty(propertyName, out JsonElement values))
+        if (!element.TryGetProperty(propertyName, out var values))
         {
             return;
         }
 
-        foreach (JsonElement phone in values.EnumerateArray())
+        foreach (var phone in values.EnumerateArray())
         {
             string? value = phone.GetString();
             if (!string.IsNullOrWhiteSpace(value))
@@ -372,7 +373,7 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     private static void AddAddress(ICollection<ContactAddress> addresses, JsonElement element, string propertyName, string label)
     {
-        if (!element.TryGetProperty(propertyName, out JsonElement addressElement) || addressElement.ValueKind != JsonValueKind.Object)
+        if (!element.TryGetProperty(propertyName, out var addressElement) || addressElement.ValueKind != JsonValueKind.Object)
         {
             return;
         }
@@ -389,13 +390,13 @@ internal sealed class MicrosoftContactsConnector : IConnector
     }
 
     private static string? ReadString(JsonElement element, string propertyName) =>
-        element.TryGetProperty(propertyName, out JsonElement property) && property.ValueKind != JsonValueKind.Null
+        element.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.GetString()
             : null;
 
     private static List<string> ReadStringArray(JsonElement element, string propertyName)
     {
-        if (!element.TryGetProperty(propertyName, out JsonElement property) || property.ValueKind != JsonValueKind.Array)
+        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.Array)
         {
             return [];
         }
@@ -410,13 +411,13 @@ internal sealed class MicrosoftContactsConnector : IConnector
     private static DateTimeOffset? ReadDateTimeOffset(JsonElement element, string propertyName)
     {
         string? value = ReadString(element, propertyName);
-        return DateTimeOffset.TryParse(value, out DateTimeOffset dateTimeOffset) ? dateTimeOffset : null;
+        return DateTimeOffset.TryParse(value, out var dateTimeOffset) ? dateTimeOffset : null;
     }
 
     private static DateOnly? ReadDateOnly(JsonElement element, string propertyName)
     {
         string? value = ReadString(element, propertyName);
-        if (DateTimeOffset.TryParse(value, out DateTimeOffset dateTimeOffset))
+        if (DateTimeOffset.TryParse(value, out var dateTimeOffset))
         {
             return DateOnly.FromDateTime(dateTimeOffset.UtcDateTime);
         }

@@ -1,9 +1,10 @@
-namespace Summerdawn.Kagami.Authentication;
 
 using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+
+namespace Summerdawn.Kagami.Authentication;
 
 public sealed class GoogleOAuthCredential : IConnectorCredential
 {
@@ -34,7 +35,7 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
         this.scopes = scopes;
         this.httpClient = httpClient;
 
-        GoogleTokenCache? cached = GoogleTokenCache.Load(endpointName);
+        var cached = GoogleTokenCache.Load(endpointName);
         if (cached is not null)
         {
             accessToken = cached.AccessToken;
@@ -72,27 +73,27 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
             new KeyValuePair<string, string>("grant_type", "refresh_token"),
         ]);
 
-        HttpResponseMessage response = await httpClient.PostAsync(TokenEndpoint, body, cancellationToken);
+        var response = await httpClient.PostAsync(TokenEndpoint, body, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             return false;
         }
 
-        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using JsonDocument doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        JsonElement root = doc.RootElement;
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var root = doc.RootElement;
 
-        string? newAccessToken = root.TryGetProperty("access_token", out JsonElement atElem) ? atElem.GetString() : null;
+        string? newAccessToken = root.TryGetProperty("access_token", out var atElem) ? atElem.GetString() : null;
         if (string.IsNullOrEmpty(newAccessToken))
         {
             return false;
         }
 
         accessToken = newAccessToken;
-        int expiresIn = root.TryGetProperty("expires_in", out JsonElement expElem) ? expElem.GetInt32() : 3600;
+        int expiresIn = root.TryGetProperty("expires_in", out var expElem) ? expElem.GetInt32() : 3600;
         tokenExpiry = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(expiresIn);
 
-        if (root.TryGetProperty("refresh_token", out JsonElement rtElem) && rtElem.GetString() is string newRefreshToken)
+        if (root.TryGetProperty("refresh_token", out var rtElem) && rtElem.GetString() is string newRefreshToken)
         {
             refreshToken = newRefreshToken;
         }
@@ -133,7 +134,7 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
 
         try
         {
-            using CancellationTokenRegistration registration = cancellationToken.Register(listener.Stop);
+            using var registration = cancellationToken.Register(listener.Stop);
             HttpListenerContext context;
             try
             {
@@ -186,19 +187,19 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
             new KeyValuePair<string, string>("grant_type", "authorization_code"),
         ]);
 
-        HttpResponseMessage response = await httpClient.PostAsync(TokenEndpoint, body, cancellationToken);
+        var response = await httpClient.PostAsync(TokenEndpoint, body, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using JsonDocument doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        JsonElement root = doc.RootElement;
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var root = doc.RootElement;
 
         accessToken = root.GetProperty("access_token").GetString()
             ?? throw new InvalidOperationException("Token exchange response did not include an access token.");
-        int expiresIn = root.TryGetProperty("expires_in", out JsonElement expElem) ? expElem.GetInt32() : 3600;
+        int expiresIn = root.TryGetProperty("expires_in", out var expElem) ? expElem.GetInt32() : 3600;
         tokenExpiry = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(expiresIn);
 
-        if (root.TryGetProperty("refresh_token", out JsonElement rtElem) && rtElem.GetString() is string newRefreshToken)
+        if (root.TryGetProperty("refresh_token", out var rtElem) && rtElem.GetString() is string newRefreshToken)
         {
             refreshToken = newRefreshToken;
         }

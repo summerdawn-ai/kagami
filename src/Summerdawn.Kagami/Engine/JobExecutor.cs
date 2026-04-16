@@ -1,10 +1,10 @@
-namespace Summerdawn.Kagami.Engine;
 
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
+namespace Summerdawn.Kagami.Engine;
 /// <summary>
 /// Executes a single sync job using two connectors and the planner.
 /// </summary>
@@ -78,28 +78,28 @@ public sealed class JobExecutor(
         await connectorA.AuthenticateAsync(cancellationToken);
         await connectorB.AuthenticateAsync(cancellationToken);
 
-        IReadOnlyList<LinkStateRow> existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
+        var existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
         JobExecutionResult result = new() { JobKey = jobKey };
         string filterScope = filter?.Scope ?? string.Empty;
 
         // --- Read current snapshots from both sides ---
         var currentPageSetA = await ReadCurrentPagesAsync(connectorA, jobOptions.Source, cancellationToken);
-        IReadOnlyList<CanonicalItem> currentItemsA = filter is not null ? filter.Apply(currentPageSetA.Items) : currentPageSetA.Items;
+        var currentItemsA = filter is not null ? filter.Apply(currentPageSetA.Items) : currentPageSetA.Items;
 
         var currentPageSetB = await ReadCurrentPagesAsync(connectorB, jobOptions.Destination, cancellationToken);
-        IReadOnlyList<CanonicalItem> currentItemsB = filter is not null ? filter.Apply(currentPageSetB.Items) : currentPageSetB.Items;
+        var currentItemsB = filter is not null ? filter.Apply(currentPageSetB.Items) : currentPageSetB.Items;
 
         // --- Poll incremental changes (for cursor tracking) ---
-        EndpointCursorState? cursorStateA = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Source, cancellationToken);
+        var cursorStateA = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Source, cancellationToken);
         string? cursorA = GetApplicableCursor(jobKey, jobOptions.Source, cursorStateA, filterScope);
         var pageSetA = await ReadAllPagesAsync(connectorA, jobOptions.Source, cursorA, force, cancellationToken);
 
-        EndpointCursorState? cursorStateB = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Destination, cancellationToken);
+        var cursorStateB = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Destination, cancellationToken);
         string? cursorB = GetApplicableCursor(jobKey, jobOptions.Destination, cursorStateB, filterScope);
         var pageSetB = await ReadAllPagesAsync(connectorB, jobOptions.Destination, cursorB, force, cancellationToken);
 
         // --- Plan actions (single pass over full current state from both sides) ---
-        IReadOnlyList<SyncAction> actions = planner.PlanActions(jobOptions, currentItemsA, currentItemsB, existingLinks, force);
+        var actions = planner.PlanActions(jobOptions, currentItemsA, currentItemsB, existingLinks, force);
 
         var actionsToB = actions.Where(a => a.TargetSide == SyncSide.Destination).ToList();
         var actionsToA = actions.Where(a => a.TargetSide == SyncSide.Source).ToList();
@@ -182,7 +182,7 @@ public sealed class JobExecutor(
 
                 case SyncActionKind.Update when action.Item is not null:
                     {
-                        LinkStateRow? link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId);
+                        var link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId);
                         if (link is not null && action.MatchedTargetItem is not null && IsDuplicateLinkAction(link, action, updateSide))
                         {
                             continue;
@@ -195,7 +195,7 @@ public sealed class JobExecutor(
                                 continue;
                             }
 
-                            CanonicalItem matchedTarget = CreateTargetItem(action.Item, null, updateSide, action.MatchedTargetItem);
+                            var matchedTarget = CreateTargetItem(action.Item, null, updateSide, action.MatchedTargetItem);
                             var matchedUpdate = await targetConnector.UpdateItemAsync(matchedTarget, cancellationToken);
                             await operationLog.AppendAsync(jobKey, entityType, "update", matchedUpdate.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
@@ -217,7 +217,7 @@ public sealed class JobExecutor(
                             break;
                         }
 
-                        CanonicalItem targetItem = CreateTargetItem(action.Item, link, updateSide, action.MatchedTargetItem);
+                        var targetItem = CreateTargetItem(action.Item, link, updateSide, action.MatchedTargetItem);
                         var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
                         await operationLog.AppendAsync(jobKey, entityType, "update", updated.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
@@ -370,7 +370,7 @@ public sealed class JobExecutor(
 
     private void LogPlannedActions(string jobKey, IReadOnlyList<SyncAction> actions)
     {
-        foreach (SyncAction action in actions.Where(a => a.Kind is SyncActionKind.Create or SyncActionKind.Update or SyncActionKind.Delete))
+        foreach (var action in actions.Where(a => a.Kind is SyncActionKind.Create or SyncActionKind.Update or SyncActionKind.Delete))
         {
             string verb = action.Kind switch
             {
@@ -423,7 +423,7 @@ public sealed class JobExecutor(
 
     private static async Task EnsureActionItemsLoadedAsync(IReadOnlyList<SyncAction> actions, CancellationToken cancellationToken)
     {
-        foreach (SyncAction action in actions)
+        foreach (var action in actions)
         {
             if (action.Kind is SyncActionKind.Create or SyncActionKind.Update && action.Item is not null)
             {

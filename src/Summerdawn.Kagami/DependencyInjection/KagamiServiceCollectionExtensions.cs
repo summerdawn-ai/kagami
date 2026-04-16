@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.DependencyInjection;
 
 using System.Diagnostics.CodeAnalysis;
 
@@ -11,6 +10,7 @@ using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Persistence;
 
+namespace Summerdawn.Kagami.DependencyInjection;
 /// <summary>
 /// Extension methods for registering Kagami services.
 /// </summary>
@@ -41,7 +41,7 @@ public static class KagamiServiceCollectionExtensions
         {
             if (!string.IsNullOrWhiteSpace(endpoint.Credential.Type))
             {
-                IReadOnlyList<string> scopes = ScopesFor(endpoint.Type);
+                var scopes = ScopesFor(endpoint.Type);
                 credentials[endpointName] = CredentialFactory.Create(endpoint.Credential, authHttpClient, scopes, endpointName);
             }
         }

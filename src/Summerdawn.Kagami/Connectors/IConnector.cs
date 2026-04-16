@@ -1,7 +1,7 @@
-namespace Summerdawn.Kagami.Connectors;
 
 using Summerdawn.Kagami.Models;
 
+namespace Summerdawn.Kagami.Connectors;
 /// <summary>
 /// Provider-neutral connector abstraction for a single endpoint.
 /// </summary>
