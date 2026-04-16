@@ -43,6 +43,15 @@ public sealed class StateDatabase(string databasePath, ILogger<StateDatabase> lo
             PRIMARY KEY (endpoint_name)
         );
 
+        CREATE TABLE IF NOT EXISTS job_endpoint_cursors (
+            job_key       TEXT NOT NULL,
+            endpoint_name TEXT NOT NULL,
+            scope         TEXT NOT NULL DEFAULT '',
+            cursor_value  TEXT NOT NULL,
+            updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (job_key, endpoint_name)
+        );
+
         CREATE TABLE IF NOT EXISTS link_state (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
             job_key          TEXT NOT NULL,

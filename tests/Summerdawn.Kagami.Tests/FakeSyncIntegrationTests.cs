@@ -89,6 +89,37 @@ public sealed class FakeSyncIntegrationTests : IDisposable
         Assert.Equal(firstLinks.Count, secondLinks.Count);
     }
 
+    [Fact]
+    public async Task ForwardUpdateRefreshesBothVersionBaselines()
+    {
+        connectorA.Seed(CreateEvent("a1", "Meeting"));
+        connectorB.Seed(CreateEvent("b1", "Meeting"));
+
+        await linkStateRepository.UpsertAsync(new LinkStateRow
+        {
+            JobKey = "job-1",
+            EntityType = EntityType.CalendarEvent,
+            SideAId = "a1",
+            SideBId = "b1",
+            SideAVersion = "v1",
+            SideBVersion = "v1",
+        });
+
+        await connectorA.UpdateItemAsync(CreateEvent("a1", "Updated Meeting"));
+
+        var firstRun = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
+        var linksAfterUpdate = await linkStateRepository.GetByJobAsync("job-1");
+        var secondRun = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
+        var currentSource = await connectorA.GetItemAsync("a1");
+        var currentTarget = await connectorB.GetItemAsync("b1");
+
+        Assert.True(firstRun.Succeeded);
+        Assert.Single(linksAfterUpdate);
+        Assert.Equal(currentSource!.Version, linksAfterUpdate[0].SideAVersion);
+        Assert.Equal(currentTarget!.Version, linksAfterUpdate[0].SideBVersion);
+        Assert.Equal(0, secondRun.ActionsPlanned);
+    }
+
     private static JobOptions CreateJob(SyncMode mode = SyncMode.Bidirectional) =>
         new()
         {

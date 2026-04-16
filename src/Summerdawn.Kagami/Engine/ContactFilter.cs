@@ -23,10 +23,16 @@ public sealed partial class ContactFilter
 {
     private readonly Func<CanonicalItem, bool> predicate;
 
-    private ContactFilter(Func<CanonicalItem, bool> predicate)
+    private ContactFilter(Func<CanonicalItem, bool> predicate, string scope)
     {
         this.predicate = predicate;
+        Scope = scope;
     }
+
+    /// <summary>
+    /// Gets the raw filter text used to construct this filter.
+    /// </summary>
+    public string Scope { get; }
 
     /// <summary>
     /// Parses an OData-style filter expression and returns a <see cref="ContactFilter"/>,
@@ -49,7 +55,7 @@ public sealed partial class ContactFilter
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(item => MatchesName(item, name => name.StartsWith(value, StringComparison.OrdinalIgnoreCase)));
+            return new ContactFilter(item => MatchesName(item, name => name.StartsWith(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
         }
 
         // endswith(name,'value')
@@ -57,7 +63,7 @@ public sealed partial class ContactFilter
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(item => MatchesName(item, name => name.EndsWith(value, StringComparison.OrdinalIgnoreCase)));
+            return new ContactFilter(item => MatchesName(item, name => name.EndsWith(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
         }
 
         // contains(name,'value')
@@ -65,7 +71,7 @@ public sealed partial class ContactFilter
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(item => MatchesName(item, name => name.Contains(value, StringComparison.OrdinalIgnoreCase)));
+            return new ContactFilter(item => MatchesName(item, name => name.Contains(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
         }
 
         // name eq 'value'
@@ -73,7 +79,7 @@ public sealed partial class ContactFilter
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(item => MatchesName(item, name => name.Equals(value, StringComparison.OrdinalIgnoreCase)));
+            return new ContactFilter(item => MatchesName(item, name => name.Equals(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
         }
 
         throw new ArgumentException($"Unrecognized filter expression: '{filterExpression}'. " +

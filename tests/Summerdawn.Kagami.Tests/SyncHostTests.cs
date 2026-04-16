@@ -89,6 +89,25 @@ public sealed class SyncHostTests : IDisposable
         Assert.Empty(await linkStateRepository.GetByJobAsync("job-a"));
     }
 
+    [Fact]
+    public async Task ResetJobAsyncClearsOnlyThatJobsCursorState()
+    {
+        FakeConnector sourceA = new();
+        FakeConnector targetA = new();
+        FakeConnector sourceB = new();
+        FakeConnector targetB = new();
+        SyncHost host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
+        EndpointCursorRepository cursorRepository = new(db);
+
+        await cursorRepository.SetCursorAsync("job-a", "endpointA1", "startswith(name,'A')", "cursor-a");
+        await cursorRepository.SetCursorAsync("other-job", "endpointA1", string.Empty, "cursor-b");
+
+        await host.ResetJobAsync("job-a");
+
+        Assert.Null(await cursorRepository.GetCursorAsync("job-a", "endpointA1"));
+        Assert.NotNull(await cursorRepository.GetCursorAsync("other-job", "endpointA1"));
+    }
+
     private SyncHost CreateHost(
         FakeConnector sourceA,
         FakeConnector targetA,

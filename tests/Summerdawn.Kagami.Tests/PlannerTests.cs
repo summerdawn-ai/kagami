@@ -14,14 +14,14 @@ public sealed class PlannerTests
     public void PlanFromSideARespectsDirectionPolicy()
     {
         var job = CreateJob(SyncMode.BToA);
-        var actions = planner.PlanFromSideA(job, [CreateItem("a1")], []);
+        var actions = planner.PlanFromSideA(job, [CreateItem("a1")], [], []);
         Assert.Empty(actions);
     }
 
     [Fact]
     public void PlanFromSideACreatesWhenNoLinkExists()
     {
-        var actions = planner.PlanFromSideA(CreateJob(), [CreateItem("a1")], []);
+        var actions = planner.PlanFromSideA(CreateJob(), [CreateItem("a1")], [], []);
         Assert.Single(actions);
         Assert.Equal(SyncActionKind.Create, actions[0].Kind);
         Assert.Equal(SyncSide.B, actions[0].TargetSide);
@@ -33,6 +33,7 @@ public sealed class PlannerTests
         var actions = planner.PlanFromSideA(
             CreateJob(deletePolicy: DeletePolicy.Mirror),
             [new CanonicalItem { EntityType = EntityType.CalendarEvent, SourceId = "a1", IsDeleted = true }],
+            [],
             [new LinkStateRow { JobKey = "job-1", EntityType = EntityType.CalendarEvent, SideAId = "a1", SideBId = "b1" }]);
 
         Assert.Single(actions);
@@ -54,11 +55,216 @@ public sealed class PlannerTests
 
         var changedItem = CreateItem("a1", "v2");
 
-        Assert.Single(planner.PlanFromSideA(CreateJob(SyncMode.AToB), [changedItem], [link]));
-        Assert.Empty(planner.PlanFromSideA(CreateJob(SyncMode.BToA), [changedItem], [link]));
+        Assert.Single(planner.PlanFromSideA(CreateJob(SyncMode.AToB), [changedItem], [], [link]));
+        Assert.Empty(planner.PlanFromSideA(CreateJob(SyncMode.BToA), [changedItem], [], [link]));
     }
 
-    private static JobOptions CreateJob(SyncMode mode = SyncMode.Bidirectional, DeletePolicy deletePolicy = DeletePolicy.Mirror) =>
+    [Fact]
+    public void PlanFromSideAResolvesConflictWhenTargetAlsoChanged()
+    {
+        var link = new LinkStateRow
+        {
+            JobKey = "job-1",
+            EntityType = EntityType.CalendarEvent,
+            SideAId = "a1",
+            SideBId = "b1",
+            SideAVersion = "v1",
+            SideBVersion = "v1",
+        };
+
+        var sourceItem = CreateItem("a1", "v2", lastModified: DateTimeOffset.UtcNow.AddMinutes(-5));
+        var targetItem = CreateItem("b1", "v2b", lastModified: DateTimeOffset.UtcNow);
+
+        var actions = planner.PlanFromSideA(
+            CreateJob(conflictPolicy: ConflictPolicy.Skip),
+            [sourceItem],
+            [targetItem],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+    }
+
+    [Fact]
+    public void PlanFromSideAResolvesConflictWithSideAWinsPolicy()
+    {
+        var link = new LinkStateRow
+        {
+            JobKey = "job-1",
+            EntityType = EntityType.CalendarEvent,
+            SideAId = "a1",
+            SideBId = "b1",
+            SideAVersion = "v1",
+            SideBVersion = "v1",
+        };
+
+        var actions = planner.PlanFromSideA(
+            CreateJob(conflictPolicy: ConflictPolicy.SideAWins),
+            [CreateItem("a1", "v2")],
+            [CreateItem("b1", "v2b")],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
+    }
+
+    [Fact]
+    public void PlanFromSideBResolvesConflictWithSideAWinsPolicy()
+    {
+        var link = new LinkStateRow
+        {
+            JobKey = "job-1",
+            EntityType = EntityType.CalendarEvent,
+            SideAId = "a1",
+            SideBId = "b1",
+            SideAVersion = "v1",
+            SideBVersion = "v1",
+        };
+
+        var actions = planner.PlanFromSideB(
+            CreateJob(conflictPolicy: ConflictPolicy.SideAWins),
+            [CreateItem("b1", "v2")],
+            [CreateItem("a1", "v2a")],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+    }
+
+    [Fact]
+    public void PlanFromSideAResolvesConflictWithSideBWinsPolicy()
+    {
+        var link = new LinkStateRow
+        {
+            JobKey = "job-1",
+            EntityType = EntityType.CalendarEvent,
+            SideAId = "a1",
+            SideBId = "b1",
+            SideAVersion = "v1",
+            SideBVersion = "v1",
+        };
+
+        var actions = planner.PlanFromSideA(
+            CreateJob(conflictPolicy: ConflictPolicy.SideBWins),
+            [CreateItem("a1", "v2")],
+            [CreateItem("b1", "v2b")],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+    }
+
+    [Fact]
+    public void PlanFromSideBResolvesConflictWithSideBWinsPolicy()
+    {
+        var link = new LinkStateRow
+        {
+            JobKey = "job-1",
+            EntityType = EntityType.CalendarEvent,
+            SideAId = "a1",
+            SideBId = "b1",
+            SideAVersion = "v1",
+            SideBVersion = "v1",
+        };
+
+        var actions = planner.PlanFromSideB(
+            CreateJob(conflictPolicy: ConflictPolicy.SideBWins),
+            [CreateItem("b1", "v2")],
+            [CreateItem("a1", "v2a")],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
+    }
+
+    [Fact]
+    public void PlanFromSideAUpdatesWhenOnlySourceChanged()
+    {
+        var link = new LinkStateRow
+        {
+            JobKey = "job-1",
+            EntityType = EntityType.CalendarEvent,
+            SideAId = "a1",
+            SideBId = "b1",
+            SideAVersion = "v1",
+            SideBVersion = "v1",
+        };
+
+        var actions = planner.PlanFromSideA(
+            CreateJob(),
+            [CreateItem("a1", "v2")],
+            [CreateItem("b1", "v1")],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
+    }
+
+    [Fact]
+    public void ResolveConflictingActionsKeepsOnlySideAUpdateWhenPolicyIsSideAWins()
+    {
+        List<SyncAction> actionsAtoB = [CreateDuplicateMatchAction(SyncSide.B, CreateItem("a1"), CreateItem("b1"))];
+        List<SyncAction> actionsBtoA = [CreateDuplicateMatchAction(SyncSide.A, CreateItem("b1"), CreateItem("a1"))];
+
+        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.SideAWins), actionsAtoB, actionsBtoA);
+
+        Assert.Equal(SyncActionKind.Update, actionsAtoB[0].Kind);
+        Assert.Equal(SyncActionKind.NoOp, actionsBtoA[0].Kind);
+    }
+
+    [Fact]
+    public void ResolveConflictingActionsKeepsOnlySideBUpdateWhenPolicyIsSideBWins()
+    {
+        List<SyncAction> actionsAtoB = [CreateDuplicateMatchAction(SyncSide.B, CreateItem("a1"), CreateItem("b1"))];
+        List<SyncAction> actionsBtoA = [CreateDuplicateMatchAction(SyncSide.A, CreateItem("b1"), CreateItem("a1"))];
+
+        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.SideBWins), actionsAtoB, actionsBtoA);
+
+        Assert.Equal(SyncActionKind.NoOp, actionsAtoB[0].Kind);
+        Assert.Equal(SyncActionKind.Update, actionsBtoA[0].Kind);
+    }
+
+    [Fact]
+    public void ResolveConflictingActionsMakesBothNoOpWhenPolicyIsSkip()
+    {
+        List<SyncAction> actionsAtoB = [CreateDuplicateMatchAction(SyncSide.B, CreateItem("a1"), CreateItem("b1"))];
+        List<SyncAction> actionsBtoA = [CreateDuplicateMatchAction(SyncSide.A, CreateItem("b1"), CreateItem("a1"))];
+
+        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.Skip), actionsAtoB, actionsBtoA);
+
+        Assert.Equal(SyncActionKind.NoOp, actionsAtoB[0].Kind);
+        Assert.Equal(SyncActionKind.NoOp, actionsBtoA[0].Kind);
+    }
+
+    [Fact]
+    public void ResolveConflictingActionsUsesLastWriteWinsForDuplicateMatches()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        List<SyncAction> actionsAtoB =
+        [
+            CreateDuplicateMatchAction(
+                SyncSide.B,
+                CreateItem("a1", lastModified: now),
+                CreateItem("b1", lastModified: now.AddMinutes(-1)))
+        ];
+        List<SyncAction> actionsBtoA =
+        [
+            CreateDuplicateMatchAction(
+                SyncSide.A,
+                CreateItem("b1", lastModified: now.AddMinutes(-1)),
+                CreateItem("a1", lastModified: now))
+        ];
+
+        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.LastWriteWins), actionsAtoB, actionsBtoA);
+
+        Assert.Equal(SyncActionKind.Update, actionsAtoB[0].Kind);
+        Assert.Equal(SyncActionKind.NoOp, actionsBtoA[0].Kind);
+    }
+
+    private static JobOptions CreateJob(
+        SyncMode mode = SyncMode.Bidirectional,
+        DeletePolicy deletePolicy = DeletePolicy.Mirror,
+        ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins) =>
         new()
         {
             Enabled = true,
@@ -67,13 +273,31 @@ public sealed class PlannerTests
             EndpointB = "endpointB",
             SyncMode = mode,
             DeletePolicy = deletePolicy,
+            ConflictPolicy = conflictPolicy,
         };
 
-    private static CanonicalItem CreateItem(string id, string version = "v1") =>
+    private static CanonicalItem CreateItem(string id, string version = "v1", DateTimeOffset? lastModified = null) =>
         new()
         {
             EntityType = EntityType.CalendarEvent,
             SourceId = id,
             Version = version,
+            Payload = new CanonicalCalendarEvent
+            {
+                Subject = id,
+                Start = DateTimeOffset.UtcNow,
+                End = DateTimeOffset.UtcNow.AddHours(1),
+                LastModified = lastModified,
+            },
+        };
+
+    private static SyncAction CreateDuplicateMatchAction(SyncSide targetSide, CanonicalItem item, CanonicalItem matchedTargetItem) =>
+        new()
+        {
+            Kind = SyncActionKind.Update,
+            TargetSide = targetSide,
+            Item = item,
+            MatchedTargetItem = matchedTargetItem,
+            Reason = "Matched existing contact on target side",
         };
 }

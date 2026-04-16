@@ -21,4 +21,9 @@ public sealed class SyncAction
 
     /// <summary>Human-readable reason for this action.</summary>
     public string? Reason { get; set; }
+
+    /// <summary>
+    /// Optional already-observed target item for update actions that are not backed by an existing link.
+    /// </summary>
+    public CanonicalItem? MatchedTargetItem { get; set; }
 }

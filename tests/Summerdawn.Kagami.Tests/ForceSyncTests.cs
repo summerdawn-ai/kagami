@@ -122,6 +122,30 @@ public sealed class ForceSyncTests : IDisposable
         Assert.Contains(connectorB.Items, i => i.SourceId == "b-bob" && !i.IsDeleted);
     }
 
+    [Fact]
+    public async Task ChangingFilterScopeForcesFullEnumeration()
+    {
+        connectorA.Seed(CreateContact("a1", "Alice"));
+        connectorA.Seed(CreateContact("a2", "Bob"));
+
+        ContactFilter filteredScope = ContactFilter.Parse("startswith(name,'A')")!;
+        var filteredResult = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, filter: filteredScope);
+        EndpointCursorState? filteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
+
+        var unfilteredResult = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
+        EndpointCursorState? unfilteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
+
+        Assert.True(filteredResult.Succeeded);
+        Assert.NotNull(filteredCursor);
+        Assert.Equal("startswith(name,'A')", filteredCursor!.Scope);
+        Assert.True(unfilteredResult.Succeeded);
+        Assert.Equal(1, unfilteredResult.ActionsPlanned);
+        Assert.Equal(2, connectorB.Items.Count(item => !item.IsDeleted));
+        Assert.Contains(connectorB.Items, item => item.Payload is CanonicalContact { DisplayName: "Bob" } && !item.IsDeleted);
+        Assert.NotNull(unfilteredCursor);
+        Assert.Equal(string.Empty, unfilteredCursor!.Scope);
+    }
+
     private static JobOptions CreateJob() =>
         new()
         {
