@@ -82,49 +82,44 @@ public sealed class JobExecutor(
         JobExecutionResult result = new() { JobKey = jobKey };
         string filterScope = filter?.Scope ?? string.Empty;
 
-        // --- Poll side A ---
-        EndpointCursorState? cursorStateA = await cursorRepo.GetCursorAsync(jobKey, jobOptions.EndpointA, cancellationToken);
-        string? cursorA = GetApplicableCursor(jobKey, jobOptions.EndpointA, cursorStateA, filterScope);
-        var pageSetA = await ReadAllPagesAsync(connectorA, jobOptions.EndpointA, cursorA, force, cancellationToken);
-        IReadOnlyList<CanonicalItem> itemsA = filter is not null ? filter.Apply(pageSetA.Items) : pageSetA.Items;
-
-        // --- Read current state for side A/B ---
+        // --- Read current snapshots from both sides ---
         var currentPageSetA = await ReadCurrentPagesAsync(connectorA, jobOptions.EndpointA, cancellationToken);
         IReadOnlyList<CanonicalItem> currentItemsA = filter is not null ? filter.Apply(currentPageSetA.Items) : currentPageSetA.Items;
 
         var currentPageSetB = await ReadCurrentPagesAsync(connectorB, jobOptions.EndpointB, cancellationToken);
         IReadOnlyList<CanonicalItem> currentItemsB = filter is not null ? filter.Apply(currentPageSetB.Items) : currentPageSetB.Items;
 
-        // --- Poll side B ---
+        // --- Poll incremental changes (for cursor tracking) ---
+        EndpointCursorState? cursorStateA = await cursorRepo.GetCursorAsync(jobKey, jobOptions.EndpointA, cancellationToken);
+        string? cursorA = GetApplicableCursor(jobKey, jobOptions.EndpointA, cursorStateA, filterScope);
+        var pageSetA = await ReadAllPagesAsync(connectorA, jobOptions.EndpointA, cursorA, force, cancellationToken);
+
         EndpointCursorState? cursorStateB = await cursorRepo.GetCursorAsync(jobKey, jobOptions.EndpointB, cancellationToken);
         string? cursorB = GetApplicableCursor(jobKey, jobOptions.EndpointB, cursorStateB, filterScope);
         var pageSetB = await ReadAllPagesAsync(connectorB, jobOptions.EndpointB, cursorB, force, cancellationToken);
-        IReadOnlyList<CanonicalItem> itemsB = filter is not null ? filter.Apply(pageSetB.Items) : pageSetB.Items;
 
-        // --- Plan actions ---
-        var actionsAtoB = planner.PlanFromSideA(jobOptions, itemsA, currentItemsB, existingLinks, force).ToList();
-        var actionsBtoA = planner.PlanFromSideB(jobOptions, itemsB, currentItemsA, existingLinks, force).ToList();
-        planner.ResolveConflictingActions(jobOptions, actionsAtoB, actionsBtoA);
+        // --- Plan actions (single pass over full current state from both sides) ---
+        IReadOnlyList<SyncAction> actions = planner.PlanActions(jobOptions, currentItemsA, currentItemsB, existingLinks, force);
 
-        logger.LogInformation("Job {JobKey}: {Count} actions planned from A to B", jobKey, actionsAtoB.Count);
-        result.ActionsPlanned += actionsAtoB.Count;
-        logger.LogInformation("Job {JobKey}: {Count} actions planned from B to A", jobKey, actionsBtoA.Count);
-        result.ActionsPlanned += actionsBtoA.Count;
+        var actionsToB = actions.Where(a => a.TargetSide == SyncSide.B).ToList();
+        var actionsToA = actions.Where(a => a.TargetSide == SyncSide.A).ToList();
+
+        logger.LogInformation("Job {JobKey}: {Count} actions targeting B, {CountA} targeting A", jobKey, actionsToB.Count, actionsToA.Count);
+        result.ActionsPlanned += actions.Count;
 
         if (whatIf)
         {
-            LogPlannedActions(jobKey, actionsAtoB);
-            LogPlannedActions(jobKey, actionsBtoA);
+            LogPlannedActions(jobKey, actions);
         }
 
         if (!whatIf)
         {
-            await EnsureActionItemsLoadedAsync(actionsAtoB, cancellationToken);
-            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsAtoB, connectorB, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.B, cancellationToken);
+            await EnsureActionItemsLoadedAsync(actionsToB, cancellationToken);
+            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToB, connectorB, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.B, cancellationToken);
             existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
 
-            await EnsureActionItemsLoadedAsync(actionsBtoA, cancellationToken);
-            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsBtoA, connectorA, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.A, cancellationToken);
+            await EnsureActionItemsLoadedAsync(actionsToA, cancellationToken);
+            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToA, connectorA, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.A, cancellationToken);
 
             if (pageSetA.Cursor is not null)
             {

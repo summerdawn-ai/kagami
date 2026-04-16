@@ -10,31 +10,68 @@ public sealed class PlannerTests
 {
     private readonly Planner planner = new(NullLogger<Planner>.Instance);
 
+    // -------------------------------------------------------------------------
+    // Directional mode / basic create behavior
+    // -------------------------------------------------------------------------
+
     [Fact]
-    public void PlanFromSideARespectsDirectionPolicy()
+    public void PlanActions_ReturnsEmpty_WhenModeIsBToAAndOnlyASideHasItems()
     {
-        var job = CreateJob(SyncMode.BToA);
-        var actions = planner.PlanFromSideA(job, [CreateItem("a1")], [], []);
+        var actions = planner.PlanActions(CreateJob(SyncMode.BToA), [CreateItem("a1")], [], []);
         Assert.Empty(actions);
     }
 
     [Fact]
-    public void PlanFromSideACreatesWhenNoLinkExists()
+    public void PlanActions_ReturnsEmpty_WhenModeIsAtoBAndOnlyBSideHasItems()
     {
-        var actions = planner.PlanFromSideA(CreateJob(), [CreateItem("a1")], [], []);
+        var actions = planner.PlanActions(CreateJob(SyncMode.AToB), [], [CreateItem("b1")], []);
+        Assert.Empty(actions);
+    }
+
+    [Fact]
+    public void PlanActions_CreatesOnB_WhenUnlinkedAItemInAtoBMode()
+    {
+        var actions = planner.PlanActions(CreateJob(SyncMode.AToB), [CreateItem("a1")], [], []);
+
         Assert.Single(actions);
         Assert.Equal(SyncActionKind.Create, actions[0].Kind);
         Assert.Equal(SyncSide.B, actions[0].TargetSide);
     }
 
     [Fact]
-    public void PlanFromSideADeletesWhenConfiguredToMirrorDeletes()
+    public void PlanActions_CreatesOnA_WhenUnlinkedBItemInBToAMode()
     {
-        var actions = planner.PlanFromSideA(
+        var actions = planner.PlanActions(CreateJob(SyncMode.BToA), [], [CreateItem("b1")], []);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Create, actions[0].Kind);
+        Assert.Equal(SyncSide.A, actions[0].TargetSide);
+    }
+
+    [Fact]
+    public void PlanActions_CreatesBothDirections_WhenBidirectionalAndBothUnlinked()
+    {
+        var actions = planner.PlanActions(CreateJob(SyncMode.Bidirectional), [CreateItem("a1")], [CreateItem("b1")], []);
+
+        Assert.Equal(2, actions.Count);
+        Assert.Contains(actions, a => a.Kind == SyncActionKind.Create && a.TargetSide == SyncSide.B);
+        Assert.Contains(actions, a => a.Kind == SyncActionKind.Create && a.TargetSide == SyncSide.A);
+    }
+
+    // -------------------------------------------------------------------------
+    // Delete behavior
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void PlanActions_DeletesLinkedTarget_WhenSourceDeletedAndMirrorEnabled()
+    {
+        var link = CreateLink("a1", "b1");
+
+        var actions = planner.PlanActions(
             CreateJob(deletePolicy: DeletePolicy.Mirror),
             [new CanonicalItem { EntityType = EntityType.CalendarEvent, SourceId = "a1", IsDeleted = true }],
             [],
-            [new LinkStateRow { JobKey = "job-1", EntityType = EntityType.CalendarEvent, SideAId = "a1", SideBId = "b1" }]);
+            [link]);
 
         Assert.Single(actions);
         Assert.Equal(SyncActionKind.Delete, actions[0].Kind);
@@ -42,155 +79,43 @@ public sealed class PlannerTests
     }
 
     [Fact]
-    public void PlannerDerivesBehaviorFromCurrentJobConfiguration()
+    public void PlanActions_SkipsDelete_WhenDeletePolicyIgnore()
     {
-        var link = new LinkStateRow
-        {
-            JobKey = "job-1",
-            EntityType = EntityType.CalendarEvent,
-            SideAId = "a1",
-            SideBId = "b1",
-            SideAVersion = "v1",
-        };
+        var link = CreateLink("a1", "b1");
 
-        var changedItem = CreateItem("a1", "v2");
-
-        Assert.Single(planner.PlanFromSideA(CreateJob(SyncMode.AToB), [changedItem], [], [link]));
-        Assert.Empty(planner.PlanFromSideA(CreateJob(SyncMode.BToA), [changedItem], [], [link]));
-    }
-
-    [Fact]
-    public void PlanFromSideAResolvesConflictWhenTargetAlsoChanged()
-    {
-        var link = new LinkStateRow
-        {
-            JobKey = "job-1",
-            EntityType = EntityType.CalendarEvent,
-            SideAId = "a1",
-            SideBId = "b1",
-            SideAVersion = "v1",
-            SideBVersion = "v1",
-        };
-
-        var sourceItem = CreateItem("a1", "v2", lastModified: DateTimeOffset.UtcNow.AddMinutes(-5));
-        var targetItem = CreateItem("b1", "v2b", lastModified: DateTimeOffset.UtcNow);
-
-        var actions = planner.PlanFromSideA(
-            CreateJob(conflictPolicy: ConflictPolicy.Skip),
-            [sourceItem],
-            [targetItem],
+        var actions = planner.PlanActions(
+            CreateJob(deletePolicy: DeletePolicy.Ignore),
+            [new CanonicalItem { EntityType = EntityType.CalendarEvent, SourceId = "a1", IsDeleted = true }],
+            [],
             [link]);
 
-        Assert.Single(actions);
-        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+        Assert.Empty(actions);
     }
 
-    [Fact]
-    public void PlanFromSideAResolvesConflictWithSideAWinsPolicy()
-    {
-        var link = new LinkStateRow
-        {
-            JobKey = "job-1",
-            EntityType = EntityType.CalendarEvent,
-            SideAId = "a1",
-            SideBId = "b1",
-            SideAVersion = "v1",
-            SideBVersion = "v1",
-        };
+    // -------------------------------------------------------------------------
+    // Linked-pair behavior
+    // -------------------------------------------------------------------------
 
-        var actions = planner.PlanFromSideA(
-            CreateJob(conflictPolicy: ConflictPolicy.SideAWins),
-            [CreateItem("a1", "v2")],
-            [CreateItem("b1", "v2b")],
+    [Fact]
+    public void PlanActions_ReturnsNoAction_WhenLinkedPairUnchanged()
+    {
+        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
+
+        var actions = planner.PlanActions(
+            CreateJob(),
+            [CreateItem("a1", "v1")],
+            [CreateItem("b1", "v1")],
             [link]);
 
-        Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
+        Assert.Empty(actions);
     }
 
     [Fact]
-    public void PlanFromSideBResolvesConflictWithSideAWinsPolicy()
+    public void PlanActions_UpdatesB_WhenOnlySideAChanged()
     {
-        var link = new LinkStateRow
-        {
-            JobKey = "job-1",
-            EntityType = EntityType.CalendarEvent,
-            SideAId = "a1",
-            SideBId = "b1",
-            SideAVersion = "v1",
-            SideBVersion = "v1",
-        };
+        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
 
-        var actions = planner.PlanFromSideB(
-            CreateJob(conflictPolicy: ConflictPolicy.SideAWins),
-            [CreateItem("b1", "v2")],
-            [CreateItem("a1", "v2a")],
-            [link]);
-
-        Assert.Single(actions);
-        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
-    }
-
-    [Fact]
-    public void PlanFromSideAResolvesConflictWithSideBWinsPolicy()
-    {
-        var link = new LinkStateRow
-        {
-            JobKey = "job-1",
-            EntityType = EntityType.CalendarEvent,
-            SideAId = "a1",
-            SideBId = "b1",
-            SideAVersion = "v1",
-            SideBVersion = "v1",
-        };
-
-        var actions = planner.PlanFromSideA(
-            CreateJob(conflictPolicy: ConflictPolicy.SideBWins),
-            [CreateItem("a1", "v2")],
-            [CreateItem("b1", "v2b")],
-            [link]);
-
-        Assert.Single(actions);
-        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
-    }
-
-    [Fact]
-    public void PlanFromSideBResolvesConflictWithSideBWinsPolicy()
-    {
-        var link = new LinkStateRow
-        {
-            JobKey = "job-1",
-            EntityType = EntityType.CalendarEvent,
-            SideAId = "a1",
-            SideBId = "b1",
-            SideAVersion = "v1",
-            SideBVersion = "v1",
-        };
-
-        var actions = planner.PlanFromSideB(
-            CreateJob(conflictPolicy: ConflictPolicy.SideBWins),
-            [CreateItem("b1", "v2")],
-            [CreateItem("a1", "v2a")],
-            [link]);
-
-        Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
-    }
-
-    [Fact]
-    public void PlanFromSideAUpdatesWhenOnlySourceChanged()
-    {
-        var link = new LinkStateRow
-        {
-            JobKey = "job-1",
-            EntityType = EntityType.CalendarEvent,
-            SideAId = "a1",
-            SideBId = "b1",
-            SideAVersion = "v1",
-            SideBVersion = "v1",
-        };
-
-        var actions = planner.PlanFromSideA(
+        var actions = planner.PlanActions(
             CreateJob(),
             [CreateItem("a1", "v2")],
             [CreateItem("b1", "v1")],
@@ -198,68 +123,245 @@ public sealed class PlannerTests
 
         Assert.Single(actions);
         Assert.Equal(SyncActionKind.Update, actions[0].Kind);
+        Assert.Equal(SyncSide.B, actions[0].TargetSide);
     }
 
     [Fact]
-    public void ResolveConflictingActionsKeepsOnlySideAUpdateWhenPolicyIsSideAWins()
+    public void PlanActions_UpdatesA_WhenOnlySideBChanged()
     {
-        List<SyncAction> actionsAtoB = [CreateDuplicateMatchAction(SyncSide.B, CreateItem("a1"), CreateItem("b1"))];
-        List<SyncAction> actionsBtoA = [CreateDuplicateMatchAction(SyncSide.A, CreateItem("b1"), CreateItem("a1"))];
+        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
 
-        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.SideAWins), actionsAtoB, actionsBtoA);
+        var actions = planner.PlanActions(
+            CreateJob(),
+            [CreateItem("a1", "v1")],
+            [CreateItem("b1", "v2")],
+            [link]);
 
-        Assert.Equal(SyncActionKind.Update, actionsAtoB[0].Kind);
-        Assert.Equal(SyncActionKind.NoOp, actionsBtoA[0].Kind);
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
+        Assert.Equal(SyncSide.A, actions[0].TargetSide);
     }
 
     [Fact]
-    public void ResolveConflictingActionsKeepsOnlySideBUpdateWhenPolicyIsSideBWins()
+    public void PlanActions_UpdatesB_WhenBothChangedAndSideAWins()
     {
-        List<SyncAction> actionsAtoB = [CreateDuplicateMatchAction(SyncSide.B, CreateItem("a1"), CreateItem("b1"))];
-        List<SyncAction> actionsBtoA = [CreateDuplicateMatchAction(SyncSide.A, CreateItem("b1"), CreateItem("a1"))];
+        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
 
-        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.SideBWins), actionsAtoB, actionsBtoA);
+        var actions = planner.PlanActions(
+            CreateJob(conflictPolicy: ConflictPolicy.SideAWins),
+            [CreateItem("a1", "v2")],
+            [CreateItem("b1", "v2b")],
+            [link]);
 
-        Assert.Equal(SyncActionKind.NoOp, actionsAtoB[0].Kind);
-        Assert.Equal(SyncActionKind.Update, actionsBtoA[0].Kind);
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
+        Assert.Equal(SyncSide.B, actions[0].TargetSide);
+        Assert.Equal("a1", actions[0].Item!.SourceId);
     }
 
     [Fact]
-    public void ResolveConflictingActionsMakesBothNoOpWhenPolicyIsSkip()
+    public void PlanActions_UpdatesA_WhenBothChangedAndSideBWins()
     {
-        List<SyncAction> actionsAtoB = [CreateDuplicateMatchAction(SyncSide.B, CreateItem("a1"), CreateItem("b1"))];
-        List<SyncAction> actionsBtoA = [CreateDuplicateMatchAction(SyncSide.A, CreateItem("b1"), CreateItem("a1"))];
+        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
 
-        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.Skip), actionsAtoB, actionsBtoA);
+        var actions = planner.PlanActions(
+            CreateJob(conflictPolicy: ConflictPolicy.SideBWins),
+            [CreateItem("a1", "v2")],
+            [CreateItem("b1", "v2b")],
+            [link]);
 
-        Assert.Equal(SyncActionKind.NoOp, actionsAtoB[0].Kind);
-        Assert.Equal(SyncActionKind.NoOp, actionsBtoA[0].Kind);
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
+        Assert.Equal(SyncSide.A, actions[0].TargetSide);
+        Assert.Equal("b1", actions[0].Item!.SourceId);
     }
 
     [Fact]
-    public void ResolveConflictingActionsUsesLastWriteWinsForDuplicateMatches()
+    public void PlanActions_ReturnsNoOp_WhenBothChangedAndPolicyIsSkip()
     {
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-        List<SyncAction> actionsAtoB =
-        [
-            CreateDuplicateMatchAction(
-                SyncSide.B,
-                CreateItem("a1", lastModified: now),
-                CreateItem("b1", lastModified: now.AddMinutes(-1)))
-        ];
-        List<SyncAction> actionsBtoA =
-        [
-            CreateDuplicateMatchAction(
-                SyncSide.A,
-                CreateItem("b1", lastModified: now.AddMinutes(-1)),
-                CreateItem("a1", lastModified: now))
-        ];
+        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
 
-        planner.ResolveConflictingActions(CreateJob(conflictPolicy: ConflictPolicy.LastWriteWins), actionsAtoB, actionsBtoA);
+        var actions = planner.PlanActions(
+            CreateJob(conflictPolicy: ConflictPolicy.Skip),
+            [CreateItem("a1", "v2")],
+            [CreateItem("b1", "v2b")],
+            [link]);
 
-        Assert.Equal(SyncActionKind.Update, actionsAtoB[0].Kind);
-        Assert.Equal(SyncActionKind.NoOp, actionsBtoA[0].Kind);
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
     }
+
+    [Fact]
+    public void PlanActions_RespectsAtoBDirectionForLinkedPair()
+    {
+        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
+        var changedItem = CreateItem("a1", "v2");
+
+        // AToB mode: A changed → plan action
+        Assert.Single(planner.PlanActions(CreateJob(SyncMode.AToB), [changedItem], [CreateItem("b1", "v1")], [link]));
+        // BToA mode: A changed only → no action
+        Assert.Empty(planner.PlanActions(CreateJob(SyncMode.BToA), [changedItem], [CreateItem("b1", "v1")], [link]));
+    }
+
+    // -------------------------------------------------------------------------
+    // Duplicate / incremental scenarios
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void PlanActions_CreatesOnB_WhenLinkedBIsNotEligibleAndNewAMatchesIt()
+    {
+        // a1 is already linked to b1.
+        // a2 appears and semantically matches b1 (same display name + email).
+        // b1 must NOT be a duplicate candidate for a2; a2 should result in Create(B).
+        var link = CreateLink("a1", "b1", entityType: EntityType.Contact);
+        var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.AToB),
+            [a2],
+            [b1],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Create, actions[0].Kind);
+        Assert.Equal(SyncSide.B, actions[0].TargetSide);
+        Assert.Equal("a2", actions[0].Item!.SourceId);
+    }
+
+    [Fact]
+    public void PlanActions_CreatesOnA_WhenLinkedAIsNotEligibleAndNewBMatchesIt()
+    {
+        // Mirror of the scenario above: b1 is linked to a1; b2 matches a1 semantically.
+        // a1 must NOT be a duplicate candidate for b2; b2 should result in Create(A).
+        var link = CreateLink("a1", "b1", entityType: EntityType.Contact);
+        var b2 = CreateContactItem("b2", displayName: "Alice", email: "alice@example.com");
+        var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.BToA),
+            [a1],
+            [b2],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Create, actions[0].Kind);
+        Assert.Equal(SyncSide.A, actions[0].TargetSide);
+        Assert.Equal("b2", actions[0].Item!.SourceId);
+    }
+
+    [Fact]
+    public void PlanActions_ReturnsNoOp_WhenOneSourceMatchesMultipleTargets()
+    {
+        // a1 matches both b1 and b2 (ambiguous initial duplicate).
+        var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
+        var b2 = CreateContactItem("b2", displayName: "Alice", email: "alice@example.com");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.AToB),
+            [a1],
+            [b1, b2],
+            []);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+    }
+
+    [Fact]
+    public void PlanActions_ReturnsNoOp_WhenOneTargetMatchesMultipleSources()
+    {
+        // Mirror ambiguity: b1 matches both a1 and a2.
+        var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
+        var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.BToA),
+            [a1, a2],
+            [b1],
+            []);
+
+        // b1 has multiple A candidates → NoOp for b1 (1 action, ambiguous).
+        Assert.Single(actions);
+        Assert.All(actions, a => Assert.Equal(SyncActionKind.NoOp, a.Kind));
+    }
+
+    [Fact]
+    public void PlanActions_NoOpForAllCompetitors_WhenMultipleSourcesCompeteForSameTarget()
+    {
+        // a1 and a2 both uniquely match b1 (many-to-one competition).
+        var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
+        var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.AToB),
+            [a1, a2],
+            [b1],
+            []);
+
+        // Both a1 and a2 must be NoOp — no random winner.
+        Assert.Equal(2, actions.Count);
+        Assert.All(actions, a => Assert.Equal(SyncActionKind.NoOp, a.Kind));
+    }
+
+    // -------------------------------------------------------------------------
+    // Invariants: no two actions share the same source or target item
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void PlanActions_NeverProducesTwoActionsWithSameSourceItem()
+    {
+        // Build a scenario with multiple unlinked items to exercise a variety of paths.
+        var sideA = new[]
+        {
+            CreateItem("a1", "v1"),
+            CreateItem("a2", "v2"),
+            CreateItem("a3", "v3"),
+        };
+        var sideB = new[]
+        {
+            CreateItem("b1", "v1"),
+        };
+        var links = new[] { CreateLink("a1", "b1") };
+
+        IReadOnlyList<SyncAction> actions = planner.PlanActions(CreateJob(), sideA, sideB, links);
+
+        var sourceIds = actions
+            .Where(a => a.Item is not null)
+            .Select(a => a.Item!.SourceId)
+            .ToList();
+
+        Assert.Equal(sourceIds.Count, sourceIds.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public void PlanActions_NeverProducesTwoActionsWithSameTargetItem()
+    {
+        // Two unlinked contacts both matching the same target (many-to-one case).
+        var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
+        var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
+
+        IReadOnlyList<SyncAction> actions = planner.PlanActions(
+            CreateJob(SyncMode.AToB),
+            [a1, a2],
+            [b1],
+            []);
+
+        // Collect target IDs from Update/Create actions.
+        var targetIds = actions
+            .Where(a => a.Kind is SyncActionKind.Update && a.MatchedTargetItem is not null)
+            .Select(a => a.MatchedTargetItem!.SourceId)
+            .ToList();
+
+        Assert.Equal(targetIds.Count, targetIds.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
 
     private static JobOptions CreateJob(
         SyncMode mode = SyncMode.Bidirectional,
@@ -291,13 +393,38 @@ public sealed class PlannerTests
             },
         };
 
-    private static SyncAction CreateDuplicateMatchAction(SyncSide targetSide, CanonicalItem item, CanonicalItem matchedTargetItem) =>
+    private static CanonicalItem CreateContactItem(
+        string id,
+        string version = "v1",
+        string displayName = "",
+        string email = "",
+        DateTimeOffset? lastModified = null) =>
         new()
         {
-            Kind = SyncActionKind.Update,
-            TargetSide = targetSide,
-            Item = item,
-            MatchedTargetItem = matchedTargetItem,
-            Reason = "Matched existing contact on target side",
+            EntityType = EntityType.Contact,
+            SourceId = id,
+            Version = version,
+            Payload = new CanonicalContact
+            {
+                DisplayName = displayName,
+                Emails = string.IsNullOrEmpty(email) ? [] : [new ContactEmail { Address = email }],
+                LastModified = lastModified,
+            },
+        };
+
+    private static LinkStateRow CreateLink(
+        string sideAId,
+        string sideBId,
+        string? sideAVersion = null,
+        string? sideBVersion = null,
+        string entityType = EntityType.CalendarEvent) =>
+        new()
+        {
+            JobKey = "job-1",
+            EntityType = entityType,
+            SideAId = sideAId,
+            SideBId = sideBId,
+            SideAVersion = sideAVersion,
+            SideBVersion = sideBVersion,
         };
 }
