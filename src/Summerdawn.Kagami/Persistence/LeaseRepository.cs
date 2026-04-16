@@ -50,6 +50,15 @@ public sealed class LeaseRepository(StateDatabase db)
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    /// <summary>Force-releases all job leases regardless of holder or expiry. Returns the number of locks cleared.</summary>
+    public async Task<int> ForceReleaseAllAsync(CancellationToken cancellationToken = default)
+    {
+        await using var conn = db.OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM job_leases";
+        return await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     /// <summary>Checks whether a valid (unexpired) lease exists for a job.</summary>
     public async Task<bool> IsLockedAsync(string jobKey, CancellationToken cancellationToken = default)
     {
