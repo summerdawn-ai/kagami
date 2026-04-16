@@ -1,21 +1,14 @@
 
-using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
 using Summerdawn.Kagami.Models;
+using Summerdawn.Kagami.Serialization;
 
 namespace Summerdawn.Kagami.Connectors;
 internal static class CanonicalItemSerializer
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = false,
-    };
-
-    [RequiresDynamicCode("Calls System.Text.Json.JsonSerializer.Serialize(Object, Type, JsonSerializerOptions)")]
-    [RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.Serialize(Object, Type, JsonSerializerOptions)")]
     public static string ComputeContentHash(object? payload)
     {
         if (payload is null)
@@ -23,7 +16,12 @@ internal static class CanonicalItemSerializer
             return string.Empty;
         }
 
-        string json = JsonSerializer.Serialize(payload, payload.GetType(), JsonOptions);
+        string json = payload switch
+        {
+            CanonicalCalendarEvent calendarEvent => JsonSerializer.Serialize(calendarEvent, KagamiJsonContext.Default.CanonicalCalendarEvent),
+            CanonicalContact contact => JsonSerializer.Serialize(contact, KagamiJsonContext.Default.CanonicalContact),
+            _ => throw new InvalidOperationException($"Unsupported canonical payload type '{payload.GetType().FullName}'."),
+        };
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(json));
         return Convert.ToHexString(hash);
     }

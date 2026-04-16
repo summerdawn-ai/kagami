@@ -1,8 +1,8 @@
 
-using System.Diagnostics.CodeAnalysis;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Azure.Core;
 
@@ -172,58 +172,78 @@ internal sealed class MicrosoftContactsConnector : IConnector
         throw new InvalidOperationException($"Microsoft Graph request failed with {(int)response.StatusCode} {response.ReasonPhrase}: {detail}");
     }
 
-    [RequiresDynamicCode("Calls System.Text.Json.JsonSerializer.Serialize<TValue>(TValue, JsonSerializerOptions)")]
-    [RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.Serialize<TValue>(TValue, JsonSerializerOptions)")]
-    private static StringContent CreateJsonContent(object body) =>
-        new(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+    private static StringContent CreateJsonContent(JsonNode body) =>
+        new(body.ToJsonString(), Encoding.UTF8, "application/json");
 
-    private static object BuildWritableContact(CanonicalContact contact)
+    private static JsonObject BuildWritableContact(CanonicalContact contact)
     {
-        return new
+        return new JsonObject
         {
-            givenName = contact.GivenName,
-            middleName = contact.MiddleName,
-            surname = contact.FamilyName,
-            displayName = contact.DisplayName,
-            emailAddresses = contact.Emails.Select(email => new
+            ["givenName"] = contact.GivenName,
+            ["middleName"] = contact.MiddleName,
+            ["surname"] = contact.FamilyName,
+            ["displayName"] = contact.DisplayName,
+            ["emailAddresses"] = CreateArray(contact.Emails.Select(email => (JsonNode?)new JsonObject
             {
-                name = contact.DisplayName,
-                address = email.Address,
-            }).ToArray(),
-            businessPhones = contact.Phones.Where(phone => string.Equals(phone.Label, "work", StringComparison.OrdinalIgnoreCase)).Select(phone => phone.Number).ToArray(),
-            homePhones = contact.Phones.Where(phone => string.Equals(phone.Label, "home", StringComparison.OrdinalIgnoreCase)).Select(phone => phone.Number).ToArray(),
-            mobilePhone = contact.Phones.FirstOrDefault(phone => string.Equals(phone.Label, "mobile", StringComparison.OrdinalIgnoreCase))?.Number,
-            companyName = contact.Organization,
-            jobTitle = contact.Title,
-            personalNotes = contact.Notes,
-            birthday = contact.Birthday?.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
-            categories = contact.Categories,
-            homeAddress = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "home", StringComparison.OrdinalIgnoreCase))),
-            businessAddress = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "work", StringComparison.OrdinalIgnoreCase))),
-            otherAddress = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "other", StringComparison.OrdinalIgnoreCase))),
+                ["name"] = contact.DisplayName,
+                ["address"] = email.Address,
+            })),
+            ["businessPhones"] = CreateStringArray(contact.Phones.Where(phone => string.Equals(phone.Label, "work", StringComparison.OrdinalIgnoreCase)).Select(phone => phone.Number)),
+            ["homePhones"] = CreateStringArray(contact.Phones.Where(phone => string.Equals(phone.Label, "home", StringComparison.OrdinalIgnoreCase)).Select(phone => phone.Number)),
+            ["mobilePhone"] = contact.Phones.FirstOrDefault(phone => string.Equals(phone.Label, "mobile", StringComparison.OrdinalIgnoreCase))?.Number,
+            ["companyName"] = contact.Organization,
+            ["jobTitle"] = contact.Title,
+            ["personalNotes"] = contact.Notes,
+            ["birthday"] = JsonValue.Create(contact.Birthday?.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)),
+            ["categories"] = CreateStringArray(contact.Categories),
+            ["homeAddress"] = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "home", StringComparison.OrdinalIgnoreCase))),
+            ["businessAddress"] = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "work", StringComparison.OrdinalIgnoreCase))),
+            ["otherAddress"] = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "other", StringComparison.OrdinalIgnoreCase))),
         };
     }
 
-    private static object? ToMicrosoftAddress(ContactAddress? address)
+    private static JsonObject? ToMicrosoftAddress(ContactAddress? address)
     {
         if (address is null)
         {
             return null;
         }
 
-        return new
+        return new JsonObject
         {
-            street = address.Street,
-            city = address.City,
-            state = address.State,
-            postalCode = address.PostalCode,
-            countryOrRegion = address.Country,
+            ["street"] = address.Street,
+            ["city"] = address.City,
+            ["state"] = address.State,
+            ["postalCode"] = address.PostalCode,
+            ["countryOrRegion"] = address.Country,
         };
     }
 
     private static CanonicalContact GetContactPayload(CanonicalItem item) =>
         item.Payload as CanonicalContact
         ?? throw new InvalidOperationException("Microsoft Contacts connector only supports CanonicalContact payloads.");
+
+    private static JsonArray CreateArray(IEnumerable<JsonNode?> values)
+    {
+        JsonArray array = [];
+        foreach (var value in values)
+        {
+            array.Add(value);
+        }
+
+        return array;
+    }
+
+    private static JsonArray CreateStringArray(IEnumerable<string> values)
+    {
+        JsonArray array = [];
+        foreach (string value in values)
+        {
+            array.Add((JsonNode?)JsonValue.Create(value));
+        }
+
+        return array;
+    }
 
     private static CanonicalItem? ConvertContact(JsonElement element)
     {
