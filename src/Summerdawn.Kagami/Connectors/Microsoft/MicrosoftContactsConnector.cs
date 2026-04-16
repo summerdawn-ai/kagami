@@ -1,9 +1,12 @@
 namespace Summerdawn.Kagami.Connectors.Microsoft;
 
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+
 using Azure.Core;
+
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Models;
@@ -168,6 +171,8 @@ internal sealed class MicrosoftContactsConnector : IConnector
         throw new InvalidOperationException($"Microsoft Graph request failed with {(int)response.StatusCode} {response.ReasonPhrase}: {detail}");
     }
 
+    [RequiresDynamicCode("Calls System.Text.Json.JsonSerializer.Serialize<TValue>(TValue, JsonSerializerOptions)")]
+    [RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.Serialize<TValue>(TValue, JsonSerializerOptions)")]
     private static StringContent CreateJsonContent(object body) =>
         new(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
@@ -285,7 +290,7 @@ internal sealed class MicrosoftContactsConnector : IConnector
             Payload = contact,
             SourceId = id,
             Version = ReadString(element, "@odata.etag"),
-            Metadata = new Dictionary<string, string>(),
+            Metadata = [],
         });
     }
 

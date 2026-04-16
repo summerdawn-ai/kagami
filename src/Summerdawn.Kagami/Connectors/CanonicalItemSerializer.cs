@@ -1,8 +1,10 @@
 namespace Summerdawn.Kagami.Connectors;
 
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+
 using Summerdawn.Kagami.Models;
 
 internal static class CanonicalItemSerializer
@@ -12,6 +14,8 @@ internal static class CanonicalItemSerializer
         WriteIndented = false,
     };
 
+    [RequiresDynamicCode("Calls System.Text.Json.JsonSerializer.Serialize(Object, Type, JsonSerializerOptions)")]
+    [RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.Serialize(Object, Type, JsonSerializerOptions)")]
     public static string ComputeContentHash(object? payload)
     {
         if (payload is null)

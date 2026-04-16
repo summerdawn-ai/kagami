@@ -6,7 +6,7 @@ using Summerdawn.Kagami.Models;
 
 internal static class ContactPhotoLoader
 {
-    private static readonly ConditionalWeakTable<CanonicalItem, LoaderState> Loaders = new();
+    private static readonly ConditionalWeakTable<CanonicalItem, LoaderState> Loaders = [];
 
     public static void Attach(CanonicalItem item, Func<CancellationToken, Task> loader)
     {

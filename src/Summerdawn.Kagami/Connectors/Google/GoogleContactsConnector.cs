@@ -1,5 +1,6 @@
 namespace Summerdawn.Kagami.Connectors.Google;
 
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -427,7 +428,7 @@ internal sealed class GoogleContactsConnector : IConnector
             Payload = contact,
             SourceId = resourceName,
             Version = person.TryGetProperty("etag", out JsonElement etagElement) ? etagElement.GetString() : null,
-            Metadata = new Dictionary<string, string>(),
+            Metadata = [],
         });
     }
 
@@ -470,6 +471,8 @@ internal sealed class GoogleContactsConnector : IConnector
         return (photoBytes, contentType);
     }
 
+    [RequiresDynamicCode("Calls System.Text.Json.JsonSerializer.SerializeToElement<TValue>(TValue, JsonSerializerOptions)")]
+    [RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.SerializeToElement<TValue>(TValue, JsonSerializerOptions)")]
     private async Task SyncPhotoAsync(string resourceName, CanonicalItem item, bool deleteWhenAbsent, CancellationToken cancellationToken)
     {
         if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out _))
@@ -572,6 +575,8 @@ internal sealed class GoogleContactsConnector : IConnector
         while (!string.IsNullOrWhiteSpace(pageToken));
     }
 
+    [RequiresDynamicCode("Calls System.Text.Json.JsonSerializer.SerializeToElement<TValue>(TValue, JsonSerializerOptions)")]
+    [RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.SerializeToElement<TValue>(TValue, JsonSerializerOptions)")]
     private async Task<string> CreateGroupAsync(string name, CancellationToken cancellationToken)
     {
         using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Post, "https://people.googleapis.com/v1/contactGroups", cancellationToken);
@@ -705,10 +710,12 @@ internal sealed class GoogleContactsConnector : IConnector
     private static StringContent CreateJsonContent(JsonElement body) =>
         new(body.GetRawText(), Encoding.UTF8, "application/json");
 
+    [RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.Deserialize<TValue>(String, JsonSerializerOptions)")]
     private static GoogleCursor ParseCursor(string cursor) =>
         JsonSerializer.Deserialize<GoogleCursor>(cursor)
         ?? throw new InvalidOperationException("Invalid Google connector cursor.");
 
+    [RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.Serialize<TValue>(TValue, JsonSerializerOptions)")]
     private static string SerializeCursor(GoogleCursor cursor) =>
         JsonSerializer.Serialize(cursor);
 
@@ -720,6 +727,7 @@ internal sealed class GoogleContactsConnector : IConnector
 
         public void Add(string name, object? value) => values[name] = value;
 
+        [RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.SerializeToElement<TValue>(TValue, JsonSerializerOptions)")]
         public JsonElement Build() => JsonSerializer.SerializeToElement(values);
     }
 }

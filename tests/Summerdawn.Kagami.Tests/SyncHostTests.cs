@@ -1,6 +1,7 @@
 namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
+
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Engine;
@@ -37,7 +38,7 @@ public sealed class SyncHostTests : IDisposable
 
         await host.RunOnceAsync(jobKeyFilter: "job-a");
 
-        Assert.Single(targetA.Items.Where(item => !item.IsDeleted));
+        Assert.Single(targetA.Items, item => !item.IsDeleted);
         Assert.Empty(targetB.Items);
     }
 
@@ -61,7 +62,7 @@ public sealed class SyncHostTests : IDisposable
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await runTask);
 
-        Assert.Single(targetA.Items.Where(item => !item.IsDeleted));
+        Assert.Single(targetA.Items, item => !item.IsDeleted);
         Assert.Empty(targetB.Items);
     }
 

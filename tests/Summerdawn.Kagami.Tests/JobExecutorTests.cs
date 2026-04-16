@@ -2,6 +2,7 @@ namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Engine;

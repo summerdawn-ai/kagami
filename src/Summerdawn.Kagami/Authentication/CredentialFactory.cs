@@ -1,8 +1,10 @@
 namespace Summerdawn.Kagami.Authentication;
 
-using Azure.Identity;
-using Summerdawn.Kagami.Configuration;
 using System.Security.Cryptography.X509Certificates;
+
+using Azure.Identity;
+
+using Summerdawn.Kagami.Configuration;
 
 internal static class CredentialFactory
 {

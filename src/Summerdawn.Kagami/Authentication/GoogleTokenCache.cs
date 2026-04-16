@@ -1,5 +1,6 @@
 namespace Summerdawn.Kagami.Authentication;
 
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
 internal sealed class GoogleTokenCache
@@ -14,6 +15,8 @@ internal sealed class GoogleTokenCache
 
     public DateTimeOffset Expiry { get; set; }
 
+    [RequiresDynamicCode("Calls System.Text.Json.JsonSerializer.Deserialize<TValue>(String, JsonSerializerOptions)")]
+    [RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.Deserialize<TValue>(String, JsonSerializerOptions)")]
     public static GoogleTokenCache? Load(string endpointName)
     {
         string path = GetPath(endpointName);
@@ -33,6 +36,8 @@ internal sealed class GoogleTokenCache
         }
     }
 
+    [RequiresDynamicCode("Calls System.Text.Json.JsonSerializer.Serialize<TValue>(TValue, JsonSerializerOptions)")]
+    [RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.Serialize<TValue>(TValue, JsonSerializerOptions)")]
     public static void Save(string endpointName, GoogleTokenCache cache)
     {
         Directory.CreateDirectory(StorageDirectory);

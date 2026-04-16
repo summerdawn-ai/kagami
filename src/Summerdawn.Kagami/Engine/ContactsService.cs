@@ -244,7 +244,7 @@ public sealed class ContactsService(
         await connector.AuthenticateAsync(cancellationToken);
 
         // Load all JSON files from the source directory
-        var jsonFiles = Directory.GetFiles(sourceDirectory, "*.json");
+        string[] jsonFiles = Directory.GetFiles(sourceDirectory, "*.json");
         var importedItems = new List<CanonicalItem>();
 
         foreach (string jsonFile in jsonFiles)
