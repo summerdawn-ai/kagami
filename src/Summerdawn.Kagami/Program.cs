@@ -2,14 +2,13 @@ using System.CommandLine;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.DependencyInjection;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 
-namespace Summerdawn.Kagami.Cli;
+namespace Summerdawn.Kagami;
 
 /// <summary>
 /// Entry point for the Kagami CLI.
@@ -411,4 +410,3 @@ public static class Program
     private static KagamiOptions BuildKagamiOptions(string[] settingsFiles) =>
         BuildServiceProvider(settingsFiles).GetRequiredService<KagamiOptions>();
 }
-
