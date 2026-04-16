@@ -252,8 +252,7 @@ Example:
         "Credential": {
           "Type": "google-oauth",
           "ClientId": "your-google-client-id.apps.googleusercontent.com",
-          "ClientSecret": "replace-me",
-          "UserLogin": "person@summerdawn.ai"
+          "ClientSecret": "replace-me"
         },
         "Properties": {}
       },
@@ -298,7 +297,6 @@ Credential fields (`Type = "google-oauth"`):
 
 - `ClientId`: Google OAuth client ID
 - `ClientSecret`: Google OAuth client secret
-- `UserLogin`: Google account email to prefill in the sign-in flow and to scope the local token cache
 
 Endpoint properties:
 
@@ -375,7 +373,7 @@ Minimal setup:
 2. Enable the People API
 3. Create an OAuth 2.0 client for a desktop or installed application
 4. Configure the loopback callback `http://localhost:4189/`
-5. Configure Kagami with `clientId`, `clientSecret`, and `userLogin`
+5. Configure Kagami with `clientId` and `clientSecret`
 6. Run a Google-backed Kagami command once and complete the browser sign-in flow
 
 Kagami uses:

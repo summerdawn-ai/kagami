@@ -18,9 +18,6 @@ public sealed class CredentialOptions
     /// <summary>Google OAuth client secret / Microsoft app registration client secret.</summary>
     public string? ClientSecret { get; set; }
 
-    /// <summary>Google account email used to prefill the sign-in flow and scope the local token cache.</summary>
-    public string? UserLogin { get; set; }
-
     // ── graph-client-credentials ──────────────────────────────────────────
 
     /// <summary>Entra tenant ID.</summary>

@@ -6,22 +6,21 @@ using System.Security.Cryptography.X509Certificates;
 
 internal static class CredentialFactory
 {
-    public static IConnectorCredential Create(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes)
+    public static IConnectorCredential Create(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
     {
         return options.Type.ToLowerInvariant() switch
         {
-            "google-oauth" => CreateGoogleOAuth(options, httpClient, scopes),
+            "google-oauth" => CreateGoogleOAuth(options, httpClient, scopes, endpointName),
             "graph-client-credentials" => CreateGraphClientCredentials(options),
             _ => throw new InvalidOperationException($"Unknown credential type '{options.Type}'.")
         };
     }
 
-    private static GoogleOAuthCredential CreateGoogleOAuth(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes)
+    private static GoogleOAuthCredential CreateGoogleOAuth(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
     {
         string clientId = RequireField(options.ClientId, "ClientId", "google-oauth");
         string clientSecret = RequireField(options.ClientSecret, "ClientSecret", "google-oauth");
-        string userLogin = RequireField(options.UserLogin, "UserLogin", "google-oauth");
-        return new GoogleOAuthCredential(clientId, clientSecret, userLogin, scopes, httpClient);
+        return new GoogleOAuthCredential(clientId, clientSecret, endpointName, scopes, httpClient);
     }
 
     private static GraphClientCredential CreateGraphClientCredentials(CredentialOptions options)

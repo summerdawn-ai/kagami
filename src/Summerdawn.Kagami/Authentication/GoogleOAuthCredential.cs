@@ -14,7 +14,7 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
 
     private readonly string clientId;
     private readonly string clientSecret;
-    private readonly string userLogin;
+    private readonly string endpointName;
     private readonly IReadOnlyList<string> scopes;
     private readonly HttpClient httpClient;
     private string? accessToken;
@@ -24,17 +24,17 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
     public GoogleOAuthCredential(
         string clientId,
         string clientSecret,
-        string userLogin,
+        string endpointName,
         IReadOnlyList<string> scopes,
         HttpClient httpClient)
     {
         this.clientId = clientId;
         this.clientSecret = clientSecret;
-        this.userLogin = userLogin;
+        this.endpointName = endpointName;
         this.scopes = scopes;
         this.httpClient = httpClient;
 
-        GoogleTokenCache? cached = GoogleTokenCache.Load(userLogin);
+        GoogleTokenCache? cached = GoogleTokenCache.Load(endpointName);
         if (cached is not null)
         {
             accessToken = cached.AccessToken;
@@ -113,8 +113,7 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
             + "&scope=" + Uri.EscapeDataString(scopeString)
             + "&state=" + state
             + "&access_type=offline"
-            + "&prompt=consent"
-            + "&login_hint=" + Uri.EscapeDataString(userLogin);
+            + "&prompt=consent";
 
         Console.WriteLine("Opening browser for Google OAuth authorization...");
         Console.WriteLine("If the browser does not open automatically, navigate to:");
@@ -221,7 +220,7 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
 
     private void PersistTokens()
     {
-        GoogleTokenCache.Save(userLogin, new GoogleTokenCache
+        GoogleTokenCache.Save(endpointName, new GoogleTokenCache
         {
             AccessToken = accessToken,
             RefreshToken = refreshToken,

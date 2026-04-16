@@ -33,7 +33,7 @@ public static class KagamiServiceCollectionExtensions
             if (!string.IsNullOrWhiteSpace(endpoint.Credential.Type))
             {
                 IReadOnlyList<string> scopes = ScopesFor(endpoint.Type);
-                credentials[endpointName] = CredentialFactory.Create(endpoint.Credential, authHttpClient, scopes);
+                credentials[endpointName] = CredentialFactory.Create(endpoint.Credential, authHttpClient, scopes, endpointName);
             }
         }
         services.AddSingleton(credentials);
