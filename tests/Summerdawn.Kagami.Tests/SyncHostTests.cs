@@ -1,6 +1,7 @@
 namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
@@ -130,10 +131,10 @@ public sealed class SyncHostTests : IDisposable
             },
             Endpoints =
             {
-                ["endpointA1"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
-                ["endpointB1"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
-                ["endpointA2"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
-                ["endpointB2"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
+                ["endpointA1"] = new EndpointOptions { Type = "fake" },
+                ["endpointB1"] = new EndpointOptions { Type = "fake" },
+                ["endpointA2"] = new EndpointOptions { Type = "fake" },
+                ["endpointB2"] = new EndpointOptions { Type = "fake" },
             },
             Jobs =
             {
@@ -150,7 +151,19 @@ public sealed class SyncHostTests : IDisposable
             new LeaseRepository(db),
             NullLogger<JobExecutor>.Instance);
 
-        return new SyncHost(options, factory, executor, db, NullLogger<SyncHost>.Instance);
+        return new SyncHost(
+            options,
+            new Dictionary<string, IConnectorCredential>
+            {
+                ["endpointA1"] = new FakeConnectorCredential(),
+                ["endpointB1"] = new FakeConnectorCredential(),
+                ["endpointA2"] = new FakeConnectorCredential(),
+                ["endpointB2"] = new FakeConnectorCredential(),
+            },
+            factory,
+            executor,
+            db,
+            NullLogger<SyncHost>.Instance);
     }
 
     private static JobOptions CreateJob(string endpointA, string endpointB, string schedule) =>

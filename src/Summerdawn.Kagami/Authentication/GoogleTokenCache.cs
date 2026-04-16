@@ -1,4 +1,4 @@
-namespace Summerdawn.Kagami.Connectors.Google;
+namespace Summerdawn.Kagami.Authentication;
 
 using System.Text.Json;
 
@@ -14,9 +14,9 @@ internal sealed class GoogleTokenCache
 
     public DateTimeOffset Expiry { get; set; }
 
-    public static GoogleTokenCache? Load(string userLogin)
+    public static GoogleTokenCache? Load(string endpointName)
     {
-        string path = GetPath(userLogin);
+        string path = GetPath(endpointName);
         if (!File.Exists(path))
         {
             return null;
@@ -33,18 +33,18 @@ internal sealed class GoogleTokenCache
         }
     }
 
-    public static void Save(string userLogin, GoogleTokenCache cache)
+    public static void Save(string endpointName, GoogleTokenCache cache)
     {
         Directory.CreateDirectory(StorageDirectory);
-        string path = GetPath(userLogin);
+        string path = GetPath(endpointName);
         string json = JsonSerializer.Serialize(cache);
         File.WriteAllText(path, json);
     }
 
-    private static string GetPath(string userLogin)
+    private static string GetPath(string endpointName)
     {
         char[] invalid = Path.GetInvalidFileNameChars();
-        string safeName = string.Concat(userLogin.Select(c => Array.IndexOf(invalid, c) >= 0 ? '_' : c));
+        string safeName = string.Concat(endpointName.Select(c => Array.IndexOf(invalid, c) >= 0 ? '_' : c));
         return Path.Combine(StorageDirectory, $"google_{safeName}.json");
     }
 }

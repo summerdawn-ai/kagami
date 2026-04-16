@@ -1,5 +1,6 @@
 namespace Summerdawn.Kagami.Engine;
 
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Persistence;
@@ -9,6 +10,7 @@ using Summerdawn.Kagami.Persistence;
 /// </summary>
 public sealed class SyncHost(
     KagamiOptions options,
+    Dictionary<string, IConnectorCredential> credentials,
     IConnectorFactory connectorFactory,
     JobExecutor executor,
     StateDatabase stateDb,
@@ -116,10 +118,12 @@ public sealed class SyncHost(
                 throw new InvalidOperationException($"Endpoint '{jobOptions.Destination}' not found.");
             }
 
-            options.Credentials.TryGetValue(endpointA.Credential, out var credA);
-            options.Credentials.TryGetValue(endpointB.Credential, out var credB);
-            var connA = connectorFactory.Create(jobOptions.Source, endpointA, credA);
-            var connB = connectorFactory.Create(jobOptions.Destination, endpointB, credB);
+            credentials.TryGetValue(jobOptions.Source, out var credA);
+            credentials.TryGetValue(jobOptions.Destination, out var credB);
+            var connA = connectorFactory.Create(jobOptions.Source, endpointA, credA
+                ?? throw new InvalidOperationException($"No credential resolved for endpoint '{jobOptions.Source}'."));
+            var connB = connectorFactory.Create(jobOptions.Destination, endpointB, credB
+                ?? throw new InvalidOperationException($"No credential resolved for endpoint '{jobOptions.Destination}'."));
             await executor.ExecuteAsync(jobKey, jobOptions, connA, connB, whatIf, cancellationToken: cancellationToken);
         }
         catch (Exception ex)

@@ -1,5 +1,6 @@
 namespace Summerdawn.Kagami.Connectors;
 
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 
 /// <summary>
@@ -10,5 +11,5 @@ public interface IConnectorFactory
     /// <summary>
     /// Creates a connector for the given endpoint configuration.
     /// </summary>
-    public IConnector Create(string endpointName, EndpointOptions endpoint, CredentialOptions? credential);
+    public IConnector Create(string endpointName, EndpointOptions endpoint, IConnectorCredential credential);
 }

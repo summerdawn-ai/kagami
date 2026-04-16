@@ -246,33 +246,24 @@ Example:
       "MaxConcurrentJobs": 1,
       "SchedulerIntervalSeconds": 30
     },
-    "Credentials": {
-      "googleWorkspace": {
-        "Type": "google-oauth",
-        "Properties": {
-          "clientId": "your-google-client-id.apps.googleusercontent.com",
-          "clientSecret": "replace-me",
-          "userLogin": "person@summerdawn.ai"
-        }
-      },
-      "graphApp": {
-        "Type": "graph-client-credentials",
-        "Properties": {
-          "tenantId": "00000000-0000-0000-0000-000000000000",
-          "clientId": "11111111-1111-1111-1111-111111111111",
-          "clientSecret": "replace-me"
-        }
-      }
-    },
     "Endpoints": {
       "googleContacts": {
-        "Type": "google-contacts",
-        "Credential": "googleWorkspace",
+        "Type": "GoogleContacts",
+        "Credential": {
+          "Type": "GoogleOAuthCredential",
+          "ClientId": "your-google-client-id.apps.googleusercontent.com",
+          "ClientSecret": "replace-me"
+        },
         "Properties": {}
       },
       "exchangeContacts": {
-        "Type": "graph-contacts",
-        "Credential": "graphApp",
+        "Type": "MicrosoftContacts",
+        "Credential": {
+          "Type": "MicrosoftClientCredential",
+          "TenantId": "00000000-0000-0000-0000-000000000000",
+          "ClientId": "11111111-1111-1111-1111-111111111111",
+          "ClientSecret": "replace-me"
+        },
         "Properties": {
           "userId": "person@summerdawn.ai"
         }
@@ -296,21 +287,20 @@ Example:
 
 ## Config Structure
 
-### `Credentials`
+### `Endpoints`
 
-Named reusable credential definitions.
+Named endpoint definitions. Each endpoint includes its credential inline.
 
-#### Google OAuth 2.0 user sign-in
+#### `GoogleContacts`
 
-Use:
+Credential fields (`Type = "GoogleOAuthCredential"`):
 
-- `Type = "google-oauth"`
+- `ClientId`: Google OAuth client ID
+- `ClientSecret`: Google OAuth client secret
 
-Properties:
+Endpoint properties:
 
-- `clientId`: Google OAuth client ID
-- `clientSecret`: Google OAuth client secret
-- `userLogin`: Google account email to prefill in the sign-in flow and to scope the local token cache
+- none required
 
 Notes:
 
@@ -319,44 +309,19 @@ Notes:
 - Kagami requests the Google contacts scope: `https://www.googleapis.com/auth/contacts`
 - The built-in Google contacts connector currently uses end-user OAuth; service-account and domain-wide-delegation auth are not supported
 
-#### Microsoft Graph confidential client
+#### `MicrosoftContacts`
 
-Use:
+Credential fields (`Type = "MicrosoftClientCredential"`):
 
-- `Type = "graph-client-credentials"`
+- `TenantId`: Entra tenant ID
+- `ClientId`: app registration client ID
+- `ClientSecret`: client secret for MVP setups
+- `CertificatePath`: optional PFX/PKCS#12 certificate path for long-term unattended use
+- `CertificatePassword`: optional certificate password
 
-Properties:
+Use either `ClientSecret` or `CertificatePath` (+ `CertificatePassword` if needed).
 
-- `tenantId`: Entra tenant ID
-- `clientId`: app registration client ID
-- `clientSecret`: client secret for MVP setups
-- `certificatePath`: optional PFX/PKCS#12 certificate path for long-term unattended use
-- `certificatePassword`: optional certificate password
-
-Use either:
-
-- `clientSecret`, or
-- `certificatePath` (+ `certificatePassword` if needed)
-
-### `Endpoints`
-
-Named endpoint definitions that bind a connector type to a credential.
-
-#### `google-contacts`
-
-Properties:
-
-- none required
-
-Behavior:
-
-- reads/writes Google contacts through the People API
-- maps Google contact-group memberships to canonical contact categories / labels
-- creates missing Google contact groups when needed for synchronized labels
-
-#### `graph-contacts`
-
-Properties:
+Endpoint properties:
 
 - `userId`: required; the mailbox owner to access, typically a user principal name or user ID
 - `folderId`: optional contact folder ID; if omitted, Kagami uses the default contacts collection
@@ -408,7 +373,7 @@ Minimal setup:
 2. Enable the People API
 3. Create an OAuth 2.0 client for a desktop or installed application
 4. Configure the loopback callback `http://localhost:4189/`
-5. Configure Kagami with `clientId`, `clientSecret`, and `userLogin`
+5. Configure Kagami with `clientId` and `clientSecret`
 6. Run a Google-backed Kagami command once and complete the browser sign-in flow
 
 Kagami uses:

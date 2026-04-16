@@ -1,6 +1,7 @@
 namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Engine;
@@ -43,7 +44,7 @@ public sealed class ContactsImportTests : IDisposable
         {
             Endpoints =
             {
-                ["Destination"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
+                ["Destination"] = new EndpointOptions { Type = "fake" },
             },
         };
 
@@ -57,6 +58,10 @@ public sealed class ContactsImportTests : IDisposable
 
         service = new ContactsService(
             options,
+            new Dictionary<string, IConnectorCredential>
+            {
+                ["Destination"] = new FakeConnectorCredential(),
+            },
             factory,
             executor,
             db,

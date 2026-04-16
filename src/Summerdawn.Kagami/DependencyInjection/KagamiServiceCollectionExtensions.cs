@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Engine;
@@ -20,6 +21,23 @@ public static class KagamiServiceCollectionExtensions
         var options = new KagamiOptions();
         configuration.Bind(options);
         services.AddSingleton(options);
+
+        // Build a shared HttpClient for credential/token operations
+        HttpClient authHttpClient = new();
+        authHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd("kagami/0.1");
+
+        // Pre-build one credential per endpoint at startup
+        var credentials = new Dictionary<string, IConnectorCredential>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (endpointName, endpoint) in options.Endpoints)
+        {
+            if (!string.IsNullOrWhiteSpace(endpoint.Credential.Type))
+            {
+                IReadOnlyList<string> scopes = ScopesFor(endpoint.Type);
+                credentials[endpointName] = CredentialFactory.Create(endpoint.Credential, authHttpClient, scopes, endpointName);
+            }
+        }
+        services.AddSingleton(credentials);
+
         services.AddSingleton(sp => new StateDatabase(
             options.Persistence.DatabasePath,
             sp.GetRequiredService<ILogger<StateDatabase>>()));
@@ -45,4 +63,11 @@ public static class KagamiServiceCollectionExtensions
         services.AddSingleton<IConnectorFactory>(sp => sp.GetRequiredService<TFactory>());
         return services;
     }
+
+    private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType switch
+    {
+        EndpointOptions.GoogleContacts => ["https://www.googleapis.com/auth/contacts"],
+        "google-calendar" => ["https://www.googleapis.com/auth/calendar"],
+        _ => []
+    };
 }

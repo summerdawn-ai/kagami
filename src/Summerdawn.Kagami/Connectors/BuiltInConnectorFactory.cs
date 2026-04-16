@@ -1,8 +1,9 @@
 namespace Summerdawn.Kagami.Connectors;
 
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors.Google;
-using Summerdawn.Kagami.Connectors.Graph;
+using Summerdawn.Kagami.Connectors.Microsoft;
 
 /// <summary>
 /// Built-in connector factory for supported provider connectors.
@@ -13,22 +14,24 @@ public sealed class BuiltInConnectorFactory(ILoggerFactory loggerFactory) : ICon
     private readonly UnsupportedConnectorFactory unsupportedFactory = new();
 
     /// <inheritdoc />
-    public IConnector Create(string endpointName, EndpointOptions endpoint, CredentialOptions? credential)
+    public IConnector Create(string endpointName, EndpointOptions endpoint, IConnectorCredential credential)
     {
         return endpoint.Type switch
         {
-            "google-contacts" => new GoogleContactsConnector(
+            EndpointOptions.GoogleContacts => new GoogleContactsConnector(
                 httpClient,
                 endpointName,
                 endpoint,
-                credential ?? throw new InvalidOperationException($"Endpoint '{endpointName}' requires credentials."),
+                credential as GoogleOAuthCredential
+                    ?? throw new InvalidOperationException($"Endpoint '{endpointName}' requires a GoogleOAuthCredential."),
                 loggerFactory.CreateLogger<GoogleContactsConnector>()),
-            "graph-contacts" => new GraphContactsConnector(
+            EndpointOptions.MicrosoftContacts => new MicrosoftContactsConnector(
                 httpClient,
                 endpointName,
                 endpoint,
-                credential ?? throw new InvalidOperationException($"Endpoint '{endpointName}' requires credentials."),
-                loggerFactory.CreateLogger<GraphContactsConnector>()),
+                credential as MicrosoftClientCredential
+                    ?? throw new InvalidOperationException($"Endpoint '{endpointName}' requires a MicrosoftClientCredential."),
+                loggerFactory.CreateLogger<MicrosoftContactsConnector>()),
             _ => unsupportedFactory.Create(endpointName, endpoint, credential),
         };
     }
