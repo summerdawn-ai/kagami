@@ -36,7 +36,7 @@ internal sealed class GoogleContactsConnector : IConnector
 
     public ConnectorCapabilities Capabilities { get; } = new()
     {
-        ConnectorType = "google-contacts",
+        ConnectorType = EndpointOptions.GoogleContacts,
         SupportsIncrementalSync = true,
         SupportsDeletes = true,
         SupportsAttendees = false,

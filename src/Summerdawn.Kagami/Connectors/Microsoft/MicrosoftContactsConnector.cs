@@ -1,4 +1,4 @@
-namespace Summerdawn.Kagami.Connectors.Graph;
+namespace Summerdawn.Kagami.Connectors.Microsoft;
 
 using System.Net.Http.Headers;
 using System.Text;
@@ -8,21 +8,21 @@ using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Models;
 
-internal sealed class GraphContactsConnector : IConnector
+internal sealed class MicrosoftContactsConnector : IConnector
 {
-    private const string GraphScope = "https://graph.microsoft.com/.default";
+    private const string MicrosoftScope = "https://graph.microsoft.com/.default";
     private const string ContactSelectFields = "id,displayName,givenName,middleName,surname,emailAddresses,businessPhones,homePhones,mobilePhone,companyName,jobTitle,personalNotes,birthday,categories,homeAddress,businessAddress,otherAddress,lastModifiedDateTime";
 
     private readonly HttpClient httpClient;
     private readonly TokenCredential credential;
     private readonly string collectionPath;
 
-    public GraphContactsConnector(
+    public MicrosoftContactsConnector(
         HttpClient httpClient,
         string endpointName,
         EndpointOptions endpoint,
-        GraphClientCredential credential,
-        ILogger<GraphContactsConnector> logger)
+        MicrosoftClientCredential credential,
+        ILogger<MicrosoftContactsConnector> logger)
     {
         _ = logger;
         this.httpClient = httpClient;
@@ -36,7 +36,7 @@ internal sealed class GraphContactsConnector : IConnector
 
     public ConnectorCapabilities Capabilities { get; } = new()
     {
-        ConnectorType = "graph-contacts",
+        ConnectorType = EndpointOptions.MicrosoftContacts,
         SupportsIncrementalSync = true,
         SupportsDeletes = true,
         SupportsAttendees = false,
@@ -47,7 +47,7 @@ internal sealed class GraphContactsConnector : IConnector
 
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
-        _ = await credential.GetTokenAsync(new TokenRequestContext([GraphScope]), cancellationToken);
+        _ = await credential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
     }
 
     public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
@@ -74,10 +74,10 @@ internal sealed class GraphContactsConnector : IConnector
         using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Post, collectionPath, cancellationToken);
         request.Content = CreateJsonContent(BuildWritableContact(GetContactPayload(item)));
         using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
-        CanonicalItem created = ConvertContact(document.RootElement) ?? throw new InvalidOperationException("Graph contact create returned no payload.");
+        CanonicalItem created = ConvertContact(document.RootElement) ?? throw new InvalidOperationException("Microsoft Contacts create returned no payload.");
         await SyncPhotoAsync(created.SourceId, item, deleteWhenAbsent: false, cancellationToken);
         return await GetItemAsync(created.SourceId, cancellationToken)
-            ?? throw new InvalidOperationException("Graph contact create succeeded but the created item could not be reloaded.");
+            ?? throw new InvalidOperationException("Microsoft Contacts create succeeded but the created item could not be reloaded.");
     }
 
     public async Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
@@ -93,7 +93,7 @@ internal sealed class GraphContactsConnector : IConnector
         await EnsureSuccessAsync(response, cancellationToken);
         await SyncPhotoAsync(item.SourceId, item, deleteWhenAbsent: true, cancellationToken);
         return await GetItemAsync(item.SourceId, cancellationToken)
-            ?? throw new InvalidOperationException("Graph contact update succeeded but the updated item could not be reloaded.");
+            ?? throw new InvalidOperationException("Microsoft Contacts update succeeded but the updated item could not be reloaded.");
     }
 
     public async Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
@@ -143,7 +143,7 @@ internal sealed class GraphContactsConnector : IConnector
 
     private async Task<HttpRequestMessage> CreateRequestAsync(HttpMethod method, string requestUri, CancellationToken cancellationToken)
     {
-        AccessToken token = await credential.GetTokenAsync(new TokenRequestContext([GraphScope]), cancellationToken);
+        AccessToken token = await credential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
         HttpRequestMessage request = new(method, requestUri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
         return request;
@@ -192,13 +192,13 @@ internal sealed class GraphContactsConnector : IConnector
             personalNotes = contact.Notes,
             birthday = contact.Birthday?.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
             categories = contact.Categories,
-            homeAddress = ToGraphAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "home", StringComparison.OrdinalIgnoreCase))),
-            businessAddress = ToGraphAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "work", StringComparison.OrdinalIgnoreCase))),
-            otherAddress = ToGraphAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "other", StringComparison.OrdinalIgnoreCase))),
+            homeAddress = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "home", StringComparison.OrdinalIgnoreCase))),
+            businessAddress = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "work", StringComparison.OrdinalIgnoreCase))),
+            otherAddress = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "other", StringComparison.OrdinalIgnoreCase))),
         };
     }
 
-    private static object? ToGraphAddress(ContactAddress? address)
+    private static object? ToMicrosoftAddress(ContactAddress? address)
     {
         if (address is null)
         {
@@ -217,7 +217,7 @@ internal sealed class GraphContactsConnector : IConnector
 
     private static CanonicalContact GetContactPayload(CanonicalItem item) =>
         item.Payload as CanonicalContact
-        ?? throw new InvalidOperationException("Microsoft Graph connector only supports CanonicalContact payloads.");
+        ?? throw new InvalidOperationException("Microsoft Contacts connector only supports CanonicalContact payloads.");
 
     private static CanonicalItem? ConvertContact(JsonElement element)
     {

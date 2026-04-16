@@ -8,11 +8,11 @@ public sealed class CredentialOptions
     /// <summary>Credential type value for Google OAuth 2.0.</summary>
     public const string GoogleOAuthCredential = "GoogleOAuthCredential";
 
-    /// <summary>Credential type value for Microsoft Graph client credentials.</summary>
-    public const string GraphClientCredential = "GraphClientCredential";
+    /// <summary>Credential type value for Microsoft client credentials (confidential client / app-only auth).</summary>
+    public const string MicrosoftClientCredential = "MicrosoftClientCredential";
 
     /// <summary>
-    /// Credential type identifier: <see cref="GoogleOAuthCredential"/> or <see cref="GraphClientCredential"/>.
+    /// Credential type identifier: <see cref="GoogleOAuthCredential"/> or <see cref="MicrosoftClientCredential"/>.
     /// </summary>
     public string Type { get; set; } = string.Empty;
 
@@ -24,7 +24,7 @@ public sealed class CredentialOptions
     /// <summary>Google OAuth client secret / Microsoft app registration client secret.</summary>
     public string? ClientSecret { get; set; }
 
-    // ── GraphClientCredential ─────────────────────────────────────────────
+    // ── MicrosoftClientCredential ─────────────────────────────────────────
 
     /// <summary>Entra tenant ID.</summary>
     public string? TenantId { get; set; }

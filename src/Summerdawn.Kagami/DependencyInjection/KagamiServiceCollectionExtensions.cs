@@ -64,9 +64,9 @@ public static class KagamiServiceCollectionExtensions
         return services;
     }
 
-    private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType.ToLowerInvariant() switch
+    private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType switch
     {
-        "google-contacts" => ["https://www.googleapis.com/auth/contacts"],
+        EndpointOptions.GoogleContacts => ["https://www.googleapis.com/auth/contacts"],
         "google-calendar" => ["https://www.googleapis.com/auth/calendar"],
         _ => []
     };

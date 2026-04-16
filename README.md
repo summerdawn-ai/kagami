@@ -248,7 +248,7 @@ Example:
     },
     "Endpoints": {
       "googleContacts": {
-        "Type": "google-contacts",
+        "Type": "GoogleContacts",
         "Credential": {
           "Type": "GoogleOAuthCredential",
           "ClientId": "your-google-client-id.apps.googleusercontent.com",
@@ -257,9 +257,9 @@ Example:
         "Properties": {}
       },
       "exchangeContacts": {
-        "Type": "graph-contacts",
+        "Type": "MicrosoftContacts",
         "Credential": {
-          "Type": "GraphClientCredential",
+          "Type": "MicrosoftClientCredential",
           "TenantId": "00000000-0000-0000-0000-000000000000",
           "ClientId": "11111111-1111-1111-1111-111111111111",
           "ClientSecret": "replace-me"
@@ -291,7 +291,7 @@ Example:
 
 Named endpoint definitions. Each endpoint includes its credential inline.
 
-#### `google-contacts`
+#### `GoogleContacts`
 
 Credential fields (`Type = "GoogleOAuthCredential"`):
 
@@ -309,9 +309,9 @@ Notes:
 - Kagami requests the Google contacts scope: `https://www.googleapis.com/auth/contacts`
 - The built-in Google contacts connector currently uses end-user OAuth; service-account and domain-wide-delegation auth are not supported
 
-#### `graph-contacts`
+#### `MicrosoftContacts`
 
-Credential fields (`Type = "GraphClientCredential"`):
+Credential fields (`Type = "MicrosoftClientCredential"`):
 
 - `TenantId`: Entra tenant ID
 - `ClientId`: app registration client ID

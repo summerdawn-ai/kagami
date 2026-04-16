@@ -11,7 +11,7 @@ internal static class CredentialFactory
         return options.Type switch
         {
             CredentialOptions.GoogleOAuthCredential => CreateGoogleOAuth(options, httpClient, scopes, endpointName),
-            CredentialOptions.GraphClientCredential => CreateGraphClientCredentials(options),
+            CredentialOptions.MicrosoftClientCredential => CreateMicrosoftClientCredential(options),
             _ => throw new InvalidOperationException($"Unknown credential type '{options.Type}'.")
         };
     }
@@ -23,14 +23,14 @@ internal static class CredentialFactory
         return new GoogleOAuthCredential(clientId, clientSecret, endpointName, scopes, httpClient);
     }
 
-    private static GraphClientCredential CreateGraphClientCredentials(CredentialOptions options)
+    private static MicrosoftClientCredential CreateMicrosoftClientCredential(CredentialOptions options)
     {
-        string tenantId = RequireField(options.TenantId, "TenantId", CredentialOptions.GraphClientCredential);
-        string clientId = RequireField(options.ClientId, "ClientId", CredentialOptions.GraphClientCredential);
+        string tenantId = RequireField(options.TenantId, "TenantId", CredentialOptions.MicrosoftClientCredential);
+        string clientId = RequireField(options.ClientId, "ClientId", CredentialOptions.MicrosoftClientCredential);
 
         if (!string.IsNullOrWhiteSpace(options.ClientSecret))
         {
-            return new GraphClientCredential(new ClientSecretCredential(tenantId, clientId, options.ClientSecret));
+            return new MicrosoftClientCredential(new ClientSecretCredential(tenantId, clientId, options.ClientSecret));
         }
 
         if (!string.IsNullOrWhiteSpace(options.CertificatePath))
@@ -38,10 +38,10 @@ internal static class CredentialFactory
             X509Certificate2 cert = string.IsNullOrWhiteSpace(options.CertificatePassword)
                 ? X509CertificateLoader.LoadPkcs12FromFile(options.CertificatePath, null)
                 : X509CertificateLoader.LoadPkcs12FromFile(options.CertificatePath, options.CertificatePassword);
-            return new GraphClientCredential(new ClientCertificateCredential(tenantId, clientId, cert));
+            return new MicrosoftClientCredential(new ClientCertificateCredential(tenantId, clientId, cert));
         }
 
-        throw new InvalidOperationException($"{CredentialOptions.GraphClientCredential} requires either 'ClientSecret' or 'CertificatePath'.");
+        throw new InvalidOperationException($"{CredentialOptions.MicrosoftClientCredential} requires either 'ClientSecret' or 'CertificatePath'.");
     }
 
     private static string RequireField(string? value, string fieldName, string credentialType)
