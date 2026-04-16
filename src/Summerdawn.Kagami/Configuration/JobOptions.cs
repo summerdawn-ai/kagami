@@ -16,14 +16,14 @@ public sealed class JobOptions
     public string EntityType { get; set; } = string.Empty;
 
     /// <summary>
-    /// Name of endpoint A.
+    /// Name of the source endpoint.
     /// </summary>
-    public string EndpointA { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
 
     /// <summary>
-    /// Name of endpoint B.
+    /// Name of the destination endpoint.
     /// </summary>
-    public string EndpointB { get; set; } = string.Empty;
+    public string Destination { get; set; } = string.Empty;
 
     /// <summary>
     /// Sync direction/mode policy.

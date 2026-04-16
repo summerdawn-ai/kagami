@@ -53,28 +53,28 @@ public sealed class StateDatabase(string databasePath, ILogger<StateDatabase> lo
         );
 
         CREATE TABLE IF NOT EXISTS link_state (
-            id               INTEGER PRIMARY KEY AUTOINCREMENT,
-            job_key          TEXT NOT NULL,
-            entity_type      TEXT NOT NULL,
-            side_a_id        TEXT NOT NULL,
-            side_b_id        TEXT,
-            side_a_version   TEXT,
-            side_b_version   TEXT,
-            side_a_hash      TEXT,
-            side_b_hash      TEXT,
-            side_a_deleted   INTEGER NOT NULL DEFAULT 0,
-            side_b_deleted   INTEGER NOT NULL DEFAULT 0,
-            side_a_last_seen TEXT,
-            side_b_last_seen TEXT,
-            origin_side      TEXT,
-            last_synced_at   TEXT,
-            last_sync_result TEXT,
-            conflict_state   TEXT,
-            UNIQUE (job_key, side_a_id)
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_key              TEXT NOT NULL,
+            entity_type          TEXT NOT NULL,
+            source_id            TEXT NOT NULL,
+            destination_id       TEXT,
+            source_version       TEXT,
+            destination_version  TEXT,
+            source_hash          TEXT,
+            destination_hash     TEXT,
+            source_deleted       INTEGER NOT NULL DEFAULT 0,
+            destination_deleted  INTEGER NOT NULL DEFAULT 0,
+            source_last_seen     TEXT,
+            destination_last_seen TEXT,
+            origin_side          TEXT,
+            last_synced_at       TEXT,
+            last_sync_result     TEXT,
+            conflict_state       TEXT,
+            UNIQUE (job_key, source_id)
         );
 
         CREATE INDEX IF NOT EXISTS idx_link_state_job_key ON link_state (job_key);
-        CREATE INDEX IF NOT EXISTS idx_link_state_side_b_id ON link_state (job_key, side_b_id);
+        CREATE INDEX IF NOT EXISTS idx_link_state_destination_id ON link_state (job_key, destination_id);
 
         CREATE TABLE IF NOT EXISTS operation_log (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -158,8 +158,8 @@ public sealed class SyncHostTests : IDisposable
         {
             Enabled = true,
             EntityType = EntityType.Contact,
-            EndpointA = endpointA,
-            EndpointB = endpointB,
+            Source = endpointA,
+            Destination = endpointB,
             SyncMode = SyncMode.Bidirectional,
             DeletePolicy = DeletePolicy.Mirror,
             ConflictPolicy = ConflictPolicy.LastWriteWins,

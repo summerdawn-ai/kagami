@@ -22,8 +22,8 @@ public sealed class LinkStateRepositoryTests : IDisposable
     [Fact]
     public async Task LinkStateIsPartitionedByJobKey()
     {
-        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-1", EntityType = "contact", SideAId = "a1" });
-        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-2", EntityType = "contact", SideAId = "a1" });
+        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-1", EntityType = "contact", SourceId = "a1" });
+        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-2", EntityType = "contact", SourceId = "a1" });
 
         var job1Rows = await repo.GetByJobAsync("job-1");
         var job2Rows = await repo.GetByJobAsync("job-2");
@@ -35,8 +35,8 @@ public sealed class LinkStateRepositoryTests : IDisposable
     [Fact]
     public async Task DeleteByJobRemovesOnlyTargetRows()
     {
-        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-1", EntityType = "contact", SideAId = "a1" });
-        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-2", EntityType = "contact", SideAId = "a2" });
+        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-1", EntityType = "contact", SourceId = "a1" });
+        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-2", EntityType = "contact", SourceId = "a2" });
 
         await repo.DeleteByJobAsync("job-1");
 
@@ -51,17 +51,17 @@ public sealed class LinkStateRepositoryTests : IDisposable
         {
             JobKey = "job-1",
             EntityType = "calendar-event",
-            SideAId = "a1",
-            SideBId = "b1",
-            SideAVersion = "v1",
-            SideBVersion = "v1",
-            OriginSide = "A",
+            SourceId = "a1",
+            DestinationId = "b1",
+            SourceVersion = "v1",
+            DestinationVersion = "v1",
+            OriginSide = "Source",
         });
 
-        var row = await repo.GetBySideAIdAsync("job-1", "a1");
+        var row = await repo.GetBySourceIdAsync("job-1", "a1");
 
         Assert.NotNull(row);
-        Assert.Equal("v1", row.SideAVersion);
-        Assert.Equal("v1", row.SideBVersion);
+        Assert.Equal("v1", row.SourceVersion);
+        Assert.Equal("v1", row.DestinationVersion);
     }
 }

@@ -47,11 +47,11 @@ public sealed class Planner(ILogger<Planner> logger)
         var itemsBById = sideBItems.ToDictionary(i => i.SourceId, StringComparer.Ordinal);
 
         var linkedAIds = existingLinks
-            .Select(l => l.SideAId)
+            .Select(l => l.SourceId)
             .ToHashSet(StringComparer.Ordinal);
         var linkedBIds = existingLinks
-            .Where(l => l.SideBId != null)
-            .Select(l => l.SideBId!)
+            .Where(l => l.DestinationId != null)
+            .Select(l => l.DestinationId!)
             .ToHashSet(StringComparer.Ordinal);
 
         // Reservation sets prevent two actions from sharing the same source or target item.
@@ -62,13 +62,13 @@ public sealed class Planner(ILogger<Planner> logger)
         // they can never be matched as duplicate candidates in subsequent passes.
         foreach (LinkStateRow link in existingLinks)
         {
-            itemsAById.TryGetValue(link.SideAId, out CanonicalItem? currentA);
-            CanonicalItem? currentB = link.SideBId != null ? itemsBById.GetValueOrDefault(link.SideBId) : null;
+            itemsAById.TryGetValue(link.SourceId, out CanonicalItem? currentA);
+            CanonicalItem? currentB = link.DestinationId != null ? itemsBById.GetValueOrDefault(link.DestinationId) : null;
 
-            reservedAIds.Add(link.SideAId);
-            if (link.SideBId != null)
+            reservedAIds.Add(link.SourceId);
+            if (link.DestinationId != null)
             {
-                reservedBIds.Add(link.SideBId);
+                reservedBIds.Add(link.DestinationId);
             }
 
             SyncAction? action = EvaluateLinkedPair(link, currentA, currentB, jobOptions, force);
@@ -78,14 +78,14 @@ public sealed class Planner(ILogger<Planner> logger)
             }
         }
 
-        // Pass 2: unlinked A items → target B (only when sync mode allows A→B).
-        if (jobOptions.SyncMode != SyncMode.BToA)
+        // Pass 2: unlinked source items → target destination (only when sync mode allows source→destination).
+        if (jobOptions.SyncMode != SyncMode.Reverse)
         {
             PlanUnlinkedItems(
                 jobOptions,
                 sideAItems,
                 sideBItems,
-                SyncSide.B,
+                SyncSide.Destination,
                 linkedAIds,
                 linkedBIds,
                 reservedAIds,
@@ -93,14 +93,14 @@ public sealed class Planner(ILogger<Planner> logger)
                 actions);
         }
 
-        // Pass 3: unlinked B items → target A (only when sync mode allows B→A).
-        if (jobOptions.SyncMode != SyncMode.AToB)
+        // Pass 3: unlinked destination items → target source (only when sync mode allows destination→source).
+        if (jobOptions.SyncMode != SyncMode.Forward)
         {
             PlanUnlinkedItems(
                 jobOptions,
                 sideBItems,
                 sideAItems,
-                SyncSide.A,
+                SyncSide.Source,
                 linkedBIds,
                 linkedAIds,
                 reservedBIds,
@@ -121,15 +121,15 @@ public sealed class Planner(ILogger<Planner> logger)
         // Deletion on side A takes priority.
         if (currentA?.IsDeleted == true)
         {
-            if (jobOptions.SyncMode != SyncMode.BToA
+            if (jobOptions.SyncMode != SyncMode.Reverse
                 && jobOptions.DeletePolicy != DeletePolicy.Ignore
-                && link.SideBId != null)
+                && link.DestinationId != null)
             {
                 return new SyncAction
                 {
                     Kind = SyncActionKind.Delete,
-                    TargetSide = SyncSide.B,
-                    DeleteId = link.SideBId,
+                    TargetSide = SyncSide.Destination,
+                    DeleteId = link.DestinationId,
                     Reason = "Source item deleted",
                 };
             }
@@ -140,13 +140,13 @@ public sealed class Planner(ILogger<Planner> logger)
         // Deletion on side B.
         if (currentB?.IsDeleted == true)
         {
-            if (jobOptions.SyncMode != SyncMode.AToB && jobOptions.DeletePolicy != DeletePolicy.Ignore)
+            if (jobOptions.SyncMode != SyncMode.Forward && jobOptions.DeletePolicy != DeletePolicy.Ignore)
             {
                 return new SyncAction
                 {
                     Kind = SyncActionKind.Delete,
-                    TargetSide = SyncSide.A,
-                    DeleteId = link.SideAId,
+                    TargetSide = SyncSide.Source,
+                    DeleteId = link.SourceId,
                     Reason = "Source item deleted",
                 };
             }
@@ -154,27 +154,27 @@ public sealed class Planner(ILogger<Planner> logger)
             return null;
         }
 
-        bool aChanged = currentA != null && (force || HasChanged(currentA, link, SyncSide.A));
-        bool bChanged = currentB != null && (force || HasChanged(currentB, link, SyncSide.B));
+        bool aChanged = currentA != null && (force || HasChanged(currentA, link, SyncSide.Source));
+        bool bChanged = currentB != null && (force || HasChanged(currentB, link, SyncSide.Destination));
 
         return jobOptions.SyncMode switch
         {
-            SyncMode.AToB when !aChanged => null,
-            SyncMode.AToB when bChanged => ResolveConflict(currentA!, currentB, SyncSide.A, SyncSide.B, jobOptions),
-            SyncMode.AToB => new SyncAction
+            SyncMode.Forward when !aChanged => null,
+            SyncMode.Forward when bChanged => ResolveConflict(currentA!, currentB, SyncSide.Source, SyncSide.Destination, jobOptions),
+            SyncMode.Forward => new SyncAction
             {
                 Kind = SyncActionKind.Update,
-                TargetSide = SyncSide.B,
+                TargetSide = SyncSide.Destination,
                 Item = currentA,
                 Reason = "Item changed on source side",
             },
 
-            SyncMode.BToA when !bChanged => null,
-            SyncMode.BToA when aChanged => ResolveConflict(currentB!, currentA, SyncSide.B, SyncSide.A, jobOptions),
-            SyncMode.BToA => new SyncAction
+            SyncMode.Reverse when !bChanged => null,
+            SyncMode.Reverse when aChanged => ResolveConflict(currentB!, currentA, SyncSide.Destination, SyncSide.Source, jobOptions),
+            SyncMode.Reverse => new SyncAction
             {
                 Kind = SyncActionKind.Update,
-                TargetSide = SyncSide.A,
+                TargetSide = SyncSide.Source,
                 Item = currentB,
                 Reason = "Item changed on source side",
             },
@@ -184,28 +184,28 @@ public sealed class Planner(ILogger<Planner> logger)
             _ when aChanged && !bChanged => new SyncAction
             {
                 Kind = SyncActionKind.Update,
-                TargetSide = SyncSide.B,
+                TargetSide = SyncSide.Destination,
                 Item = currentA,
                 Reason = "Item changed on source side",
             },
             _ when !aChanged => new SyncAction
             {
                 Kind = SyncActionKind.Update,
-                TargetSide = SyncSide.A,
+                TargetSide = SyncSide.Source,
                 Item = currentB,
                 Reason = "Item changed on source side",
             },
             // Both changed: resolve using conflict policy. Prefer the A-originating direction
-            // as the primary so that SideAWins and LastWriteWins work naturally; SideBWins is
+            // as the primary so that SourceWins and LastWriteWins work naturally; DestinationWins is
             // handled by checking the policy explicitly.
-            _ when jobOptions.ConflictPolicy == ConflictPolicy.SideBWins && currentB != null => new SyncAction
+            _ when jobOptions.ConflictPolicy == ConflictPolicy.DestinationWins && currentB != null => new SyncAction
             {
                 Kind = SyncActionKind.Update,
-                TargetSide = SyncSide.A,
+                TargetSide = SyncSide.Source,
                 Item = currentB,
-                Reason = "Conflict: side B wins per policy",
+                Reason = "Conflict: destination wins per policy",
             },
-            _ => ResolveConflict(currentA!, currentB, SyncSide.A, SyncSide.B, jobOptions),
+            _ => ResolveConflict(currentA!, currentB, SyncSide.Source, SyncSide.Destination, jobOptions),
         };
     }
 
@@ -353,28 +353,28 @@ public sealed class Planner(ILogger<Planner> logger)
 
     private static bool HasChanged(CanonicalItem item, LinkStateRow link, SyncSide side)
     {
-        if (side == SyncSide.A)
+        if (side == SyncSide.Source)
         {
-            if (item.Version != null && link.SideAVersion != null)
+            if (item.Version != null && link.SourceVersion != null)
             {
-                return item.Version != link.SideAVersion;
+                return item.Version != link.SourceVersion;
             }
 
-            if (item.ContentHash != null && link.SideAHash != null)
+            if (item.ContentHash != null && link.SourceHash != null)
             {
-                return item.ContentHash != link.SideAHash;
+                return item.ContentHash != link.SourceHash;
             }
         }
         else
         {
-            if (item.Version != null && link.SideBVersion != null)
+            if (item.Version != null && link.DestinationVersion != null)
             {
-                return item.Version != link.SideBVersion;
+                return item.Version != link.DestinationVersion;
             }
 
-            if (item.ContentHash != null && link.SideBHash != null)
+            if (item.ContentHash != null && link.DestinationHash != null)
             {
-                return item.ContentHash != link.SideBHash;
+                return item.ContentHash != link.DestinationHash;
             }
         }
 
@@ -390,33 +390,33 @@ public sealed class Planner(ILogger<Planner> logger)
         JobOptions jobOptions) =>
         jobOptions.ConflictPolicy switch
         {
-            ConflictPolicy.SideAWins when sourceSide == SyncSide.A => new SyncAction
+            ConflictPolicy.SourceWins when sourceSide == SyncSide.Source => new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = targetSide,
                 Item = sourceItem,
-                Reason = "Conflict: side A wins per policy",
+                Reason = "Conflict: source wins per policy",
             },
-            ConflictPolicy.SideAWins => new SyncAction
+            ConflictPolicy.SourceWins => new SyncAction
             {
                 Kind = SyncActionKind.NoOp,
                 TargetSide = targetSide,
                 Item = sourceItem,
-                Reason = "Conflict: side A wins per policy",
+                Reason = "Conflict: source wins per policy",
             },
-            ConflictPolicy.SideBWins when sourceSide == SyncSide.B => new SyncAction
+            ConflictPolicy.DestinationWins when sourceSide == SyncSide.Destination => new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = targetSide,
                 Item = sourceItem,
-                Reason = "Conflict: side B wins per policy",
+                Reason = "Conflict: destination wins per policy",
             },
-            ConflictPolicy.SideBWins => new SyncAction
+            ConflictPolicy.DestinationWins => new SyncAction
             {
                 Kind = SyncActionKind.NoOp,
                 TargetSide = targetSide,
                 Item = sourceItem,
-                Reason = "Conflict: side B wins per policy",
+                Reason = "Conflict: destination wins per policy",
             },
             ConflictPolicy.Skip => new SyncAction
             {
@@ -438,7 +438,7 @@ public sealed class Planner(ILogger<Planner> logger)
         DateTimeOffset? targetLastModified = GetLastModified(targetItem);
 
         bool sourceWins = sourceLastModified > targetLastModified
-            || (sourceLastModified == targetLastModified && sourceSide == SyncSide.A)
+            || (sourceLastModified == targetLastModified && sourceSide == SyncSide.Source)
             || (sourceLastModified is not null && targetLastModified is null);
 
         return sourceWins
