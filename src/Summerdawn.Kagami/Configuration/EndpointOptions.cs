@@ -11,9 +11,9 @@ public sealed class EndpointOptions
     public string Type { get; set; } = string.Empty;
 
     /// <summary>
-    /// Name of the credential entry to use.
+    /// Inline credential configuration for this endpoint.
     /// </summary>
-    public string Credential { get; set; } = string.Empty;
+    public CredentialOptions Credential { get; set; } = new();
 
     /// <summary>
     /// Additional provider-specific settings (e.g., calendar ID, contacts folder).

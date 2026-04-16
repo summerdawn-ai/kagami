@@ -1,11 +1,11 @@
-namespace Summerdawn.Kagami.Connectors.Google;
+namespace Summerdawn.Kagami.Authentication;
 
 using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
 
-internal sealed class GoogleOAuthCredential
+public sealed class GoogleOAuthCredential : IConnectorCredential
 {
     private const string AuthEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
     private const string TokenEndpoint = "https://oauth2.googleapis.com/token";

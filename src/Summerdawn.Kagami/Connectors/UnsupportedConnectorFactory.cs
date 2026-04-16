@@ -1,5 +1,6 @@
 namespace Summerdawn.Kagami.Connectors;
 
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 
 /// <summary>
@@ -8,7 +9,7 @@ using Summerdawn.Kagami.Configuration;
 public sealed class UnsupportedConnectorFactory : IConnectorFactory
 {
     /// <inheritdoc />
-    public IConnector Create(string endpointName, EndpointOptions endpoint, CredentialOptions? credential)
+    public IConnector Create(string endpointName, EndpointOptions endpoint, IConnectorCredential credential)
     {
         _ = credential;
         throw new InvalidOperationException(

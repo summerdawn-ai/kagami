@@ -1,5 +1,6 @@
 namespace Summerdawn.Kagami.Connectors;
 
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors.Google;
 using Summerdawn.Kagami.Connectors.Graph;
@@ -13,7 +14,7 @@ public sealed class BuiltInConnectorFactory(ILoggerFactory loggerFactory) : ICon
     private readonly UnsupportedConnectorFactory unsupportedFactory = new();
 
     /// <inheritdoc />
-    public IConnector Create(string endpointName, EndpointOptions endpoint, CredentialOptions? credential)
+    public IConnector Create(string endpointName, EndpointOptions endpoint, IConnectorCredential credential)
     {
         return endpoint.Type switch
         {
@@ -21,13 +22,15 @@ public sealed class BuiltInConnectorFactory(ILoggerFactory loggerFactory) : ICon
                 httpClient,
                 endpointName,
                 endpoint,
-                credential ?? throw new InvalidOperationException($"Endpoint '{endpointName}' requires credentials."),
+                credential as GoogleOAuthCredential
+                    ?? throw new InvalidOperationException($"Endpoint '{endpointName}' requires a GoogleOAuthCredential."),
                 loggerFactory.CreateLogger<GoogleContactsConnector>()),
             "graph-contacts" => new GraphContactsConnector(
                 httpClient,
                 endpointName,
                 endpoint,
-                credential ?? throw new InvalidOperationException($"Endpoint '{endpointName}' requires credentials."),
+                credential as GraphClientCredential
+                    ?? throw new InvalidOperationException($"Endpoint '{endpointName}' requires a GraphClientCredential."),
                 loggerFactory.CreateLogger<GraphContactsConnector>()),
             _ => unsupportedFactory.Create(endpointName, endpoint, credential),
         };

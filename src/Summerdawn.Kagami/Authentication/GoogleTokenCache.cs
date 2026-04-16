@@ -1,4 +1,4 @@
-namespace Summerdawn.Kagami.Connectors.Google;
+namespace Summerdawn.Kagami.Authentication;
 
 using System.Text.Json;
 

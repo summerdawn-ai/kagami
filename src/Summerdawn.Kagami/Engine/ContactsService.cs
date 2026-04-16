@@ -2,6 +2,7 @@ namespace Summerdawn.Kagami.Engine;
 
 using System.Text.Json;
 
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
@@ -12,6 +13,7 @@ using Summerdawn.Kagami.Persistence;
 /// </summary>
 public sealed class ContactsService(
     KagamiOptions options,
+    Dictionary<string, IConnectorCredential> credentials,
     IConnectorFactory connectorFactory,
     JobExecutor jobExecutor,
     StateDatabase stateDb,
@@ -433,8 +435,9 @@ public sealed class ContactsService(
                 $"Available endpoints: {string.Join(", ", options.Endpoints.Keys)}");
         }
 
-        options.Credentials.TryGetValue(endpoint.Credential, out var credential);
-        return connectorFactory.Create(endpointName, endpoint, credential);
+        credentials.TryGetValue(endpointName, out var credential);
+        return connectorFactory.Create(endpointName, endpoint, credential
+            ?? throw new InvalidOperationException($"No credential resolved for endpoint '{endpointName}'."));
     }
 
     private static string BuildExportBaseName(CanonicalItem item)

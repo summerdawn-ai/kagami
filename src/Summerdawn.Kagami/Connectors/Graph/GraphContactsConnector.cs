@@ -1,11 +1,10 @@
 namespace Summerdawn.Kagami.Connectors.Graph;
 
 using System.Net.Http.Headers;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using Azure.Core;
-using Azure.Identity;
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Models;
 
@@ -22,20 +21,12 @@ internal sealed class GraphContactsConnector : IConnector
         HttpClient httpClient,
         string endpointName,
         EndpointOptions endpoint,
-        CredentialOptions credential,
+        GraphClientCredential credential,
         ILogger<GraphContactsConnector> logger)
     {
-        _ = endpointName;
         _ = logger;
         this.httpClient = httpClient;
-        if (!string.IsNullOrWhiteSpace(credential.Type)
-            && !string.Equals(credential.Type, "graph-client-credentials", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                $"Graph contacts endpoint '{endpointName}' requires credential type 'graph-client-credentials'.");
-        }
-
-        this.credential = CreateCredential(credential.Properties);
+        this.credential = credential.TokenCredential;
         string userId = endpoint.Properties.GetRequiredValue("userId", $"endpoint '{endpointName}'");
         string? folderId = endpoint.Properties.GetOptionalValue("folderId");
         collectionPath = folderId is null
@@ -426,29 +417,5 @@ internal sealed class GraphContactsConnector : IConnector
         }
 
         return null;
-    }
-
-    private static TokenCredential CreateCredential(IReadOnlyDictionary<string, string> properties)
-    {
-        string tenantId = properties.GetRequiredValue("tenantId", "graph credentials");
-        string clientId = properties.GetRequiredValue("clientId", "graph credentials");
-        string? clientSecret = properties.GetOptionalValue("clientSecret");
-        string? certificatePath = properties.GetOptionalValue("certificatePath");
-        string? certificatePassword = properties.GetOptionalValue("certificatePassword");
-
-        if (!string.IsNullOrWhiteSpace(clientSecret))
-        {
-            return new ClientSecretCredential(tenantId, clientId, clientSecret);
-        }
-
-        if (!string.IsNullOrWhiteSpace(certificatePath))
-        {
-            X509Certificate2 certificate = string.IsNullOrWhiteSpace(certificatePassword)
-                ? X509CertificateLoader.LoadPkcs12FromFile(certificatePath, null)
-                : X509CertificateLoader.LoadPkcs12FromFile(certificatePath, certificatePassword);
-            return new ClientCertificateCredential(tenantId, clientId, certificate);
-        }
-
-        throw new InvalidOperationException("Graph credentials require either 'clientSecret' or 'certificatePath'.");
     }
 }

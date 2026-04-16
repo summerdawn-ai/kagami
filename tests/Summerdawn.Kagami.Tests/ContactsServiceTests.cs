@@ -1,6 +1,7 @@
 namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Engine;
@@ -31,8 +32,8 @@ public sealed class ContactsServiceTests : IDisposable
         {
             Endpoints =
             {
-                ["Microsoft"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
-                ["Google"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
+                ["Microsoft"] = new EndpointOptions { Type = "fake" },
+                ["Google"] = new EndpointOptions { Type = "fake" },
             },
         };
 
@@ -46,6 +47,11 @@ public sealed class ContactsServiceTests : IDisposable
 
         service = new ContactsService(
             options,
+            new Dictionary<string, IConnectorCredential>
+            {
+                ["Microsoft"] = new FakeConnectorCredential(),
+                ["Google"] = new FakeConnectorCredential(),
+            },
             factory,
             executor,
             db,
@@ -461,8 +467,8 @@ public sealed class ContactsServiceTests : IDisposable
         {
             Endpoints =
             {
-                ["Microsoft"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
-                ["Google"] = new EndpointOptions { Type = "fake", Credential = string.Empty },
+                ["Microsoft"] = new EndpointOptions { Type = "fake" },
+                ["Google"] = new EndpointOptions { Type = "fake" },
             },
         };
 
@@ -476,6 +482,11 @@ public sealed class ContactsServiceTests : IDisposable
 
         return new ContactsService(
             options,
+            new Dictionary<string, IConnectorCredential>
+            {
+                ["Microsoft"] = new FakeConnectorCredential(),
+                ["Google"] = new FakeConnectorCredential(),
+            },
             pagedFactory,
             executor,
             db,

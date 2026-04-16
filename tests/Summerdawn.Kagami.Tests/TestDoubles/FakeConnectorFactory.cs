@@ -1,5 +1,6 @@
 namespace Summerdawn.Kagami.Tests.TestDoubles;
 
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 
@@ -9,7 +10,7 @@ public sealed class FakeConnectorFactory : IConnectorFactory
 
     public void Register(string endpointName, IConnector connector) => connectors[endpointName] = connector;
 
-    public IConnector Create(string endpointName, EndpointOptions endpoint, CredentialOptions? credential)
+    public IConnector Create(string endpointName, EndpointOptions endpoint, IConnectorCredential credential)
     {
         _ = endpoint;
         _ = credential;
