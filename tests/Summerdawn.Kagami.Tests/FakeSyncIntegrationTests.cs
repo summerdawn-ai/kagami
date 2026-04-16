@@ -125,8 +125,8 @@ public sealed class FakeSyncIntegrationTests : IDisposable
         {
             Enabled = true,
             EntityType = EntityType.CalendarEvent,
-            EndpointA = "endpointA",
-            EndpointB = "endpointB",
+            Source = "endpointA",
+            Destination = "endpointB",
             SyncMode = mode,
             DeletePolicy = DeletePolicy.Mirror,
             ConflictPolicy = ConflictPolicy.LastWriteWins,

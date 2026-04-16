@@ -69,7 +69,9 @@ kagami jobs reset --all
 # Interactive contact operations
 kagami contacts list   --from=<endpoint> [--filter=<expr>] [--all]
 kagami contacts export --from=<endpoint> --to=<dir> [--filter=<expr>]
-kagami contacts sync   --from=<endpoint> --to=<endpoint> [--mode=bidi|a-to-b|b-to-a]
+kagami contacts import --from=<dir> --to=<endpoint> [--prune] [--filter=<expr>] [--what-if]
+kagami contacts sync   --from=<endpoint> --to=<endpoint> [--bidirectional]
+                       [--prune] [--on-conflict=last-write-wins|source-wins|dest-wins|skip]
                        [--what-if] [--filter=<expr>] [--force]
 ```
 
@@ -149,16 +151,38 @@ Files are named from the effective contact name (display name, otherwise organiz
 kagami contacts export --from Microsoft --to ./export --config appsettings.json
 ```
 
+#### `kagami contacts import`
+
+Import contacts from local JSON files in a directory into a configured endpoint.
+
+```bash
+# Import all contacts from a local directory
+kagami contacts import --from ./export --to Google --config appsettings.json
+
+# Import with prune: remove destination contacts not present in the import set
+kagami contacts import --from ./export --to Google --prune --config appsettings.json
+
+# Dry run
+kagami contacts import --from ./export --to Google --what-if --config appsettings.json
+```
+
+##### `--prune`
+
+When specified, deletes any contact on the destination that did not appear in the import set. Combines naturally with `--from` pointing to an exported directory to achieve a mirror-replace workflow.
+
 #### `kagami contacts sync`
 
 Synchronize contacts between two configured endpoints.
 
 ```bash
-# Bidirectional sync (default)
+# Forward sync (default: source to destination)
 kagami contacts sync --from Microsoft --to Google --config appsettings.json
 
-# One-directional
-kagami contacts sync --from Microsoft --to Google --mode a-to-b --config appsettings.json
+# Bidirectional sync
+kagami contacts sync --from Microsoft --to Google --bidirectional --config appsettings.json
+
+# One-directional with prune (mirror mode)
+kagami contacts sync --from Microsoft --to Google --prune --config appsettings.json
 
 # Dry run: log planned actions without writing anything
 kagami contacts sync --from Microsoft --to Google --what-if --config appsettings.json
@@ -170,9 +194,17 @@ kagami contacts sync --from Microsoft --to Google --force --config appsettings.j
 kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')" --config appsettings.json
 ```
 
-##### `--what-if`
+##### `--bidirectional`
 
-Performs planning only. Logs each planned create, update, and delete without writing to either endpoint or updating sync state.
+Sync in both directions. By default (without this flag), changes flow only from the source endpoint (`--from`) to the destination endpoint (`--to`).
+
+##### `--prune`
+
+Delete contacts on the destination that no longer exist on the source. Enables a mirror-replace workflow.
+
+##### `--on-conflict`
+
+Conflict resolution policy for items changed on both sides. Available values: `last-write-wins` (default), `source-wins`, `dest-wins`, `skip`.
 
 ##### `--force`
 
@@ -250,8 +282,8 @@ Example:
       "contacts-sync": {
         "Enabled": true,
         "EntityType": "contact",
-        "EndpointA": "googleContacts",
-        "EndpointB": "exchangeContacts",
+        "Source": "googleContacts",
+        "Destination": "exchangeContacts",
         "SyncMode": "Bidirectional",
         "DeletePolicy": "Mirror",
         "ConflictPolicy": "LastWriteWins",
@@ -341,9 +373,9 @@ Each job connects exactly two endpoints.
 Important values:
 
 - `EntityType`: use `contact`
-- `SyncMode`: `Bidirectional`, `AToB`, or `BToA`
+- `SyncMode`: `Bidirectional`, `Forward`, or `Reverse`
 - `DeletePolicy`: use `Mirror` if deletes should propagate
-- `ConflictPolicy`: currently `LastWriteWins`, `SideAWins`, `SideBWins`, or `Skip`
+- `ConflictPolicy`: currently `LastWriteWins`, `SourceWins`, `DestinationWins`, or `Skip`
 - `Schedule`: interval string such as `PT15M`
 
 ## Authentication Setup

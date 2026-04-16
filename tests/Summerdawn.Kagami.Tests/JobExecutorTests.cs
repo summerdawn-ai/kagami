@@ -132,13 +132,13 @@ public sealed class JobExecutorTests : IDisposable
 
         await executor.ExecuteAsync(
             "job-1",
-            CreateJob(conflictPolicy: ConflictPolicy.SideAWins),
+            CreateJob(conflictPolicy: ConflictPolicy.SourceWins),
             connectorA,
             connectorB,
             whatIf: true);
 
-        Assert.Contains(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side B", StringComparison.Ordinal));
-        Assert.DoesNotContain(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side A", StringComparison.Ordinal));
+        Assert.Contains(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side Destination", StringComparison.Ordinal));
+        Assert.DoesNotContain(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side Source", StringComparison.Ordinal));
     }
 
     private JobExecutor CreateExecutor(ILogger<JobExecutor>? logger = null) =>
@@ -155,8 +155,8 @@ public sealed class JobExecutorTests : IDisposable
         {
             Enabled = true,
             EntityType = EntityType.Contact,
-            EndpointA = "endpointA",
-            EndpointB = "endpointB",
+            Source = "endpointA",
+            Destination = "endpointB",
             SyncMode = SyncMode.Bidirectional,
             DeletePolicy = DeletePolicy.Mirror,
             ConflictPolicy = conflictPolicy,

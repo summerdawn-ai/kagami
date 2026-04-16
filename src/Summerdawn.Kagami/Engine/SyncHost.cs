@@ -97,8 +97,8 @@ public sealed class SyncHost(
         var linkRepo = new LinkStateRepository(stateDb);
         await linkRepo.DeleteByJobAsync(jobKey, cancellationToken);
         var cursorRepo = new EndpointCursorRepository(stateDb);
-        await cursorRepo.DeleteCursorAsync(jobKey, job.EndpointA, cancellationToken);
-        await cursorRepo.DeleteCursorAsync(jobKey, job.EndpointB, cancellationToken);
+        await cursorRepo.DeleteCursorAsync(jobKey, job.Source, cancellationToken);
+        await cursorRepo.DeleteCursorAsync(jobKey, job.Destination, cancellationToken);
         logger.LogInformation("Reset job {JobKey}: link state and cursors cleared", jobKey);
     }
 
@@ -106,20 +106,20 @@ public sealed class SyncHost(
     {
         try
         {
-            if (!options.Endpoints.TryGetValue(jobOptions.EndpointA, out var endpointA))
+            if (!options.Endpoints.TryGetValue(jobOptions.Source, out var endpointA))
             {
-                throw new InvalidOperationException($"Endpoint '{jobOptions.EndpointA}' not found.");
+                throw new InvalidOperationException($"Endpoint '{jobOptions.Source}' not found.");
             }
 
-            if (!options.Endpoints.TryGetValue(jobOptions.EndpointB, out var endpointB))
+            if (!options.Endpoints.TryGetValue(jobOptions.Destination, out var endpointB))
             {
-                throw new InvalidOperationException($"Endpoint '{jobOptions.EndpointB}' not found.");
+                throw new InvalidOperationException($"Endpoint '{jobOptions.Destination}' not found.");
             }
 
             options.Credentials.TryGetValue(endpointA.Credential, out var credA);
             options.Credentials.TryGetValue(endpointB.Credential, out var credB);
-            var connA = connectorFactory.Create(jobOptions.EndpointA, endpointA, credA);
-            var connB = connectorFactory.Create(jobOptions.EndpointB, endpointB, credB);
+            var connA = connectorFactory.Create(jobOptions.Source, endpointA, credA);
+            var connB = connectorFactory.Create(jobOptions.Destination, endpointB, credB);
             await executor.ExecuteAsync(jobKey, jobOptions, connA, connB, whatIf, cancellationToken: cancellationToken);
         }
         catch (Exception ex)

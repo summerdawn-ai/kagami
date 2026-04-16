@@ -52,6 +52,26 @@ internal static class ContactPhotoMetadata
         return true;
     }
 
+    /// <summary>Returns a content-type string for a given file extension.</summary>
+    public static string GetContentTypeFromExtension(string extension) =>
+        extension.ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            ".bmp" => "image/bmp",
+            ".webp" => "image/webp",
+            _ => "application/octet-stream",
+        };
+
+    /// <summary>Explicitly clears any photo metadata from the item.</summary>
+    public static void ClearPhoto(CanonicalItem item)
+    {
+        item.Metadata.Remove(PhotoBytesKey);
+        item.Metadata.Remove(PhotoContentTypeKey);
+        item.Metadata[PhotoPresenceKey] = "absent";
+    }
+
     public static string GetFileExtension(string? contentType, ReadOnlySpan<byte> photoBytes)
     {
         string normalized = NormalizeContentType(contentType, photoBytes);

@@ -5,8 +5,8 @@ namespace Summerdawn.Kagami.Engine;
 /// </summary>
 public enum SyncSide
 {
-    /// <summary>Side A of the job.</summary>
-    A,
-    /// <summary>Side B of the job.</summary>
-    B,
+    /// <summary>Source side of the job.</summary>
+    Source,
+    /// <summary>Destination side of the job.</summary>
+    Destination,
 }

@@ -55,12 +55,12 @@ public static class Program
                 return;
             }
 
-            Console.WriteLine($"{"Key",-30} {"Enabled",-8} {"EntityType",-18} {"EndpointA",-20} {"EndpointB",-20} {"Mode",-16} {"Schedule"}");
+            Console.WriteLine($"{"Key",-30} {"Enabled",-8} {"EntityType",-18} {"Source",-20} {"Destination",-20} {"Mode",-16} {"Schedule"}");
             Console.WriteLine(new string('-', 120));
             foreach (var (key, job) in kagamiOptions.Jobs)
             {
                 Console.WriteLine(
-                    $"{key,-30} {job.Enabled,-8} {job.EntityType,-18} {job.EndpointA,-20} {job.EndpointB,-20} {job.SyncMode,-16} {job.Schedule}");
+                    $"{key,-30} {job.Enabled,-8} {job.EntityType,-18} {job.Source,-20} {job.Destination,-20} {job.SyncMode,-16} {job.Schedule}");
             }
         });
 
@@ -198,11 +198,23 @@ public static class Program
             Arity = ArgumentArity.Zero,
         };
 
-        var modeOption = new Option<string>("--mode")
+        var bidirectionalOption = new Option<bool>("--bidirectional")
         {
-            Description = "Sync direction: bidi (default), a-to-b, b-to-a",
+            Description = "Sync in both directions (default: source to destination only)",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var pruneOption = new Option<bool>("--prune")
+        {
+            Description = "Delete contacts on the destination that no longer exist on the source",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var onConflictOption = new Option<string>("--on-conflict")
+        {
+            Description = "Conflict resolution policy: last-write-wins (default), source-wins, dest-wins, skip",
             Required = false,
-            DefaultValueFactory = _ => "bidi",
+            DefaultValueFactory = _ => "last-write-wins",
         };
 
         var allOption = new Option<bool>("--all")
@@ -260,7 +272,7 @@ public static class Program
         });
 
         // contacts export
-        var contactsExportCommand = new Command("export", "Export contacts from an endpoint to local JSON files")
+        var contactsExportCommand = new Command("export", "Export contacts from an endpoint to local JSON files in a directory")
         {
             configOption,
             fromOption,
@@ -284,7 +296,9 @@ public static class Program
             configOption,
             fromOption,
             toEndpointOption,
-            modeOption,
+            bidirectionalOption,
+            pruneOption,
+            onConflictOption,
             whatIfOption,
             filterOption,
             forceOption,
@@ -294,31 +308,62 @@ public static class Program
             string? configPath = parseResult.GetValue(configOption);
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
-            string modeStr = parseResult.GetValue(modeOption)!;
+            bool bidirectional = parseResult.GetValue(bidirectionalOption);
+            bool prune = parseResult.GetValue(pruneOption);
+            string onConflictStr = parseResult.GetValue(onConflictOption)!;
             bool whatIf = parseResult.GetValue(whatIfOption);
             bool force = parseResult.GetValue(forceOption);
             string? filter = parseResult.GetValue(filterOption);
 
-            SyncMode mode = modeStr.ToLowerInvariant() switch
+            SyncMode mode = bidirectional ? SyncMode.Bidirectional : SyncMode.Forward;
+
+            ConflictPolicy conflictPolicy = onConflictStr.ToLowerInvariant() switch
             {
-                "bidi" or "bidirectional" => SyncMode.Bidirectional,
-                "a-to-b" or "atob" => SyncMode.AToB,
-                "b-to-a" or "btoa" => SyncMode.BToA,
-                _ => throw new ArgumentException($"Unknown sync mode '{modeStr}'. Use: bidi, a-to-b, b-to-a"),
+                "source-wins" => ConflictPolicy.SourceWins,
+                "dest-wins" or "destination-wins" => ConflictPolicy.DestinationWins,
+                "skip" => ConflictPolicy.Skip,
+                _ => ConflictPolicy.LastWriteWins,
             };
+
+            DeletePolicy deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
 
             var svc = BuildContactsService(configPath);
             var contactFilter = ContactFilter.Parse(filter);
-            var result = await svc.SyncAsync(from, to, mode, whatIf, contactFilter, force, CancellationToken.None);
+            var result = await svc.SyncAsync(from, to, mode, whatIf, contactFilter, force, deletePolicy, conflictPolicy, CancellationToken.None);
             Console.WriteLine(result.Succeeded
                 ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
                 : $"Sync failed or skipped: {result.SkipReason}");
+        });
+
+        // contacts import
+        var contactsImportCommand = new Command("import", "Import contacts from local JSON files in a directory into a configured endpoint")
+        {
+            configOption,
+            fromOption,
+            toEndpointOption,
+            pruneOption,
+            filterOption,
+            whatIfOption,
+        };
+        contactsImportCommand.SetAction(async parseResult =>
+        {
+            string? configPath = parseResult.GetValue(configOption);
+            string from = parseResult.GetValue(fromOption)!;
+            string to = parseResult.GetValue(toEndpointOption)!;
+            bool prune = parseResult.GetValue(pruneOption);
+            string? filter = parseResult.GetValue(filterOption);
+            bool whatIf = parseResult.GetValue(whatIfOption);
+            var svc = BuildContactsService(configPath);
+            var contactFilter = ContactFilter.Parse(filter);
+            var result = await svc.ImportAsync(from, to, prune, contactFilter, whatIf, CancellationToken.None);
+            Console.WriteLine($"Import completed. Created: {result.Created}, Updated: {result.Updated}, Deleted: {result.Deleted}");
         });
 
         var contactsCommand = new Command("contacts", "Interactive contact operations")
         {
             contactsListCommand,
             contactsExportCommand,
+            contactsImportCommand,
             contactsSyncCommand,
         };
 

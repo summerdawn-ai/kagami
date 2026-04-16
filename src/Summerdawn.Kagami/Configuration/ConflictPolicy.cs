@@ -7,10 +7,10 @@ public enum ConflictPolicy
 {
     /// <summary>Most recently modified item wins.</summary>
     LastWriteWins,
-    /// <summary>Side A always wins.</summary>
-    SideAWins,
-    /// <summary>Side B always wins.</summary>
-    SideBWins,
+    /// <summary>Source side always wins.</summary>
+    SourceWins,
+    /// <summary>Destination side always wins.</summary>
+    DestinationWins,
     /// <summary>Flag the conflict and skip the update.</summary>
     Skip,
 }
