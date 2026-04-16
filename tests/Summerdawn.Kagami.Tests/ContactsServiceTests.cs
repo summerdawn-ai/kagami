@@ -396,8 +396,8 @@ public sealed class ContactsServiceTests : IDisposable
         Assert.True(result.Succeeded);
         Assert.Single(connectorB.Items, item => !item.IsDeleted);
         Assert.Single(links);
-        Assert.Equal("a1", links[0].SideAId);
-        Assert.Equal("b1", links[0].SideBId);
+        Assert.Equal("a1", links[0].SourceId);
+        Assert.Equal("b1", links[0].DestinationId);
     }
 
     [Fact]

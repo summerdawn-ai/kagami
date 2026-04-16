@@ -61,8 +61,8 @@ public sealed class FakeSyncIntegrationTests : IDisposable
         Assert.True(result.Succeeded);
         var links = await linkStateRepository.GetByJobAsync("job-1");
         Assert.Single(links);
-        Assert.Equal("a1", links[0].SideAId);
-        Assert.NotNull(links[0].SideBId);
+        Assert.Equal("a1", links[0].SourceId);
+        Assert.NotNull(links[0].DestinationId);
     }
 
     [Fact]
@@ -99,10 +99,10 @@ public sealed class FakeSyncIntegrationTests : IDisposable
         {
             JobKey = "job-1",
             EntityType = EntityType.CalendarEvent,
-            SideAId = "a1",
-            SideBId = "b1",
-            SideAVersion = "v1",
-            SideBVersion = "v1",
+            SourceId = "a1",
+            DestinationId = "b1",
+            SourceVersion = "v1",
+            DestinationVersion = "v1",
         });
 
         await connectorA.UpdateItemAsync(CreateEvent("a1", "Updated Meeting"));
@@ -115,8 +115,8 @@ public sealed class FakeSyncIntegrationTests : IDisposable
 
         Assert.True(firstRun.Succeeded);
         Assert.Single(linksAfterUpdate);
-        Assert.Equal(currentSource!.Version, linksAfterUpdate[0].SideAVersion);
-        Assert.Equal(currentTarget!.Version, linksAfterUpdate[0].SideBVersion);
+        Assert.Equal(currentSource!.Version, linksAfterUpdate[0].SourceVersion);
+        Assert.Equal(currentTarget!.Version, linksAfterUpdate[0].DestinationVersion);
         Assert.Equal(0, secondRun.ActionsPlanned);
     }
 

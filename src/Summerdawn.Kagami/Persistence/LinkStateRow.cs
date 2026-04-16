@@ -15,37 +15,37 @@ public sealed class LinkStateRow
     /// <summary>Entity type (e.g., "calendar-event", "contact").</summary>
     public string EntityType { get; set; } = string.Empty;
 
-    /// <summary>Provider ID on side A.</summary>
-    public string SideAId { get; set; } = string.Empty;
+    /// <summary>Provider ID on the source side.</summary>
+    public string SourceId { get; set; } = string.Empty;
 
-    /// <summary>Provider ID on side B (null before first successful sync).</summary>
-    public string? SideBId { get; set; }
+    /// <summary>Provider ID on the destination side (null before first successful sync).</summary>
+    public string? DestinationId { get; set; }
 
-    /// <summary>Version/etag on side A.</summary>
-    public string? SideAVersion { get; set; }
+    /// <summary>Version/etag on the source side.</summary>
+    public string? SourceVersion { get; set; }
 
-    /// <summary>Version/etag on side B.</summary>
-    public string? SideBVersion { get; set; }
+    /// <summary>Version/etag on the destination side.</summary>
+    public string? DestinationVersion { get; set; }
 
-    /// <summary>Content hash on side A.</summary>
-    public string? SideAHash { get; set; }
+    /// <summary>Content hash on the source side.</summary>
+    public string? SourceHash { get; set; }
 
-    /// <summary>Content hash on side B.</summary>
-    public string? SideBHash { get; set; }
+    /// <summary>Content hash on the destination side.</summary>
+    public string? DestinationHash { get; set; }
 
-    /// <summary>Whether side A has deleted this item.</summary>
-    public bool SideADeleted { get; set; }
+    /// <summary>Whether the source side has deleted this item.</summary>
+    public bool SourceDeleted { get; set; }
 
-    /// <summary>Whether side B has deleted this item.</summary>
-    public bool SideBDeleted { get; set; }
+    /// <summary>Whether the destination side has deleted this item.</summary>
+    public bool DestinationDeleted { get; set; }
 
-    /// <summary>Last time side A was observed.</summary>
-    public DateTimeOffset? SideALastSeen { get; set; }
+    /// <summary>Last time the source side was observed.</summary>
+    public DateTimeOffset? SourceLastSeen { get; set; }
 
-    /// <summary>Last time side B was observed.</summary>
-    public DateTimeOffset? SideBLastSeen { get; set; }
+    /// <summary>Last time the destination side was observed.</summary>
+    public DateTimeOffset? DestinationLastSeen { get; set; }
 
-    /// <summary>Which side originally created the item ("A" or "B").</summary>
+    /// <summary>Which side originally created the item ("Source" or "Destination").</summary>
     public string? OriginSide { get; set; }
 
     /// <summary>When the item was last successfully synchronized.</summary>

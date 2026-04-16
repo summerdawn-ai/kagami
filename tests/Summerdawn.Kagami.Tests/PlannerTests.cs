@@ -99,7 +99,7 @@ public sealed class PlannerTests
     [Fact]
     public void PlanActions_ReturnsNoAction_WhenLinkedPairUnchanged()
     {
-        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
 
         var actions = planner.PlanActions(
             CreateJob(),
@@ -113,7 +113,7 @@ public sealed class PlannerTests
     [Fact]
     public void PlanActions_UpdatesDestination_WhenOnlySourceChanged()
     {
-        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
 
         var actions = planner.PlanActions(
             CreateJob(),
@@ -129,7 +129,7 @@ public sealed class PlannerTests
     [Fact]
     public void PlanActions_UpdatesSource_WhenOnlyDestinationChanged()
     {
-        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
 
         var actions = planner.PlanActions(
             CreateJob(),
@@ -145,7 +145,7 @@ public sealed class PlannerTests
     [Fact]
     public void PlanActions_UpdatesDestination_WhenBothChangedAndSourceWins()
     {
-        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
 
         var actions = planner.PlanActions(
             CreateJob(conflictPolicy: ConflictPolicy.SourceWins),
@@ -162,7 +162,7 @@ public sealed class PlannerTests
     [Fact]
     public void PlanActions_UpdatesSource_WhenBothChangedAndDestinationWins()
     {
-        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
 
         var actions = planner.PlanActions(
             CreateJob(conflictPolicy: ConflictPolicy.DestinationWins),
@@ -179,7 +179,7 @@ public sealed class PlannerTests
     [Fact]
     public void PlanActions_ReturnsNoOp_WhenBothChangedAndPolicyIsSkip()
     {
-        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
 
         var actions = planner.PlanActions(
             CreateJob(conflictPolicy: ConflictPolicy.Skip),
@@ -194,7 +194,7 @@ public sealed class PlannerTests
     [Fact]
     public void PlanActions_RespectsForwardDirectionForLinkedPair()
     {
-        var link = CreateLink("a1", "b1", sideAVersion: "v1", sideBVersion: "v1");
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
         var changedItem = CreateItem("a1", "v2");
 
         // Forward mode: A changed → plan action
@@ -413,18 +413,18 @@ public sealed class PlannerTests
         };
 
     private static LinkStateRow CreateLink(
-        string sideAId,
-        string sideBId,
-        string? sideAVersion = null,
-        string? sideBVersion = null,
+        string sourceId,
+        string destinationId,
+        string? sourceVersion = null,
+        string? destinationVersion = null,
         string entityType = EntityType.CalendarEvent) =>
         new()
         {
             JobKey = "job-1",
             EntityType = entityType,
-            SideAId = sideAId,
-            SideBId = sideBId,
-            SideAVersion = sideAVersion,
-            SideBVersion = sideBVersion,
+            SourceId = sourceId,
+            DestinationId = destinationId,
+            SourceVersion = sourceVersion,
+            DestinationVersion = destinationVersion,
         };
 }

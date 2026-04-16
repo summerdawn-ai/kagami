@@ -45,12 +45,12 @@ public sealed class JobExecutorTests : IDisposable
         {
             JobKey = "job-1",
             EntityType = EntityType.Contact,
-            SideAId = "a1",
-            SideBId = "b1",
-            SideAVersion = "v1",
-            SideBVersion = "v1",
-            SideAHash = "old-a",
-            SideBHash = "old-b",
+            SourceId = "a1",
+            DestinationId = "b1",
+            SourceVersion = "v1",
+            DestinationVersion = "v1",
+            SourceHash = "old-a",
+            DestinationHash = "old-b",
         });
 
         JobExecutor executor = CreateExecutor();

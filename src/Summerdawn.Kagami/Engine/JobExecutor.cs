@@ -148,10 +148,10 @@ public sealed class JobExecutor(
         SyncSide updateSide,
         CancellationToken cancellationToken)
     {
-        var linksBySideAId = existingLinks.ToDictionary(l => l.SideAId);
-        var linksBySideBId = existingLinks
-            .Where(l => l.SideBId != null)
-            .ToDictionary(l => l.SideBId!);
+        var linksBySourceId = existingLinks.ToDictionary(l => l.SourceId);
+        var linksByDestinationId = existingLinks
+            .Where(l => l.DestinationId != null)
+            .ToDictionary(l => l.DestinationId!);
 
         foreach (var action in actions)
         {
@@ -166,13 +166,13 @@ public sealed class JobExecutor(
                         {
                             JobKey = jobKey,
                             EntityType = entityType,
-                            SideAId = updateSide == SyncSide.Destination ? action.Item.SourceId : created.SourceId,
-                            SideBId = updateSide == SyncSide.Destination ? created.SourceId : action.Item.SourceId,
-                            SideAVersion = updateSide == SyncSide.Destination ? action.Item.Version : created.Version,
-                            SideBVersion = updateSide == SyncSide.Destination ? created.Version : action.Item.Version,
-                            SideAHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : created.ContentHash,
-                            SideBHash = updateSide == SyncSide.Destination ? created.ContentHash : action.Item.ContentHash,
-                            OriginSide = updateSide == SyncSide.Destination ? "A" : "B",
+                            SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : created.SourceId,
+                            DestinationId = updateSide == SyncSide.Destination ? created.SourceId : action.Item.SourceId,
+                            SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : created.Version,
+                            DestinationVersion = updateSide == SyncSide.Destination ? created.Version : action.Item.Version,
+                            SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : created.ContentHash,
+                            DestinationHash = updateSide == SyncSide.Destination ? created.ContentHash : action.Item.ContentHash,
+                            OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
                             LastSyncedAt = DateTimeOffset.UtcNow,
                             LastSyncResult = "created",
                         };
@@ -203,13 +203,13 @@ public sealed class JobExecutor(
                             {
                                 JobKey = jobKey,
                                 EntityType = entityType,
-                                SideAId = updateSide == SyncSide.Destination ? action.Item.SourceId : matchedUpdate.SourceId,
-                                SideBId = updateSide == SyncSide.Destination ? matchedUpdate.SourceId : action.Item.SourceId,
-                                SideAVersion = updateSide == SyncSide.Destination ? action.Item.Version : matchedUpdate.Version,
-                                SideBVersion = updateSide == SyncSide.Destination ? matchedUpdate.Version : action.Item.Version,
-                                SideAHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : matchedUpdate.ContentHash,
-                                SideBHash = updateSide == SyncSide.Destination ? matchedUpdate.ContentHash : action.Item.ContentHash,
-                                OriginSide = updateSide == SyncSide.Destination ? "A" : "B",
+                                SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : matchedUpdate.SourceId,
+                                DestinationId = updateSide == SyncSide.Destination ? matchedUpdate.SourceId : action.Item.SourceId,
+                                SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : matchedUpdate.Version,
+                                DestinationVersion = updateSide == SyncSide.Destination ? matchedUpdate.Version : action.Item.Version,
+                                SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : matchedUpdate.ContentHash,
+                                DestinationHash = updateSide == SyncSide.Destination ? matchedUpdate.ContentHash : action.Item.ContentHash,
+                                OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
                                 LastSyncedAt = DateTimeOffset.UtcNow,
                                 LastSyncResult = "updated",
                             };
@@ -223,17 +223,17 @@ public sealed class JobExecutor(
 
                         if (updateSide == SyncSide.Destination)
                         {
-                            link.SideAVersion = action.Item.Version;
-                            link.SideAHash = action.Item.ContentHash;
-                            link.SideBVersion = updated.Version;
-                            link.SideBHash = updated.ContentHash;
+                            link.SourceVersion = action.Item.Version;
+                            link.SourceHash = action.Item.ContentHash;
+                            link.DestinationVersion = updated.Version;
+                            link.DestinationHash = updated.ContentHash;
                         }
                         else
                         {
-                            link.SideBVersion = action.Item.Version;
-                            link.SideBHash = action.Item.ContentHash;
-                            link.SideAVersion = updated.Version;
-                            link.SideAHash = updated.ContentHash;
+                            link.DestinationVersion = action.Item.Version;
+                            link.DestinationHash = action.Item.ContentHash;
+                            link.SourceVersion = updated.Version;
+                            link.SourceHash = updated.ContentHash;
                         }
 
                         link.LastSyncedAt = DateTimeOffset.UtcNow;
@@ -249,18 +249,18 @@ public sealed class JobExecutor(
                         await operationLog.AppendAsync(jobKey, entityType, "delete", action.DeleteId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
                         var link = updateSide == SyncSide.Destination
-                            ? linksBySideBId.GetValueOrDefault(action.DeleteId)
-                            : linksBySideAId.GetValueOrDefault(action.DeleteId);
+                            ? linksByDestinationId.GetValueOrDefault(action.DeleteId)
+                            : linksBySourceId.GetValueOrDefault(action.DeleteId);
 
                         if (link is not null)
                         {
                             if (updateSide == SyncSide.Destination)
                             {
-                                link.SideBDeleted = true;
+                                link.DestinationDeleted = true;
                             }
                             else
                             {
-                                link.SideADeleted = true;
+                                link.SourceDeleted = true;
                             }
 
                             link.LastSyncedAt = DateTimeOffset.UtcNow;
@@ -417,8 +417,8 @@ public sealed class JobExecutor(
         string sourceId)
     {
         return updateSide == SyncSide.Destination
-            ? existingLinks.FirstOrDefault(link => link.SideAId == sourceId)
-            : existingLinks.FirstOrDefault(link => link.SideBId == sourceId);
+            ? existingLinks.FirstOrDefault(link => link.SourceId == sourceId)
+            : existingLinks.FirstOrDefault(link => link.DestinationId == sourceId);
     }
 
     private static async Task EnsureActionItemsLoadedAsync(IReadOnlyList<SyncAction> actions, CancellationToken cancellationToken)
@@ -441,8 +441,8 @@ public sealed class JobExecutor(
         {
             EntityType = sourceItem.EntityType,
             Payload = sourceItem.Payload,
-            SourceId = matchedTargetItem?.SourceId ?? (updateSide == SyncSide.Destination ? link!.SideBId! : link!.SideAId),
-            Version = matchedTargetItem?.Version ?? (updateSide == SyncSide.Destination ? link!.SideBVersion : link!.SideAVersion),
+            SourceId = matchedTargetItem?.SourceId ?? (updateSide == SyncSide.Destination ? link!.DestinationId! : link!.SourceId),
+            Version = matchedTargetItem?.Version ?? (updateSide == SyncSide.Destination ? link!.DestinationVersion : link!.SourceVersion),
             ContentHash = sourceItem.ContentHash,
             IsDeleted = sourceItem.IsDeleted,
             Metadata = new Dictionary<string, string>(sourceItem.Metadata),
@@ -452,8 +452,8 @@ public sealed class JobExecutor(
         action.Item is not null
         && action.MatchedTargetItem is not null
         && (updateSide == SyncSide.Destination
-            ? link.SideAId == action.Item.SourceId && link.SideBId == action.MatchedTargetItem.SourceId
-            : link.SideBId == action.Item.SourceId && link.SideAId == action.MatchedTargetItem.SourceId);
+            ? link.SourceId == action.Item.SourceId && link.DestinationId == action.MatchedTargetItem.SourceId
+            : link.DestinationId == action.Item.SourceId && link.SourceId == action.MatchedTargetItem.SourceId);
 
     private sealed record PageSet(IReadOnlyList<CanonicalItem> Items, string? Cursor);
 }

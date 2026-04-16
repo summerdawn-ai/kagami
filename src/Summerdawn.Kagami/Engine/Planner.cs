@@ -47,11 +47,11 @@ public sealed class Planner(ILogger<Planner> logger)
         var itemsBById = sideBItems.ToDictionary(i => i.SourceId, StringComparer.Ordinal);
 
         var linkedAIds = existingLinks
-            .Select(l => l.SideAId)
+            .Select(l => l.SourceId)
             .ToHashSet(StringComparer.Ordinal);
         var linkedBIds = existingLinks
-            .Where(l => l.SideBId != null)
-            .Select(l => l.SideBId!)
+            .Where(l => l.DestinationId != null)
+            .Select(l => l.DestinationId!)
             .ToHashSet(StringComparer.Ordinal);
 
         // Reservation sets prevent two actions from sharing the same source or target item.
@@ -62,13 +62,13 @@ public sealed class Planner(ILogger<Planner> logger)
         // they can never be matched as duplicate candidates in subsequent passes.
         foreach (LinkStateRow link in existingLinks)
         {
-            itemsAById.TryGetValue(link.SideAId, out CanonicalItem? currentA);
-            CanonicalItem? currentB = link.SideBId != null ? itemsBById.GetValueOrDefault(link.SideBId) : null;
+            itemsAById.TryGetValue(link.SourceId, out CanonicalItem? currentA);
+            CanonicalItem? currentB = link.DestinationId != null ? itemsBById.GetValueOrDefault(link.DestinationId) : null;
 
-            reservedAIds.Add(link.SideAId);
-            if (link.SideBId != null)
+            reservedAIds.Add(link.SourceId);
+            if (link.DestinationId != null)
             {
-                reservedBIds.Add(link.SideBId);
+                reservedBIds.Add(link.DestinationId);
             }
 
             SyncAction? action = EvaluateLinkedPair(link, currentA, currentB, jobOptions, force);
@@ -123,13 +123,13 @@ public sealed class Planner(ILogger<Planner> logger)
         {
             if (jobOptions.SyncMode != SyncMode.Reverse
                 && jobOptions.DeletePolicy != DeletePolicy.Ignore
-                && link.SideBId != null)
+                && link.DestinationId != null)
             {
                 return new SyncAction
                 {
                     Kind = SyncActionKind.Delete,
                     TargetSide = SyncSide.Destination,
-                    DeleteId = link.SideBId,
+                    DeleteId = link.DestinationId,
                     Reason = "Source item deleted",
                 };
             }
@@ -146,7 +146,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 {
                     Kind = SyncActionKind.Delete,
                     TargetSide = SyncSide.Source,
-                    DeleteId = link.SideAId,
+                    DeleteId = link.SourceId,
                     Reason = "Source item deleted",
                 };
             }
@@ -355,26 +355,26 @@ public sealed class Planner(ILogger<Planner> logger)
     {
         if (side == SyncSide.Source)
         {
-            if (item.Version != null && link.SideAVersion != null)
+            if (item.Version != null && link.SourceVersion != null)
             {
-                return item.Version != link.SideAVersion;
+                return item.Version != link.SourceVersion;
             }
 
-            if (item.ContentHash != null && link.SideAHash != null)
+            if (item.ContentHash != null && link.SourceHash != null)
             {
-                return item.ContentHash != link.SideAHash;
+                return item.ContentHash != link.SourceHash;
             }
         }
         else
         {
-            if (item.Version != null && link.SideBVersion != null)
+            if (item.Version != null && link.DestinationVersion != null)
             {
-                return item.Version != link.SideBVersion;
+                return item.Version != link.DestinationVersion;
             }
 
-            if (item.ContentHash != null && link.SideBHash != null)
+            if (item.ContentHash != null && link.DestinationHash != null)
             {
-                return item.ContentHash != link.SideBHash;
+                return item.ContentHash != link.DestinationHash;
             }
         }
 
