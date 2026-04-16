@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Models;
@@ -156,7 +157,8 @@ internal sealed class GoogleContactsConnector : IConnector
                 {
                     if (!item.IsDeleted)
                     {
-                        ContactPhotoLoader.Attach(item, ct => PopulatePhotoAsync(item, person, ct));
+                        var personClone = person.Clone();
+                        ContactPhotoLoader.Attach(item, ct => PopulatePhotoAsync(item, personClone, ct));
                     }
 
                     items.Add(item);
