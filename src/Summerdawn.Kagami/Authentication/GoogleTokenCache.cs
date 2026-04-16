@@ -1,7 +1,9 @@
-namespace Summerdawn.Kagami.Authentication;
 
 using System.Text.Json;
 
+using Summerdawn.Kagami.Serialization;
+
+namespace Summerdawn.Kagami.Authentication;
 internal sealed class GoogleTokenCache
 {
     private static readonly string StorageDirectory = Path.Combine(
@@ -25,7 +27,7 @@ internal sealed class GoogleTokenCache
         try
         {
             string json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<GoogleTokenCache>(json);
+            return JsonSerializer.Deserialize(json, KagamiJsonContext.Default.GoogleTokenCache);
         }
         catch
         {
@@ -37,7 +39,7 @@ internal sealed class GoogleTokenCache
     {
         Directory.CreateDirectory(StorageDirectory);
         string path = GetPath(endpointName);
-        string json = JsonSerializer.Serialize(cache);
+        string json = JsonSerializer.Serialize(cache, KagamiJsonContext.Default.GoogleTokenCache);
         File.WriteAllText(path, json);
     }
 

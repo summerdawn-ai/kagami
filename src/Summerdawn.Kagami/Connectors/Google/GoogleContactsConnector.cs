@@ -1,13 +1,14 @@
-namespace Summerdawn.Kagami.Connectors.Google;
-
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Models;
+
+namespace Summerdawn.Kagami.Connectors.Google;
 
 internal sealed class GoogleContactsConnector : IConnector
 {
@@ -59,9 +60,9 @@ internal sealed class GoogleContactsConnector : IConnector
     public async Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
         string requestUri = $"{BuildPersonRequestUri(id)}?personFields={Uri.EscapeDataString(PersonFields)}";
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
-        using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
-        CanonicalItem? item = ConvertPerson(document.RootElement);
+        using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
+        using var document = await SendForJsonAsync(request, cancellationToken);
+        var item = ConvertPerson(document.RootElement);
         if (item is not null && !item.IsDeleted)
         {
             await PopulatePhotoAsync(item, document.RootElement, cancellationToken);
@@ -72,13 +73,13 @@ internal sealed class GoogleContactsConnector : IConnector
 
     public async Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
     {
-        CanonicalContact contact = GetContactPayload(item);
-        JsonElement body = await BuildWritablePersonAsync(contact, cancellationToken);
+        var contact = GetContactPayload(item);
+        var body = await BuildWritablePersonAsync(contact, cancellationToken);
         string requestUri = $"https://people.googleapis.com/v1/people:createContact?personFields={Uri.EscapeDataString(PersonFields)}";
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Post, requestUri, cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Post, requestUri, cancellationToken);
         request.Content = CreateJsonContent(body);
-        using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
-        CanonicalItem created = ConvertPerson(document.RootElement) ?? throw new InvalidOperationException("Google createContact returned no person payload.");
+        using var document = await SendForJsonAsync(request, cancellationToken);
+        var created = ConvertPerson(document.RootElement) ?? throw new InvalidOperationException("Google createContact returned no person payload.");
         await SyncPhotoAsync(created.SourceId, item, deleteWhenAbsent: false, cancellationToken);
         return await GetItemAsync(created.SourceId, cancellationToken)
             ?? throw new InvalidOperationException("Google createContact succeeded but the created item could not be reloaded.");
@@ -86,19 +87,19 @@ internal sealed class GoogleContactsConnector : IConnector
 
     public async Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
     {
-        CanonicalContact contact = GetContactPayload(item);
-        JsonObjectBuilder personBuilder = await BuildWritablePersonBuilderAsync(contact, cancellationToken);
-        personBuilder.Add("resourceName", item.SourceId);
+        var contact = GetContactPayload(item);
+        var person = await BuildWritablePersonAsync(contact, cancellationToken);
+        person["resourceName"] = item.SourceId;
         if (!string.IsNullOrWhiteSpace(item.Version))
         {
-            personBuilder.Add("etag", item.Version);
+            person["etag"] = item.Version;
         }
 
         string updateFields = Uri.EscapeDataString("names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships");
         string requestUri = $"{BuildPersonRequestUri(item.SourceId)}:updateContact?updatePersonFields={updateFields}&personFields={Uri.EscapeDataString(PersonFields)}";
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Patch, requestUri, cancellationToken);
-        request.Content = CreateJsonContent(personBuilder.Build());
-        using JsonDocument _ = await SendForJsonAsync(request, cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Patch, requestUri, cancellationToken);
+        request.Content = CreateJsonContent(person);
+        using var _ = await SendForJsonAsync(request, cancellationToken);
         await SyncPhotoAsync(item.SourceId, item, deleteWhenAbsent: true, cancellationToken);
         return await GetItemAsync(item.SourceId, cancellationToken)
             ?? throw new InvalidOperationException("Google updateContact succeeded but the updated item could not be reloaded.");
@@ -107,8 +108,8 @@ internal sealed class GoogleContactsConnector : IConnector
     public async Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
     {
         string requestUri = $"{BuildPersonRequestUri(id)}:deleteContact";
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Delete, requestUri, cancellationToken);
-        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Delete, requestUri, cancellationToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
@@ -135,8 +136,8 @@ internal sealed class GoogleContactsConnector : IConnector
             requestUri.Append("&syncToken=").Append(Uri.EscapeDataString(cursor.SyncToken));
         }
 
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, requestUri.ToString(), cancellationToken);
-        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Get, requestUri.ToString(), cancellationToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
         if (response.StatusCode == HttpStatusCode.Gone && cursor.SyncToken is not null)
         {
             logger.LogWarning("Google People sync token expired; falling back to a new full sync.");
@@ -144,15 +145,15 @@ internal sealed class GoogleContactsConnector : IConnector
         }
 
         await EnsureSuccessAsync(response, cancellationToken);
-        await using Stream responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using JsonDocument document = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken);
+        await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken);
 
         List<CanonicalItem> items = [];
-        if (document.RootElement.TryGetProperty("connections", out JsonElement connections))
+        if (document.RootElement.TryGetProperty("connections", out var connections))
         {
-            foreach (JsonElement person in connections.EnumerateArray())
+            foreach (var person in connections.EnumerateArray())
             {
-                CanonicalItem? item = ConvertPerson(person);
+                var item = ConvertPerson(person);
                 if (item is not null)
                 {
                     if (!item.IsDeleted)
@@ -166,10 +167,10 @@ internal sealed class GoogleContactsConnector : IConnector
             }
         }
 
-        string? nextPageToken = document.RootElement.TryGetProperty("nextPageToken", out JsonElement nextPageTokenElement)
+        string? nextPageToken = document.RootElement.TryGetProperty("nextPageToken", out var nextPageTokenElement)
             ? nextPageTokenElement.GetString()
             : null;
-        string? nextSyncToken = document.RootElement.TryGetProperty("nextSyncToken", out JsonElement nextSyncTokenElement)
+        string? nextSyncToken = document.RootElement.TryGetProperty("nextSyncToken", out var nextSyncTokenElement)
             ? nextSyncTokenElement.GetString()
             : cursor.SyncToken;
 
@@ -193,9 +194,9 @@ internal sealed class GoogleContactsConnector : IConnector
 
     private async Task<JsonDocument> SendForJsonAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        var response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
-        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
     }
 
@@ -210,50 +211,42 @@ internal sealed class GoogleContactsConnector : IConnector
         throw new InvalidOperationException($"Google People API request failed with {(int)response.StatusCode} {response.ReasonPhrase}: {detail}");
     }
 
-    private async Task<JsonElement> BuildWritablePersonAsync(CanonicalContact contact, CancellationToken cancellationToken)
+    private async Task<JsonObject> BuildWritablePersonAsync(CanonicalContact contact, CancellationToken cancellationToken)
     {
-        JsonObjectBuilder builder = await BuildWritablePersonBuilderAsync(contact, cancellationToken);
-        return builder.Build();
-    }
-
-    private async Task<JsonObjectBuilder> BuildWritablePersonBuilderAsync(CanonicalContact contact, CancellationToken cancellationToken)
-    {
-        JsonObjectBuilder builder = new();
+        JsonObject person = [];
         if (!string.IsNullOrWhiteSpace(contact.GivenName) || !string.IsNullOrWhiteSpace(contact.FamilyName) || !string.IsNullOrWhiteSpace(contact.DisplayName))
         {
-            builder.Add("names", new[]
-            {
-                new Dictionary<string, object?>
+            person["names"] = CreateArray(
+                new JsonObject
                 {
                     ["givenName"] = contact.GivenName,
                     ["middleName"] = contact.MiddleName,
                     ["familyName"] = contact.FamilyName,
                     ["displayName"] = contact.DisplayName,
-                },
-            });
+                });
         }
 
         if (contact.Emails.Count > 0)
         {
-            builder.Add("emailAddresses", contact.Emails.Select(email => new Dictionary<string, object?>
+            person["emailAddresses"] = CreateArray(contact.Emails.Select(email => (JsonNode?)new JsonObject
             {
                 ["value"] = email.Address,
                 ["type"] = email.Label,
-            }).ToArray());
+            }));
         }
 
         if (contact.Phones.Count > 0)
         {
-            builder.Add("phoneNumbers", contact.Phones.Select(phone => new Dictionary<string, object?>
+            person["phoneNumbers"] = CreateArray(contact.Phones.Select(phone => (JsonNode?)new JsonObject
             {
                 ["value"] = phone.Number,
                 ["type"] = phone.Label,
-            }).ToArray());
+            }));
         }
 
         if (contact.Addresses.Count > 0)
         {
-            builder.Add("addresses", contact.Addresses.Select(address => new Dictionary<string, object?>
+            person["addresses"] = CreateArray(contact.Addresses.Select(address => (JsonNode?)new JsonObject
             {
                 ["streetAddress"] = address.Street,
                 ["city"] = address.City,
@@ -261,75 +254,67 @@ internal sealed class GoogleContactsConnector : IConnector
                 ["postalCode"] = address.PostalCode,
                 ["country"] = address.Country,
                 ["type"] = address.Label,
-            }).ToArray());
+            }));
         }
 
         if (!string.IsNullOrWhiteSpace(contact.Organization) || !string.IsNullOrWhiteSpace(contact.Title))
         {
-            builder.Add("organizations", new[]
-            {
-                new Dictionary<string, object?>
+            person["organizations"] = CreateArray(
+                new JsonObject
                 {
                     ["name"] = contact.Organization,
                     ["title"] = contact.Title,
-                },
-            });
+                });
         }
 
         if (!string.IsNullOrWhiteSpace(contact.Notes))
         {
-            builder.Add("biographies", new[]
-            {
-                new Dictionary<string, object?>
+            person["biographies"] = CreateArray(
+                new JsonObject
                 {
                     ["value"] = contact.Notes,
                     ["contentType"] = "TEXT_PLAIN",
-                },
-            });
+                });
         }
 
         if (contact.Birthday is not null)
         {
-            builder.Add("birthdays", new[]
-            {
-                new Dictionary<string, object?>
+            person["birthdays"] = CreateArray(
+                new JsonObject
                 {
-                    ["date"] = new Dictionary<string, object?>
+                    ["date"] = new JsonObject
                     {
                         ["year"] = contact.Birthday.Value.Year,
                         ["month"] = contact.Birthday.Value.Month,
                         ["day"] = contact.Birthday.Value.Day,
                     },
-                },
-            });
+                });
         }
 
         if (contact.Categories.Count > 0)
         {
             string[] resourceNames = await EnsureGroupsAsync(contact.Categories, cancellationToken);
-            builder.Add("memberships", resourceNames.Select(resourceName => new Dictionary<string, object?>
+            person["memberships"] = CreateArray(resourceNames.Select(resourceName => (JsonNode?)new JsonObject
             {
-                ["contactGroupMembership"] = new Dictionary<string, object?>
+                ["contactGroupMembership"] = new JsonObject
                 {
                     ["contactGroupResourceName"] = resourceName,
                 },
-            }).ToArray());
+            }));
         }
         else
         {
-            builder.Add("memberships", new[]
-            {
-                new Dictionary<string, object?>
+            person["memberships"] = CreateArray(
+                new JsonObject
                 {
-                    ["contactGroupMembership"] = new Dictionary<string, object?>
+                    ["contactGroupMembership"] = new JsonObject
                     {
                         ["contactGroupResourceName"] = "contactGroups/myContacts",
                     },
-                },
-            });
+                });
         }
 
-        return builder;
+        return person;
     }
 
     private static CanonicalContact GetContactPayload(CanonicalItem item) =>
@@ -338,7 +323,7 @@ internal sealed class GoogleContactsConnector : IConnector
 
     private CanonicalItem? ConvertPerson(JsonElement person)
     {
-        string? resourceName = person.TryGetProperty("resourceName", out JsonElement resourceNameElement)
+        string? resourceName = person.TryGetProperty("resourceName", out var resourceNameElement)
             ? resourceNameElement.GetString()
             : null;
         if (string.IsNullOrWhiteSpace(resourceName))
@@ -346,8 +331,8 @@ internal sealed class GoogleContactsConnector : IConnector
             return null;
         }
 
-        bool isDeleted = person.TryGetProperty("metadata", out JsonElement metadata)
-            && metadata.TryGetProperty("deleted", out JsonElement deletedElement)
+        bool isDeleted = person.TryGetProperty("metadata", out var metadata)
+            && metadata.TryGetProperty("deleted", out var deletedElement)
             && deletedElement.ValueKind == JsonValueKind.True;
         if (isDeleted)
         {
@@ -373,50 +358,50 @@ internal sealed class GoogleContactsConnector : IConnector
             Categories = ReadMemberships(person),
         };
 
-        if (person.TryGetProperty("emailAddresses", out JsonElement emails))
+        if (person.TryGetProperty("emailAddresses", out var emails))
         {
-            foreach (JsonElement email in emails.EnumerateArray())
+            foreach (var email in emails.EnumerateArray())
             {
-                string? value = email.TryGetProperty("value", out JsonElement valueElement) ? valueElement.GetString() : null;
+                string? value = email.TryGetProperty("value", out var valueElement) ? valueElement.GetString() : null;
                 if (!string.IsNullOrWhiteSpace(value))
                 {
                     contact.Emails.Add(new ContactEmail
                     {
                         Address = value,
-                        Label = email.TryGetProperty("type", out JsonElement typeElement) ? typeElement.GetString() : null,
+                        Label = email.TryGetProperty("type", out var typeElement) ? typeElement.GetString() : null,
                     });
                 }
             }
         }
 
-        if (person.TryGetProperty("phoneNumbers", out JsonElement phones))
+        if (person.TryGetProperty("phoneNumbers", out var phones))
         {
-            foreach (JsonElement phone in phones.EnumerateArray())
+            foreach (var phone in phones.EnumerateArray())
             {
-                string? value = phone.TryGetProperty("value", out JsonElement valueElement) ? valueElement.GetString() : null;
+                string? value = phone.TryGetProperty("value", out var valueElement) ? valueElement.GetString() : null;
                 if (!string.IsNullOrWhiteSpace(value))
                 {
                     contact.Phones.Add(new ContactPhone
                     {
                         Number = value,
-                        Label = phone.TryGetProperty("type", out JsonElement typeElement) ? typeElement.GetString() : null,
+                        Label = phone.TryGetProperty("type", out var typeElement) ? typeElement.GetString() : null,
                     });
                 }
             }
         }
 
-        if (person.TryGetProperty("addresses", out JsonElement addresses))
+        if (person.TryGetProperty("addresses", out var addresses))
         {
-            foreach (JsonElement address in addresses.EnumerateArray())
+            foreach (var address in addresses.EnumerateArray())
             {
                 contact.Addresses.Add(new ContactAddress
                 {
-                    Label = address.TryGetProperty("type", out JsonElement typeElement) ? typeElement.GetString() : null,
-                    Street = address.TryGetProperty("streetAddress", out JsonElement streetElement) ? streetElement.GetString() : null,
-                    City = address.TryGetProperty("city", out JsonElement cityElement) ? cityElement.GetString() : null,
-                    State = address.TryGetProperty("region", out JsonElement stateElement) ? stateElement.GetString() : null,
-                    PostalCode = address.TryGetProperty("postalCode", out JsonElement postalElement) ? postalElement.GetString() : null,
-                    Country = address.TryGetProperty("country", out JsonElement countryElement) ? countryElement.GetString() : null,
+                    Label = address.TryGetProperty("type", out var typeElement) ? typeElement.GetString() : null,
+                    Street = address.TryGetProperty("streetAddress", out var streetElement) ? streetElement.GetString() : null,
+                    City = address.TryGetProperty("city", out var cityElement) ? cityElement.GetString() : null,
+                    State = address.TryGetProperty("region", out var stateElement) ? stateElement.GetString() : null,
+                    PostalCode = address.TryGetProperty("postalCode", out var postalElement) ? postalElement.GetString() : null,
+                    Country = address.TryGetProperty("country", out var countryElement) ? countryElement.GetString() : null,
                 });
             }
         }
@@ -426,8 +411,8 @@ internal sealed class GoogleContactsConnector : IConnector
             EntityType = EntityType.Contact,
             Payload = contact,
             SourceId = resourceName,
-            Version = person.TryGetProperty("etag", out JsonElement etagElement) ? etagElement.GetString() : null,
-            Metadata = new Dictionary<string, string>(),
+            Version = person.TryGetProperty("etag", out var etagElement) ? etagElement.GetString() : null,
+            Metadata = [],
         });
     }
 
@@ -440,7 +425,7 @@ internal sealed class GoogleContactsConnector : IConnector
             return;
         }
 
-        (byte[] photoBytes, string contentType)? photo = await DownloadPhotoAsync(photoUrl, cancellationToken);
+        var photo = await DownloadPhotoAsync(photoUrl, cancellationToken);
         if (photo is null)
         {
             ContactPhotoMetadata.SetNoPhoto(item);
@@ -452,8 +437,8 @@ internal sealed class GoogleContactsConnector : IConnector
 
     private async Task<(byte[] photoBytes, string contentType)?> DownloadPhotoAsync(string photoUrl, CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, photoUrl, cancellationToken);
-        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        using var request = await CreateRequestAsync(HttpMethod.Get, photoUrl, cancellationToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
             return null;
@@ -474,14 +459,14 @@ internal sealed class GoogleContactsConnector : IConnector
     {
         if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out _))
         {
-            JsonElement body = JsonSerializer.SerializeToElement(new
+            JsonObject body = new()
             {
-                photoBytes = Convert.ToBase64String(photoBytes),
-            });
+                ["photoBytes"] = Convert.ToBase64String(photoBytes),
+            };
             string requestUri = $"https://people.googleapis.com/v1/{Uri.EscapeDataString(resourceName)}:updateContactPhoto";
-            using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Patch, requestUri, cancellationToken);
+            using var request = await CreateRequestAsync(HttpMethod.Patch, requestUri, cancellationToken);
             request.Content = CreateJsonContent(body);
-            using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+            using var response = await httpClient.SendAsync(request, cancellationToken);
             await EnsureSuccessAsync(response, cancellationToken);
             return;
         }
@@ -492,8 +477,8 @@ internal sealed class GoogleContactsConnector : IConnector
         }
 
         string deleteUri = $"https://people.googleapis.com/v1/{Uri.EscapeDataString(resourceName)}:deleteContactPhoto";
-        using HttpRequestMessage deleteRequest = await CreateRequestAsync(HttpMethod.Delete, deleteUri, cancellationToken);
-        using HttpResponseMessage deleteResponse = await httpClient.SendAsync(deleteRequest, cancellationToken);
+        using var deleteRequest = await CreateRequestAsync(HttpMethod.Delete, deleteUri, cancellationToken);
+        using var deleteResponse = await httpClient.SendAsync(deleteRequest, cancellationToken);
         if (deleteResponse.StatusCode == HttpStatusCode.NotFound)
         {
             return;
@@ -545,16 +530,16 @@ internal sealed class GoogleContactsConnector : IConnector
             string currentRequestUri = pageToken is null
                 ? requestUri
                 : $"{requestUri}&pageToken={Uri.EscapeDataString(pageToken)}";
-            using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Get, currentRequestUri, cancellationToken);
-            using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
-            if (document.RootElement.TryGetProperty("contactGroups", out JsonElement groups))
+            using var request = await CreateRequestAsync(HttpMethod.Get, currentRequestUri, cancellationToken);
+            using var document = await SendForJsonAsync(request, cancellationToken);
+            if (document.RootElement.TryGetProperty("contactGroups", out var groups))
             {
-                foreach (JsonElement group in groups.EnumerateArray())
+                foreach (var group in groups.EnumerateArray())
                 {
-                    string? resourceName = group.TryGetProperty("resourceName", out JsonElement resourceNameElement)
+                    string? resourceName = group.TryGetProperty("resourceName", out var resourceNameElement)
                         ? resourceNameElement.GetString()
                         : null;
-                    string? name = group.TryGetProperty("name", out JsonElement nameElement)
+                    string? name = group.TryGetProperty("name", out var nameElement)
                         ? nameElement.GetString()
                         : null;
                     if (!string.IsNullOrWhiteSpace(resourceName) && !string.IsNullOrWhiteSpace(name))
@@ -565,7 +550,7 @@ internal sealed class GoogleContactsConnector : IConnector
                 }
             }
 
-            pageToken = document.RootElement.TryGetProperty("nextPageToken", out JsonElement nextPageToken)
+            pageToken = document.RootElement.TryGetProperty("nextPageToken", out var nextPageToken)
                 ? nextPageToken.GetString()
                 : null;
         }
@@ -574,16 +559,16 @@ internal sealed class GoogleContactsConnector : IConnector
 
     private async Task<string> CreateGroupAsync(string name, CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = await CreateRequestAsync(HttpMethod.Post, "https://people.googleapis.com/v1/contactGroups", cancellationToken);
-        request.Content = CreateJsonContent(JsonSerializer.SerializeToElement(new
+        using var request = await CreateRequestAsync(HttpMethod.Post, "https://people.googleapis.com/v1/contactGroups", cancellationToken);
+        request.Content = CreateJsonContent(new JsonObject
         {
-            contactGroup = new
+            ["contactGroup"] = new JsonObject
             {
-                name,
+                ["name"] = name,
             },
-        }));
+        });
 
-        using JsonDocument document = await SendForJsonAsync(request, cancellationToken);
+        using var document = await SendForJsonAsync(request, cancellationToken);
         return document.RootElement.GetProperty("resourceName").GetString()
             ?? throw new InvalidOperationException($"Google contact group '{name}' creation did not return a resource name.");
     }
@@ -591,7 +576,7 @@ internal sealed class GoogleContactsConnector : IConnector
     private List<string> ReadMemberships(JsonElement person)
     {
         List<string> categories = [];
-        if (!person.TryGetProperty("memberships", out JsonElement memberships))
+        if (!person.TryGetProperty("memberships", out var memberships))
         {
             return categories;
         }
@@ -605,14 +590,14 @@ internal sealed class GoogleContactsConnector : IConnector
             };
         }
 
-        foreach (JsonElement membership in memberships.EnumerateArray())
+        foreach (var membership in memberships.EnumerateArray())
         {
-            if (!membership.TryGetProperty("contactGroupMembership", out JsonElement contactGroupMembership))
+            if (!membership.TryGetProperty("contactGroupMembership", out var contactGroupMembership))
             {
                 continue;
             }
 
-            string? resourceName = contactGroupMembership.TryGetProperty("contactGroupResourceName", out JsonElement resourceNameElement)
+            string? resourceName = contactGroupMembership.TryGetProperty("contactGroupResourceName", out var resourceNameElement)
                 ? resourceNameElement.GetString()
                 : null;
             if (string.IsNullOrWhiteSpace(resourceName))
@@ -628,19 +613,19 @@ internal sealed class GoogleContactsConnector : IConnector
 
     private static DateOnly? ReadBirthday(JsonElement person)
     {
-        if (!person.TryGetProperty("birthdays", out JsonElement birthdays) || birthdays.GetArrayLength() == 0)
+        if (!person.TryGetProperty("birthdays", out var birthdays) || birthdays.GetArrayLength() == 0)
         {
             return null;
         }
 
-        JsonElement date = birthdays[0].GetProperty("date");
-        int year = date.TryGetProperty("year", out JsonElement yearElement) && yearElement.TryGetInt32(out int parsedYear)
+        var date = birthdays[0].GetProperty("date");
+        int year = date.TryGetProperty("year", out var yearElement) && yearElement.TryGetInt32(out int parsedYear)
             ? parsedYear
             : DefaultBirthday.Year;
-        int month = date.TryGetProperty("month", out JsonElement monthElement) && monthElement.TryGetInt32(out int parsedMonth)
+        int month = date.TryGetProperty("month", out var monthElement) && monthElement.TryGetInt32(out int parsedMonth)
             ? parsedMonth
             : DefaultBirthday.Month;
-        int day = date.TryGetProperty("day", out JsonElement dayElement) && dayElement.TryGetInt32(out int parsedDay)
+        int day = date.TryGetProperty("day", out var dayElement) && dayElement.TryGetInt32(out int parsedDay)
             ? parsedDay
             : DefaultBirthday.Day;
         return new DateOnly(year, month, day);
@@ -648,16 +633,16 @@ internal sealed class GoogleContactsConnector : IConnector
 
     private static DateTimeOffset? ReadLastModified(JsonElement person)
     {
-        if (!person.TryGetProperty("metadata", out JsonElement metadata)
-            || !metadata.TryGetProperty("sources", out JsonElement sources))
+        if (!person.TryGetProperty("metadata", out var metadata)
+            || !metadata.TryGetProperty("sources", out var sources))
         {
             return null;
         }
 
-        foreach (JsonElement source in sources.EnumerateArray())
+        foreach (var source in sources.EnumerateArray())
         {
-            if (source.TryGetProperty("updateTime", out JsonElement updateTimeElement)
-                && DateTimeOffset.TryParse(updateTimeElement.GetString(), out DateTimeOffset updateTime))
+            if (source.TryGetProperty("updateTime", out var updateTimeElement)
+                && DateTimeOffset.TryParse(updateTimeElement.GetString(), out var updateTime))
             {
                 return updateTime;
             }
@@ -668,20 +653,20 @@ internal sealed class GoogleContactsConnector : IConnector
 
     private static string? ReadPhotoUrl(JsonElement person)
     {
-        if (!person.TryGetProperty("photos", out JsonElement photos) || photos.ValueKind != JsonValueKind.Array)
+        if (!person.TryGetProperty("photos", out var photos) || photos.ValueKind != JsonValueKind.Array)
         {
             return null;
         }
 
-        foreach (JsonElement photo in photos.EnumerateArray())
+        foreach (var photo in photos.EnumerateArray())
         {
-            string? url = photo.TryGetProperty("url", out JsonElement urlElement) ? urlElement.GetString() : null;
+            string? url = photo.TryGetProperty("url", out var urlElement) ? urlElement.GetString() : null;
             if (string.IsNullOrWhiteSpace(url))
             {
                 continue;
             }
 
-            bool isDefault = photo.TryGetProperty("default", out JsonElement defaultElement) && defaultElement.ValueKind == JsonValueKind.True;
+            bool isDefault = photo.TryGetProperty("default", out var defaultElement) && defaultElement.ValueKind == JsonValueKind.True;
             if (!isDefault)
             {
                 return url;
@@ -693,33 +678,57 @@ internal sealed class GoogleContactsConnector : IConnector
 
     private static string? ReadFirstNestedString(JsonElement element, string arrayPropertyName, string propertyName)
     {
-        if (!element.TryGetProperty(arrayPropertyName, out JsonElement array) || array.GetArrayLength() == 0)
+        if (!element.TryGetProperty(arrayPropertyName, out var array) || array.GetArrayLength() == 0)
         {
             return null;
         }
 
-        JsonElement first = array[0];
-        return first.TryGetProperty(propertyName, out JsonElement propertyElement) ? propertyElement.GetString() : null;
+        var first = array[0];
+        return first.TryGetProperty(propertyName, out var propertyElement) ? propertyElement.GetString() : null;
     }
 
-    private static StringContent CreateJsonContent(JsonElement body) =>
-        new(body.GetRawText(), Encoding.UTF8, "application/json");
+    private static StringContent CreateJsonContent(JsonNode body) =>
+        new(body.ToJsonString(), Encoding.UTF8, "application/json");
 
-    private static GoogleCursor ParseCursor(string cursor) =>
-        JsonSerializer.Deserialize<GoogleCursor>(cursor)
-        ?? throw new InvalidOperationException("Invalid Google connector cursor.");
+    private static GoogleCursor ParseCursor(string cursor)
+    {
+        using var document = JsonDocument.Parse(cursor);
+        var root = document.RootElement;
+        return new GoogleCursor(
+            root.TryGetProperty("syncToken", out var syncTokenElement) ? syncTokenElement.GetString() : null,
+            root.TryGetProperty("pageToken", out var pageTokenElement) ? pageTokenElement.GetString() : null,
+            root.TryGetProperty("requestSyncToken", out var requestSyncTokenElement) && requestSyncTokenElement.ValueKind == JsonValueKind.True);
+    }
 
     private static string SerializeCursor(GoogleCursor cursor) =>
-        JsonSerializer.Serialize(cursor);
+        new JsonObject
+        {
+            ["syncToken"] = cursor.SyncToken,
+            ["pageToken"] = cursor.PageToken,
+            ["requestSyncToken"] = cursor.RequestSyncToken,
+        }.ToJsonString();
 
     private sealed record GoogleCursor(string? SyncToken, string? PageToken, bool RequestSyncToken);
 
-    private sealed class JsonObjectBuilder
+    private static JsonArray CreateArray(params JsonNode?[] items)
     {
-        private readonly Dictionary<string, object?> values = [];
+        JsonArray array = [];
+        foreach (var item in items)
+        {
+            array.Add(item);
+        }
 
-        public void Add(string name, object? value) => values[name] = value;
+        return array;
+    }
 
-        public JsonElement Build() => JsonSerializer.SerializeToElement(values);
+    private static JsonArray CreateArray(IEnumerable<JsonNode?> items)
+    {
+        JsonArray array = [];
+        foreach (var item in items)
+        {
+            array.Add(item);
+        }
+
+        return array;
     }
 }

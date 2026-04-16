@@ -1,12 +1,13 @@
-namespace Summerdawn.Kagami.Connectors;
 
 using System.Runtime.CompilerServices;
 
 using Summerdawn.Kagami.Models;
 
+namespace Summerdawn.Kagami.Connectors;
+
 internal static class ContactPhotoLoader
 {
-    private static readonly ConditionalWeakTable<CanonicalItem, LoaderState> Loaders = new();
+    private static readonly ConditionalWeakTable<CanonicalItem, LoaderState> Loaders = [];
 
     public static void Attach(CanonicalItem item, Func<CancellationToken, Task> loader)
     {
@@ -21,7 +22,7 @@ internal static class ContactPhotoLoader
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        if (!Loaders.TryGetValue(item, out LoaderState? state))
+        if (!Loaders.TryGetValue(item, out var state))
         {
             return;
         }

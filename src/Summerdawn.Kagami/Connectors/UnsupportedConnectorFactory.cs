@@ -1,8 +1,8 @@
-namespace Summerdawn.Kagami.Connectors;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 
+namespace Summerdawn.Kagami.Connectors;
 /// <summary>
 /// Default connector factory used until real provider connectors are registered.
 /// </summary>

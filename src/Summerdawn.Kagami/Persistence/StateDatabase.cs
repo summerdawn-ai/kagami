@@ -1,7 +1,7 @@
-namespace Summerdawn.Kagami.Persistence;
 
 using Microsoft.Data.Sqlite;
 
+namespace Summerdawn.Kagami.Persistence;
 /// <summary>
 /// Initializes and manages the internal Kagami SQLite state database.
 /// </summary>

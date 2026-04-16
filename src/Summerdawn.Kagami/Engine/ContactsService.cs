@@ -1,13 +1,15 @@
-namespace Summerdawn.Kagami.Engine;
 
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
+using Summerdawn.Kagami.Serialization;
 
+namespace Summerdawn.Kagami.Engine;
 /// <summary>
 /// High-level service for interactive contacts operations: list, export, sync, and import.
 /// </summary>
@@ -19,10 +21,9 @@ public sealed class ContactsService(
     StateDatabase stateDb,
     ILogger<ContactsService> logger)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions IndentedJsonNodeOptions = new()
     {
         WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
     private static readonly string[] ExportPhotoExtensions = [".png", ".jpg", ".gif", ".bmp", ".webp", ".bin"];
 
@@ -64,7 +65,7 @@ public sealed class ContactsService(
 
         while (true)
         {
-            foreach (CanonicalItem item in page.Items)
+            foreach (var item in page.Items)
             {
                 if (filter is not null && !filter.Matches(item))
                 {
@@ -143,8 +144,7 @@ public sealed class ContactsService(
             string filePath = Path.Combine(outputDirectory, fileName);
 
             // Serialize the contact payload (or the full item if no typed payload)
-            object payload = item.Payload ?? item;
-            string json = JsonSerializer.Serialize(payload, JsonOptions);
+            string json = SerializeExportItem(item);
             await File.WriteAllTextAsync(filePath, json, cancellationToken);
             logger.LogInformation("Exported contact to {File}", filePath);
 
@@ -244,7 +244,7 @@ public sealed class ContactsService(
         await connector.AuthenticateAsync(cancellationToken);
 
         // Load all JSON files from the source directory
-        var jsonFiles = Directory.GetFiles(sourceDirectory, "*.json");
+        string[] jsonFiles = Directory.GetFiles(sourceDirectory, "*.json");
         var importedItems = new List<CanonicalItem>();
 
         foreach (string jsonFile in jsonFiles)
@@ -254,7 +254,7 @@ public sealed class ContactsService(
             CanonicalContact? contact;
             try
             {
-                contact = JsonSerializer.Deserialize<CanonicalContact>(json, JsonOptions);
+                contact = JsonSerializer.Deserialize(json, KagamiJsonContext.Default.CanonicalContact);
             }
             catch (JsonException ex)
             {
@@ -328,7 +328,7 @@ public sealed class ContactsService(
         // Track which destination items were matched/upserted
         var matchedDestIds = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (CanonicalItem importItem in importedItems)
+        foreach (var importItem in importedItems)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -351,7 +351,7 @@ public sealed class ContactsService(
             else if (matches.Count == 1)
             {
                 // Update existing contact
-                CanonicalItem destItem = matches[0];
+                var destItem = matches[0];
                 matchedDestIds.Add(destItem.SourceId);
                 logger.LogInformation("Import: updating contact {Name} (matched {DestId})", importItem.SourceId, destItem.SourceId);
                 if (!whatIf)
@@ -377,7 +377,7 @@ public sealed class ContactsService(
         // Prune: delete destination contacts not matched during import
         if (prune)
         {
-            foreach (CanonicalItem destItem in activeDestItems)
+            foreach (var destItem in activeDestItems)
             {
                 if (!matchedDestIds.Contains(destItem.SourceId))
                 {
@@ -442,4 +442,43 @@ public sealed class ContactsService(
 
     private static string BuildExportBaseName(CanonicalItem item)
         => ContactName.BuildExportBaseName(item);
+
+    private static string SerializeExportItem(CanonicalItem item) =>
+        item.Payload switch
+        {
+            CanonicalCalendarEvent calendarEvent => JsonSerializer.Serialize(calendarEvent, KagamiJsonContext.Indented.CanonicalCalendarEvent),
+            CanonicalContact contact => JsonSerializer.Serialize(contact, KagamiJsonContext.Indented.CanonicalContact),
+            null => SerializeCanonicalItem(item),
+            _ => throw new InvalidOperationException($"Unsupported export payload type '{item.Payload.GetType().FullName}'."),
+        };
+
+    private static string SerializeCanonicalItem(CanonicalItem item)
+    {
+        JsonObject metadata = [];
+        foreach (var (key, value) in item.Metadata)
+        {
+            metadata[key] = value;
+        }
+
+        JsonObject root = new()
+        {
+            ["entityType"] = item.EntityType,
+            ["payload"] = SerializePayloadNode(item.Payload),
+            ["sourceId"] = item.SourceId,
+            ["version"] = item.Version,
+            ["contentHash"] = item.ContentHash,
+            ["isDeleted"] = item.IsDeleted,
+            ["metadata"] = metadata,
+        };
+
+        return root.ToJsonString(IndentedJsonNodeOptions);
+    }
+
+    private static JsonNode? SerializePayloadNode(object? payload) => payload switch
+    {
+        CanonicalCalendarEvent calendarEvent => JsonNode.Parse(JsonSerializer.Serialize(calendarEvent, KagamiJsonContext.Default.CanonicalCalendarEvent)),
+        CanonicalContact contact => JsonNode.Parse(JsonSerializer.Serialize(contact, KagamiJsonContext.Default.CanonicalContact)),
+        null => null,
+        _ => throw new InvalidOperationException($"Unsupported canonical payload type '{payload.GetType().FullName}'."),
+    };
 }

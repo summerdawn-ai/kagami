@@ -1,6 +1,7 @@
 namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
+
 using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestSupport;
 

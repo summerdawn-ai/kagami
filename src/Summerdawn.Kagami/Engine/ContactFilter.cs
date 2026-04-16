@@ -1,9 +1,9 @@
-namespace Summerdawn.Kagami.Engine;
 
 using System.Text.RegularExpressions;
 
 using Summerdawn.Kagami.Models;
 
+namespace Summerdawn.Kagami.Engine;
 /// <summary>
 /// Evaluates a simple OData-style filter expression against a <see cref="CanonicalItem"/>.
 /// </summary>

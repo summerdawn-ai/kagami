@@ -99,7 +99,7 @@ public sealed class FakeConnector : IConnector
     }
 
     private static int GetItemGeneration(CanonicalItem item) =>
-        item.Metadata.TryGetValue("gen", out var genText) && int.TryParse(genText, out int gen) ? gen : 0;
+        item.Metadata.TryGetValue("gen", out string? genText) && int.TryParse(genText, out int gen) ? gen : 0;
 
     private static CanonicalItem Clone(CanonicalItem item) =>
         new()

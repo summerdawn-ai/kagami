@@ -1,6 +1,7 @@
 namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
+
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
@@ -181,7 +182,7 @@ public sealed class ContactsServiceTests : IDisposable
         try
         {
             await service.ExportAsync("Microsoft", dir);
-            var files = Directory.GetFiles(dir, "*.json");
+            string[] files = Directory.GetFiles(dir, "*.json");
             Assert.Equal(2, files.Length);
         }
         finally
@@ -201,7 +202,7 @@ public sealed class ContactsServiceTests : IDisposable
         try
         {
             await service.ExportAsync("Microsoft", dir);
-            var files = Directory.GetFiles(dir, "*.json");
+            string[] files = Directory.GetFiles(dir, "*.json");
             Assert.Single(files);
             Assert.Equal("alice_smith.json", Path.GetFileName(files[0]));
         }
@@ -267,7 +268,7 @@ public sealed class ContactsServiceTests : IDisposable
         try
         {
             await service.ExportAsync("Microsoft", dir);
-            var files = Directory.GetFiles(dir, "*.json");
+            string[] files = Directory.GetFiles(dir, "*.json");
             Assert.Single(files);
             Assert.Equal("contoso_ltd.json", Path.GetFileName(files[0]));
         }
@@ -288,7 +289,7 @@ public sealed class ContactsServiceTests : IDisposable
         try
         {
             await service.ExportAsync("Microsoft", dir);
-            var files = Directory.GetFiles(dir, "*.json");
+            string[] files = Directory.GetFiles(dir, "*.json");
             Assert.Single(files);
             Assert.Equal("contact_42.json", Path.GetFileName(files[0]));
         }

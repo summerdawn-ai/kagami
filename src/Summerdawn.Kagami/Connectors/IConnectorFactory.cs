@@ -1,8 +1,8 @@
-namespace Summerdawn.Kagami.Connectors;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 
+namespace Summerdawn.Kagami.Connectors;
 /// <summary>
 /// Factory that creates <see cref="IConnector"/> instances for named endpoints.
 /// </summary>

@@ -315,9 +315,9 @@ public static class Program
             bool force = parseResult.GetValue(forceOption);
             string? filter = parseResult.GetValue(filterOption);
 
-            SyncMode mode = bidirectional ? SyncMode.Bidirectional : SyncMode.Forward;
+            var mode = bidirectional ? SyncMode.Bidirectional : SyncMode.Forward;
 
-            ConflictPolicy conflictPolicy = onConflictStr.ToLowerInvariant() switch
+            var conflictPolicy = onConflictStr.ToLowerInvariant() switch
             {
                 "source-wins" => ConflictPolicy.SourceWins,
                 "dest-wins" or "destination-wins" => ConflictPolicy.DestinationWins,
@@ -325,7 +325,7 @@ public static class Program
                 _ => ConflictPolicy.LastWriteWins,
             };
 
-            DeletePolicy deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
+            var deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
 
             var svc = BuildContactsService(settingsFiles);
             var contactFilter = ContactFilter.Parse(filter);
