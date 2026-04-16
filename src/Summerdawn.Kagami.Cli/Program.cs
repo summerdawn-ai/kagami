@@ -149,11 +149,27 @@ public static class Program
             }
         });
 
+        // jobs unlock
+        var jobsUnlockCommand = new Command("unlock", "Force-release all job locks (use after a crash to clear stuck leases)")
+        {
+            configOption,
+        };
+        jobsUnlockCommand.SetAction(async parseResult =>
+        {
+            string? configPath = parseResult.GetValue(configOption);
+            var host = BuildSyncHost(configPath);
+            int cleared = await host.UnlockAllJobsAsync(CancellationToken.None);
+            Console.WriteLine(cleared > 0
+                ? $"Cleared {cleared} job lock(s)."
+                : "No locks found.");
+        });
+
         var jobsCommand = new Command("jobs", "Manage and run configured sync jobs")
         {
             jobsListCommand,
             jobsRunCommand,
             jobsResetCommand,
+            jobsUnlockCommand,
         };
 
         // ── contacts command group ────────────────────────────────────────

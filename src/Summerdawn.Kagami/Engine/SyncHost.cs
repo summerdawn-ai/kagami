@@ -75,6 +75,16 @@ public sealed class SyncHost(
         await Task.WhenAll(tasks);
     }
 
+    /// <summary>Force-releases all job leases. Returns the number of locks cleared.</summary>
+    public async Task<int> UnlockAllJobsAsync(CancellationToken cancellationToken = default)
+    {
+        await stateDb.InitializeAsync(cancellationToken);
+        var leaseRepo = new LeaseRepository(stateDb);
+        int cleared = await leaseRepo.ForceReleaseAllAsync(cancellationToken);
+        logger.LogInformation("Force-released {Count} job lease(s)", cleared);
+        return cleared;
+    }
+
     /// <summary>Resets the sync state for the given job key.</summary>
     public async Task ResetJobAsync(string jobKey, CancellationToken cancellationToken = default)
     {
