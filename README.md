@@ -82,7 +82,7 @@ kagami contacts sync   --from=<endpoint> --to=<endpoint> [--bidirectional]
 Print all configured jobs with their status, endpoints, and schedule:
 
 ```bash
-kagami jobs list --config appsettings.json
+kagami jobs list --settings appsettings.json
 ```
 
 #### `kagami jobs run`
@@ -91,19 +91,19 @@ Run continuously by default, either for all enabled jobs or for a single named j
 
 ```bash
 # Run all enabled jobs continuously (default)
-kagami jobs run --config appsettings.json
+kagami jobs run --settings appsettings.json
 
 # Run a single job continuously
-kagami jobs run --job contacts-sync --config appsettings.json
+kagami jobs run --job contacts-sync --settings appsettings.json
 
 # Run all enabled jobs once, immediately, and exit
-kagami jobs run --once --config appsettings.json
+kagami jobs run --once --settings appsettings.json
 
 # Run a single job once with what-if
-kagami jobs run --job contacts-sync --once --what-if --config appsettings.json
+kagami jobs run --job contacts-sync --once --what-if --settings appsettings.json
 
 # Compatibility form; equivalent to the default continuous mode
-kagami jobs run --all --config appsettings.json
+kagami jobs run --all --settings appsettings.json
 ```
 
 #### `kagami jobs reset`
@@ -112,16 +112,16 @@ Clear cursors and link state for one or all jobs:
 
 ```bash
 # Reset a single job
-kagami jobs reset --job contacts-sync --config appsettings.json
+kagami jobs reset --job contacts-sync --settings appsettings.json
 
 # Reset all configured jobs
-kagami jobs reset --all --config appsettings.json
+kagami jobs reset --all --settings appsettings.json
 ```
 
 ### Contacts commands
 
 The `--from` and `--to` options reference **endpoint names** as defined in your
-`appsettings.json` `Endpoints` section (e.g. `Microsoft`, `Google`).
+settings file `Endpoints` section (e.g. `Microsoft`, `Google`).
 
 #### `kagami contacts list`
 
@@ -129,16 +129,16 @@ Fetch and display contacts from a configured endpoint.
 By default, `kagami contacts list` returns up to 100 matching contacts; use `--all` to fetch the full result set:
 
 ```bash
-kagami contacts list --from Microsoft --config appsettings.json
+kagami contacts list --from Microsoft --settings appsettings.json
 
 # Fetch every matching contact
-kagami contacts list --from Microsoft --all --config appsettings.json
+kagami contacts list --from Microsoft --all --settings appsettings.json
 ```
 
 Optionally restrict scope with an OData-style filter (see [Filter expressions](#filter-expressions)):
 
 ```bash
-kagami contacts list --from Microsoft --filter "startswith(name,'A')" --config appsettings.json
+kagami contacts list --from Microsoft --filter "startswith(name,'A')" --settings appsettings.json
 ```
 
 #### `kagami contacts export`
@@ -148,7 +148,7 @@ Existing `*.json` files in the destination are deleted before writing.
 Files are named from the effective contact name (display name, otherwise organization), sanitized to a filesystem-safe slug such as `alice_smith.json`; a numeric suffix is added for duplicate names. If no usable name exists, Kagami falls back to the contact ID.
 
 ```bash
-kagami contacts export --from Microsoft --to ./export --config appsettings.json
+kagami contacts export --from Microsoft --to ./export --settings appsettings.json
 ```
 
 #### `kagami contacts import`
@@ -157,13 +157,13 @@ Import contacts from local JSON files in a directory into a configured endpoint.
 
 ```bash
 # Import all contacts from a local directory
-kagami contacts import --from ./export --to Google --config appsettings.json
+kagami contacts import --from ./export --to Google --settings appsettings.json
 
 # Import with prune: remove destination contacts not present in the import set
-kagami contacts import --from ./export --to Google --prune --config appsettings.json
+kagami contacts import --from ./export --to Google --prune --settings appsettings.json
 
 # Dry run
-kagami contacts import --from ./export --to Google --what-if --config appsettings.json
+kagami contacts import --from ./export --to Google --what-if --settings appsettings.json
 ```
 
 ##### `--prune`
@@ -176,22 +176,22 @@ Synchronize contacts between two configured endpoints.
 
 ```bash
 # Forward sync (default: source to destination)
-kagami contacts sync --from Microsoft --to Google --config appsettings.json
+kagami contacts sync --from Microsoft --to Google --settings appsettings.json
 
 # Bidirectional sync
-kagami contacts sync --from Microsoft --to Google --bidirectional --config appsettings.json
+kagami contacts sync --from Microsoft --to Google --bidirectional --settings appsettings.json
 
 # One-directional with prune (mirror mode)
-kagami contacts sync --from Microsoft --to Google --prune --config appsettings.json
+kagami contacts sync --from Microsoft --to Google --prune --settings appsettings.json
 
 # Dry run: log planned actions without writing anything
-kagami contacts sync --from Microsoft --to Google --what-if --config appsettings.json
+kagami contacts sync --from Microsoft --to Google --what-if --settings appsettings.json
 
 # Force: re-evaluate all in-scope contacts even if unchanged
-kagami contacts sync --from Microsoft --to Google --force --config appsettings.json
+kagami contacts sync --from Microsoft --to Google --force --settings appsettings.json
 
 # Filter: only synchronize contacts whose effective name starts with 'A'
-kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')" --config appsettings.json
+kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')" --settings appsettings.json
 ```
 
 ##### `--bidirectional`
@@ -232,16 +232,13 @@ For sync operations, only matching contacts are planned or written; out-of-scope
 
 ## Configuration
 
-Kagami reads configuration from the `Kagami` section of `appsettings.json`.
+Kagami reads configuration from the `Kagami` section of a settings JSON file.
 
 Example:
 
 ```json
 {
   "Kagami": {
-    "Persistence": {
-      "DatabasePath": "/var/lib/kagami/state.db"
-    },
     "Host": {
       "MaxConcurrentJobs": 1,
       "SchedulerIntervalSeconds": 30
@@ -342,6 +339,10 @@ Important values:
 - `DeletePolicy`: use `Mirror` if deletes should propagate
 - `ConflictPolicy`: currently `LastWriteWins`, `SourceWins`, `DestinationWins`, or `Skip`
 - `Schedule`: interval string such as `PT15M`
+
+### State database
+
+Kagami stores its SQLite state database at `%LOCALAPPDATA%\Summerdawn.ai\Kagami\kagami-state.db` alongside the token cache. The directory is created automatically on first run. The database path is not configurable.
 
 ## Authentication Setup
 

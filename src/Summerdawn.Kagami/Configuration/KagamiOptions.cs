@@ -10,7 +10,4 @@ public sealed class KagamiOptions
 
     /// <summary>Host-level execution settings.</summary>
     public KagamiHostOptions Host { get; set; } = new();
-
-    /// <summary>Internal SQLite state database settings.</summary>
-    public PersistenceOptions Persistence { get; set; } = new();
 }
