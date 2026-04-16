@@ -20,10 +20,11 @@ public static class Program
     public static int Main(string[] args)
     {
         // ── Shared options ────────────────────────────────────────────────
-        var configOption = new Option<string?>("--config", "-c")
+        var settingsOption = new Option<string[]>("--settings")
         {
-            Description = "Path to the appsettings.json configuration file",
-            Required = false,
+            Description = "Path to one or more settings JSON files to load",
+            Arity = ArgumentArity.ZeroOrMore,
+            AllowMultipleArgumentsPerToken = true,
         };
 
         var whatIfOption = new Option<bool>("--what-if")
@@ -43,12 +44,12 @@ public static class Program
         // jobs list
         var jobsListCommand = new Command("list", "List all configured jobs")
         {
-            configOption,
+            settingsOption,
         };
         jobsListCommand.SetAction(parseResult =>
         {
-            string? configPath = parseResult.GetValue(configOption);
-            var kagamiOptions = BuildKagamiOptions(configPath);
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            var kagamiOptions = BuildKagamiOptions(settingsFiles);
             if (kagamiOptions.Jobs.Count == 0)
             {
                 Console.WriteLine("No jobs configured.");
@@ -79,7 +80,7 @@ public static class Program
 
         var jobsRunCommand = new Command("run", "Run configured sync jobs")
         {
-            configOption,
+            settingsOption,
             whatIfOption,
             jobOption,
             jobsRunOnceOption,
@@ -87,12 +88,12 @@ public static class Program
         };
         jobsRunCommand.SetAction(async parseResult =>
         {
-            string? configPath = parseResult.GetValue(configOption);
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             bool whatIf = parseResult.GetValue(whatIfOption);
             string? jobKey = parseResult.GetValue(jobOption);
             bool runOnce = parseResult.GetValue(jobsRunOnceOption);
             _ = parseResult.GetValue(jobsRunAllOption);
-            var host = BuildSyncHost(configPath);
+            var host = BuildSyncHost(settingsFiles);
 
             if (runOnce)
             {
@@ -115,13 +116,13 @@ public static class Program
 
         var jobsResetCommand = new Command("reset", "Reset stored sync state for one or all jobs")
         {
-            configOption,
+            settingsOption,
             jobOption,
             jobsResetAllOption,
         };
         jobsResetCommand.SetAction(async parseResult =>
         {
-            string? configPath = parseResult.GetValue(configOption);
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             string? jobKey = parseResult.GetValue(jobOption);
             bool resetAll = parseResult.GetValue(jobsResetAllOption);
 
@@ -131,8 +132,8 @@ public static class Program
                 return;
             }
 
-            var host = BuildSyncHost(configPath);
-            var kagamiOptions = BuildKagamiOptions(configPath);
+            var host = BuildSyncHost(settingsFiles);
+            var kagamiOptions = BuildKagamiOptions(settingsFiles);
 
             if (resetAll)
             {
@@ -152,12 +153,12 @@ public static class Program
         // jobs unlock
         var jobsUnlockCommand = new Command("unlock", "Force-release all job locks (use after a crash to clear stuck leases)")
         {
-            configOption,
+            settingsOption,
         };
         jobsUnlockCommand.SetAction(async parseResult =>
         {
-            string? configPath = parseResult.GetValue(configOption);
-            var host = BuildSyncHost(configPath);
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            var host = BuildSyncHost(settingsFiles);
             int cleared = await host.UnlockAllJobsAsync(CancellationToken.None);
             Console.WriteLine(cleared > 0
                 ? $"Cleared {cleared} job lock(s)."
@@ -176,7 +177,7 @@ public static class Program
 
         var fromOption = new Option<string>("--from")
         {
-            Description = "Source endpoint name (as configured in appsettings.json)",
+            Description = "Source endpoint name (as configured in the settings file)",
             Required = true,
         };
 
@@ -226,18 +227,18 @@ public static class Program
         // contacts list
         var contactsListCommand = new Command("list", "List contacts from a configured endpoint")
         {
-            configOption,
+            settingsOption,
             fromOption,
             filterOption,
             allOption,
         };
         contactsListCommand.SetAction(async parseResult =>
         {
-            string? configPath = parseResult.GetValue(configOption);
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             string from = parseResult.GetValue(fromOption)!;
             string? filter = parseResult.GetValue(filterOption);
             bool all = parseResult.GetValue(allOption);
-            var svc = BuildContactsService(configPath);
+            var svc = BuildContactsService(settingsFiles);
             var contactFilter = ContactFilter.Parse(filter);
             var items = await svc.ListAsync(from, contactFilter, all ? null : 100, CancellationToken.None);
             items = items
@@ -274,18 +275,18 @@ public static class Program
         // contacts export
         var contactsExportCommand = new Command("export", "Export contacts from an endpoint to local JSON files in a directory")
         {
-            configOption,
+            settingsOption,
             fromOption,
             toEndpointOption,
             filterOption,
         };
         contactsExportCommand.SetAction(async parseResult =>
         {
-            string? configPath = parseResult.GetValue(configOption);
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             string? filter = parseResult.GetValue(filterOption);
-            var svc = BuildContactsService(configPath);
+            var svc = BuildContactsService(settingsFiles);
             var contactFilter = ContactFilter.Parse(filter);
             await svc.ExportAsync(from, to, contactFilter, CancellationToken.None);
         });
@@ -293,7 +294,7 @@ public static class Program
         // contacts sync
         var contactsSyncCommand = new Command("sync", "Synchronize contacts between two configured endpoints")
         {
-            configOption,
+            settingsOption,
             fromOption,
             toEndpointOption,
             bidirectionalOption,
@@ -305,7 +306,7 @@ public static class Program
         };
         contactsSyncCommand.SetAction(async parseResult =>
         {
-            string? configPath = parseResult.GetValue(configOption);
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             bool bidirectional = parseResult.GetValue(bidirectionalOption);
@@ -327,7 +328,7 @@ public static class Program
 
             DeletePolicy deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
 
-            var svc = BuildContactsService(configPath);
+            var svc = BuildContactsService(settingsFiles);
             var contactFilter = ContactFilter.Parse(filter);
             var result = await svc.SyncAsync(from, to, mode, whatIf, contactFilter, force, deletePolicy, conflictPolicy, CancellationToken.None);
             Console.WriteLine(result.Succeeded
@@ -338,7 +339,7 @@ public static class Program
         // contacts import
         var contactsImportCommand = new Command("import", "Import contacts from local JSON files in a directory into a configured endpoint")
         {
-            configOption,
+            settingsOption,
             fromOption,
             toEndpointOption,
             pruneOption,
@@ -347,13 +348,13 @@ public static class Program
         };
         contactsImportCommand.SetAction(async parseResult =>
         {
-            string? configPath = parseResult.GetValue(configOption);
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             bool prune = parseResult.GetValue(pruneOption);
             string? filter = parseResult.GetValue(filterOption);
             bool whatIf = parseResult.GetValue(whatIfOption);
-            var svc = BuildContactsService(configPath);
+            var svc = BuildContactsService(settingsFiles);
             var contactFilter = ContactFilter.Parse(filter);
             var result = await svc.ImportAsync(from, to, prune, contactFilter, whatIf, CancellationToken.None);
             Console.WriteLine($"Import completed. Created: {result.Created}, Updated: {result.Updated}, Deleted: {result.Deleted}");
@@ -386,18 +387,13 @@ public static class Program
         }
     }
 
-    private static ServiceProvider BuildServiceProvider(string? configPath)
+    private static ServiceProvider BuildServiceProvider(string[] settingsFiles)
     {
         var configBuilder = new ConfigurationBuilder();
-        if (configPath is not null)
+        foreach (string path in settingsFiles)
         {
-            configBuilder.AddJsonFile(configPath, optional: false);
+            configBuilder.AddJsonFile(path, optional: false);
         }
-        else if (File.Exists("appsettings.json"))
-        {
-            configBuilder.AddJsonFile("appsettings.json", optional: true);
-        }
-
         configBuilder.AddEnvironmentVariables("KAGAMI_");
         var config = configBuilder.Build();
         var services = new ServiceCollection();
@@ -406,13 +402,13 @@ public static class Program
         return services.BuildServiceProvider();
     }
 
-    private static SyncHost BuildSyncHost(string? configPath) =>
-        BuildServiceProvider(configPath).GetRequiredService<SyncHost>();
+    private static SyncHost BuildSyncHost(string[] settingsFiles) =>
+        BuildServiceProvider(settingsFiles).GetRequiredService<SyncHost>();
 
-    private static ContactsService BuildContactsService(string? configPath) =>
-        BuildServiceProvider(configPath).GetRequiredService<ContactsService>();
+    private static ContactsService BuildContactsService(string[] settingsFiles) =>
+        BuildServiceProvider(settingsFiles).GetRequiredService<ContactsService>();
 
-    private static KagamiOptions BuildKagamiOptions(string? configPath) =>
-        BuildServiceProvider(configPath).GetRequiredService<KagamiOptions>();
+    private static KagamiOptions BuildKagamiOptions(string[] settingsFiles) =>
+        BuildServiceProvider(settingsFiles).GetRequiredService<KagamiOptions>();
 }
 

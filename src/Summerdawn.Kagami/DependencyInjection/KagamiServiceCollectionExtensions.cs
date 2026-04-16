@@ -15,6 +15,10 @@ using Summerdawn.Kagami.Persistence;
 /// </summary>
 public static class KagamiServiceCollectionExtensions
 {
+    private static readonly string DatabasePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Summerdawn.ai", "Kagami", "kagami-state.db");
+
     /// <summary>Adds Kagami core services to the DI container.</summary>
     public static IServiceCollection AddKagami(this IServiceCollection services, IConfiguration configuration)
     {
@@ -38,9 +42,11 @@ public static class KagamiServiceCollectionExtensions
         }
         services.AddSingleton(credentials);
 
-        services.AddSingleton(sp => new StateDatabase(
-            options.Persistence.DatabasePath,
-            sp.GetRequiredService<ILogger<StateDatabase>>()));
+        services.AddSingleton(sp =>
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(DatabasePath)!);
+            return new StateDatabase(DatabasePath, sp.GetRequiredService<ILogger<StateDatabase>>());
+        });
         services.AddSingleton<EndpointCursorRepository>();
         services.AddSingleton<LinkStateRepository>();
         services.AddSingleton<LeaseRepository>();
