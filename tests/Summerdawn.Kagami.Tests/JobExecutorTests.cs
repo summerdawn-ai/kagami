@@ -34,7 +34,7 @@ public sealed class JobExecutorTests : IDisposable
     public void Dispose() => databasePath.Dispose();
 
     [Fact]
-    public async Task ExecuteAsyncUpdatesUsingTargetProviderId()
+    public async Task ExecuteAsync_UpdatesUsingTargetProviderId()
     {
         FakeConnector sourceConnector = new();
         FakeConnector destinationConnector = new();
@@ -67,7 +67,7 @@ public sealed class JobExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteAsyncAggregatesMultiPageConnectorReads()
+    public async Task ExecuteAsync_AggregatesMultiPageConnectorReads()
     {
         PagedConnector sourceConnector = new(
             new IncrementalPage
@@ -92,7 +92,7 @@ public sealed class JobExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task WhatIfLogsEachPlannedContactOperation()
+    public async Task WhatIf_LogsEachPlannedContactOperation()
     {
         FakeConnector sourceConnector = new();
         FakeConnector destinationConnector = new();
@@ -107,7 +107,7 @@ public sealed class JobExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task WhatIfLogsOrganizationWhenDisplayNameIsEmpty()
+    public async Task WhatIf_LogsOrganizationWhenDisplayNameIsEmpty()
     {
         FakeConnector sourceConnector = new();
         FakeConnector destinationConnector = new();
@@ -122,7 +122,7 @@ public sealed class JobExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task WhatIfLogsOnlyWinningDirectionForMirroredDuplicateMatchUpdates()
+    public async Task WhatIf_LogsOnlyWinningDirection_ForMirroredDuplicateMatchUpdates()
     {
         FakeConnector sourceConnector = new();
         FakeConnector destinationConnector = new();

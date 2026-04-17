@@ -22,7 +22,7 @@ public sealed class EndpointCursorRepositoryTests : IDisposable
     public void Dispose() => databasePath.Dispose();
 
     [Fact]
-    public async Task CursorStateIsScopedByJobAndStoresScope()
+    public async Task CursorState_IsScopedByJobAndStoresScope()
     {
         await repository.SetCursorAsync("job-1", "endpointA", "startswith(name,'A')", "cursor-a");
         await repository.SetCursorAsync("job-2", "endpointA", string.Empty, "cursor-b");
