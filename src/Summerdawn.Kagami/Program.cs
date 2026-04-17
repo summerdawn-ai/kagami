@@ -390,11 +390,12 @@ public static class Program
     {
         var configBuilder = new ConfigurationBuilder();
 
-        // Suppress the verbose HttpClient request/response log spam by default.
+        // Suppress the verbose HttpClient/Polly request/response log spam by default.
         // Any settings file that explicitly configures these keys will override this.
         configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Logging:LogLevel:System.Net.Http.HttpClient"] = "Warning",
+            ["Logging:LogLevel:Polly"] = "Warning",
         });
 
         foreach (string path in settingsFiles)
