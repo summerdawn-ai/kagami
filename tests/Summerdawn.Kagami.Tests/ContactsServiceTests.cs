@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -11,12 +10,13 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
+namespace Summerdawn.Kagami.Tests;
 public sealed class ContactsServiceTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
     private readonly StateDatabase db;
-    private readonly FakeConnector connectorA = new();
-    private readonly FakeConnector connectorB = new();
+    private readonly FakeConnector sourceConnector = new();
+    private readonly FakeConnector destinationConnector = new();
     private readonly FakeConnectorFactory factory;
     private readonly ContactsService service;
 
@@ -26,8 +26,8 @@ public sealed class ContactsServiceTests : IDisposable
         db.InitializeAsync().GetAwaiter().GetResult();
 
         factory = new FakeConnectorFactory();
-        factory.Register("Microsoft", connectorA);
-        factory.Register("Google", connectorB);
+        factory.Register("Microsoft", sourceConnector);
+        factory.Register("Google", destinationConnector);
 
         var options = new KagamiOptions
         {
@@ -66,8 +66,8 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ListAsyncReturnsAllContacts()
     {
-        connectorA.Seed(MakeContact("a1", "Alice"));
-        connectorA.Seed(MakeContact("a2", "Bob"));
+        sourceConnector.Seed(MakeContact("a1", "Alice"));
+        sourceConnector.Seed(MakeContact("a2", "Bob"));
 
         var items = await service.ListAsync("Microsoft");
 
@@ -77,7 +77,7 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ListAsyncReturnsAllContactsAcrossPages()
     {
-        ContactsService pagedService = CreateService(
+        var pagedService = CreateService(
             new PagedConnector(
                 new IncrementalPage
                 {
@@ -101,7 +101,7 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ListAsyncHonorsMaxItemsAcrossPages()
     {
-        ContactsService pagedService = CreateService(
+        var pagedService = CreateService(
             new PagedConnector(
                 new IncrementalPage
                 {
@@ -125,8 +125,8 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ListAsyncAppliesFilter()
     {
-        connectorA.Seed(MakeContact("a1", "Alice"));
-        connectorA.Seed(MakeContact("a2", "Bob"));
+        sourceConnector.Seed(MakeContact("a1", "Alice"));
+        sourceConnector.Seed(MakeContact("a2", "Bob"));
 
         var filter = ContactFilter.Parse("startswith(name,'A')")!;
         var items = await service.ListAsync("Microsoft", filter);
@@ -138,8 +138,8 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ListAsyncAppliesFilterUsingOrganizationWhenDisplayNameIsEmpty()
     {
-        connectorA.Seed(MakeContact("a1", displayName: string.Empty, organization: "Contoso Ltd"));
-        connectorA.Seed(MakeContact("a2", "Bob"));
+        sourceConnector.Seed(MakeContact("a1", displayName: string.Empty, organization: "Contoso Ltd"));
+        sourceConnector.Seed(MakeContact("a2", "Bob"));
 
         var filter = ContactFilter.Parse("contains(name,'Contoso')")!;
         var items = await service.ListAsync("Microsoft", filter);
@@ -154,12 +154,12 @@ public sealed class ContactsServiceTests : IDisposable
         LazyPhotoConnector lazyConnector = new(
             MakeContact("a1", "Alice"),
             MakeContact("a2", "Bob"));
-        ContactsService lazyService = CreateService(lazyConnector);
+        var lazyService = CreateService(lazyConnector);
 
         var filter = ContactFilter.Parse("startswith(name,'A')")!;
-        IReadOnlyList<CanonicalItem> items = await lazyService.ListAsync("Microsoft", filter);
+        var items = await lazyService.ListAsync("Microsoft", filter);
 
-        CanonicalItem item = Assert.Single(items);
+        var item = Assert.Single(items);
         Assert.Equal("Alice", ((CanonicalContact)item.Payload!).DisplayName);
         Assert.Equal(["a1"], lazyConnector.LoadedPhotoIds);
     }
@@ -176,8 +176,8 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ExportAsyncWritesOneFilePerContact()
     {
-        connectorA.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
-        connectorA.Seed(MakeContact("a2", "Bob", lastName: "Jones"));
+        sourceConnector.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
+        sourceConnector.Seed(MakeContact("a2", "Bob", lastName: "Jones"));
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
         try
         {
@@ -197,7 +197,7 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ExportAsyncUsesDisplayNameForFileName()
     {
-        connectorA.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
+        sourceConnector.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
         try
         {
@@ -218,8 +218,8 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ExportAsyncAddsSuffixForDuplicateNames()
     {
-        connectorA.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
-        connectorA.Seed(MakeContact("a2", "Alice", lastName: "Smith"));
+        sourceConnector.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
+        sourceConnector.Seed(MakeContact("a2", "Alice", lastName: "Smith"));
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
         try
         {
@@ -245,7 +245,7 @@ public sealed class ContactsServiceTests : IDisposable
         string stale = Path.Combine(dir, "stale.json");
         await File.WriteAllTextAsync(stale, "{}");
 
-        connectorA.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
+        sourceConnector.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
         try
         {
             await service.ExportAsync("Microsoft", dir);
@@ -263,7 +263,7 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ExportAsyncUsesOrganizationWhenDisplayNameIsEmpty()
     {
-        connectorA.Seed(MakeContact("a1", displayName: string.Empty, organization: "Contoso Ltd"));
+        sourceConnector.Seed(MakeContact("a1", displayName: string.Empty, organization: "Contoso Ltd"));
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
         try
         {
@@ -284,7 +284,7 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ExportAsyncFallsBackToIdWhenNameIsMissing()
     {
-        connectorA.Seed(MakeContact("contact-42", displayName: string.Empty));
+        sourceConnector.Seed(MakeContact("contact-42", displayName: string.Empty));
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
         try
         {
@@ -305,9 +305,9 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ExportAsyncWritesPhotoNextToJson()
     {
-        CanonicalItem item = MakeContact("a1", "Alice", lastName: "Smith");
+        var item = MakeContact("a1", "Alice", lastName: "Smith");
         ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
-        connectorA.Seed(item);
+        sourceConnector.Seed(item);
 
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
         try
@@ -333,9 +333,9 @@ public sealed class ContactsServiceTests : IDisposable
         string stalePhoto = Path.Combine(dir, "stale.png");
         await File.WriteAllBytesAsync(stalePhoto, [0x01]);
 
-        CanonicalItem item = MakeContact("a1", "Alice", lastName: "Smith");
+        var item = MakeContact("a1", "Alice", lastName: "Smith");
         ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
-        connectorA.Seed(item);
+        sourceConnector.Seed(item);
         try
         {
             await service.ExportAsync("Microsoft", dir);
@@ -356,30 +356,30 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task SyncAsyncCreatesContactsOnDestination()
     {
-        connectorA.Seed(MakeContact("a1", "Alice"));
+        sourceConnector.Seed(MakeContact("a1", "Alice"));
 
         var result = await service.SyncAsync("Microsoft", "Google");
 
         Assert.True(result.Succeeded);
-        Assert.Contains(connectorB.Items, i => !i.IsDeleted);
+        Assert.Contains(destinationConnector.Items, i => !i.IsDeleted);
     }
 
     [Fact]
     public async Task SyncAsyncWhatIfDoesNotWrite()
     {
-        connectorA.Seed(MakeContact("a1", "Alice"));
+        sourceConnector.Seed(MakeContact("a1", "Alice"));
 
         var result = await service.SyncAsync("Microsoft", "Google", whatIf: true);
 
         Assert.True(result.Succeeded);
         Assert.True(result.ActionsPlanned > 0);
-        Assert.Empty(connectorB.Items);
+        Assert.Empty(destinationConnector.Items);
     }
 
     [Fact]
     public async Task SyncAsyncForceResyncAfterInitialSync()
     {
-        connectorA.Seed(MakeContact("a1", "Alice"));
+        sourceConnector.Seed(MakeContact("a1", "Alice"));
         await service.SyncAsync("Microsoft", "Google");
 
         // Normal second run: nothing to do
@@ -394,14 +394,14 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task SyncAsyncLinksSingleDuplicateMatchInsteadOfCreating()
     {
-        connectorA.Seed(MakeContact("a1", "Alice", email: "alice@example.com", phone: "+1 (555) 123-4567"));
-        connectorB.Seed(MakeContact("b1", "Alice", email: " Alice@example.com ", phone: "15551234567"));
+        sourceConnector.Seed(MakeContact("a1", "Alice", email: "alice@example.com", phone: "+1 (555) 123-4567"));
+        destinationConnector.Seed(MakeContact("b1", "Alice", email: " Alice@example.com ", phone: "15551234567"));
 
         var result = await service.SyncAsync("Microsoft", "Google");
         var links = await new LinkStateRepository(db).GetByJobAsync("contacts:Microsoft:Google");
 
         Assert.True(result.Succeeded);
-        Assert.Single(connectorB.Items, item => !item.IsDeleted);
+        Assert.Single(destinationConnector.Items, item => !item.IsDeleted);
         Assert.Single(links);
         Assert.Equal("a1", links[0].SourceId);
         Assert.Equal("b1", links[0].DestinationId);
@@ -410,30 +410,30 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task SyncAsyncSkipsAutoLinkingWhenMultipleDuplicateMatchesExist()
     {
-        connectorA.Seed(MakeContact("a1", "Alice", email: "alice@example.com"));
-        connectorB.Seed(MakeContact("b1", "Alice", email: "alice@example.com"));
-        connectorB.Seed(MakeContact("b2", "Alice", email: "alice@example.com"));
+        sourceConnector.Seed(MakeContact("a1", "Alice", email: "alice@example.com"));
+        destinationConnector.Seed(MakeContact("b1", "Alice", email: "alice@example.com"));
+        destinationConnector.Seed(MakeContact("b2", "Alice", email: "alice@example.com"));
 
         var result = await service.SyncAsync("Microsoft", "Google");
         var links = await new LinkStateRepository(db).GetByJobAsync("contacts:Microsoft:Google");
 
         Assert.True(result.Succeeded);
         Assert.True(result.ActionsPlanned > 0);
-        Assert.Equal(2, connectorB.Items.Count(item => !item.IsDeleted));
+        Assert.Equal(2, destinationConnector.Items.Count(item => !item.IsDeleted));
         Assert.Empty(links);
     }
 
     [Fact]
     public async Task SyncAsyncCopiesPhotoMetadataToDestination()
     {
-        CanonicalItem source = MakeContact("a1", "Alice", lastName: "Smith");
+        var source = MakeContact("a1", "Alice", lastName: "Smith");
         ContactPhotoMetadata.SetPhoto(source, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
-        connectorA.Seed(source);
+        sourceConnector.Seed(source);
 
-        JobExecutionResult result = await service.SyncAsync("Microsoft", "Google");
+        var result = await service.SyncAsync("Microsoft", "Google");
 
         Assert.True(result.Succeeded);
-        CanonicalItem created = Assert.Single(connectorB.Items);
+        var created = Assert.Single(destinationConnector.Items);
         Assert.True(ContactPhotoMetadata.TryGetPhoto(created, out byte[] photoBytes, out string contentType));
         Assert.Equal("image/png", contentType);
         Assert.Equal(source.Metadata["contact.photo.bytes"], created.Metadata["contact.photo.bytes"]);
@@ -446,23 +446,52 @@ public sealed class ContactsServiceTests : IDisposable
         LazyPhotoConnector lazyConnector = new(
             MakeContact("a1", "Alice"),
             MakeContact("a2", "Bob"));
-        ContactsService lazyService = CreateService(lazyConnector);
+        var lazyService = CreateService(lazyConnector);
         var filter = ContactFilter.Parse("startswith(name,'A')")!;
 
-        JobExecutionResult result = await lazyService.SyncAsync("Microsoft", "Google", filter: filter);
+        var result = await lazyService.SyncAsync("Microsoft", "Google", filter: filter);
 
         Assert.True(result.Succeeded);
         Assert.Equal(["a1"], lazyConnector.LoadedPhotoIds);
-        CanonicalItem created = Assert.Single(connectorB.Items);
+        var created = Assert.Single(destinationConnector.Items);
         Assert.Equal("Alice", ((CanonicalContact)created.Payload!).DisplayName);
         Assert.True(ContactPhotoMetadata.TryGetPhoto(created, out _, out _));
+    }
+
+    [Fact]
+    public async Task ExportAsync_SingleContactFailure_ContinuesToNextContact()
+    {
+        sourceConnector.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
+        sourceConnector.Seed(new CanonicalItem
+        {
+            EntityType = EntityType.Contact,
+            SourceId = "broken",
+            Version = "v1",
+            Payload = new UnsupportedPayload(),
+        });
+
+        string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
+        try
+        {
+            await service.ExportAsync("Microsoft", dir);
+            string[] files = Directory.GetFiles(dir, "*.json");
+            Assert.Single(files);
+            Assert.Equal("alice_smith.json", Path.GetFileName(files[0]));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+        }
     }
 
     private ContactsService CreateService(IConnector microsoftConnector)
     {
         FakeConnectorFactory pagedFactory = new();
         pagedFactory.Register("Microsoft", microsoftConnector);
-        pagedFactory.Register("Google", connectorB);
+        pagedFactory.Register("Google", destinationConnector);
 
         var options = new KagamiOptions
         {
@@ -522,6 +551,8 @@ public sealed class ContactsServiceTests : IDisposable
         };
     }
 
+    private sealed class UnsupportedPayload { }
+
     private sealed class PagedConnector(params IncrementalPage[] pages) : IConnector
     {
         private readonly Queue<IncrementalPage> queuedPages = new(pages);
@@ -569,7 +600,7 @@ public sealed class ContactsServiceTests : IDisposable
 
         public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default)
         {
-            foreach (CanonicalItem item in items)
+            foreach (var item in items)
             {
                 ContactPhotoLoader.Attach(item, _ =>
                 {

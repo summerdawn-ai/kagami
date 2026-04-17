@@ -2,6 +2,7 @@
 using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Connectors;
+
 internal static class ContactPhotoMetadata
 {
     private const string PhotoPresenceKey = "contact.photo.presence";

@@ -20,15 +20,15 @@ public sealed class Planner(ILogger<Planner> logger)
     /// <list type="number">
     ///   <item>Linked pairs are evaluated first; their endpoints are reserved so they can never
     ///   appear as duplicate-match candidates.</item>
-    ///   <item>Unlinked items on side A are matched against unreserved side-B items.</item>
-    ///   <item>Unlinked items on side B are matched against unreserved side-A items.</item>
+    ///   <item>Unlinked items on source are matched against unreserved destination items.</item>
+    ///   <item>Unlinked items on destination are matched against unreserved source items.</item>
     /// </list>
     /// The returned list never contains two actions that share the same source item or the same
     /// target item.
     /// </remarks>
     /// <param name="jobOptions">The job configuration.</param>
-    /// <param name="sideAItems">Current items observed on side A.</param>
-    /// <param name="sideBItems">Current items observed on side B.</param>
+    /// <param name="sourceItems">Current items observed on source.</param>
+    /// <param name="destinationItems">Current items observed on destination.</param>
     /// <param name="existingLinks">Current link state rows for this job.</param>
     /// <param name="force">
     /// When <c>true</c>, the HasChanged short-circuit is bypassed and all in-scope linked items
@@ -36,42 +36,42 @@ public sealed class Planner(ILogger<Planner> logger)
     /// </param>
     public IReadOnlyList<SyncAction> PlanActions(
         JobOptions jobOptions,
-        IReadOnlyList<CanonicalItem> sideAItems,
-        IReadOnlyList<CanonicalItem> sideBItems,
+        IReadOnlyList<CanonicalItem> sourceItems,
+        IReadOnlyList<CanonicalItem> destinationItems,
         IReadOnlyList<LinkStateRow> existingLinks,
         bool force = false)
     {
         var actions = new List<SyncAction>();
 
-        var itemsAById = sideAItems.ToDictionary(i => i.SourceId, StringComparer.Ordinal);
-        var itemsBById = sideBItems.ToDictionary(i => i.SourceId, StringComparer.Ordinal);
+        var sourceItemsById = sourceItems.ToDictionary(i => i.SourceId, StringComparer.Ordinal);
+        var destinationItemsById = destinationItems.ToDictionary(i => i.SourceId, StringComparer.Ordinal);
 
-        var linkedAIds = existingLinks
+        var linkedSourceIds = existingLinks
             .Select(l => l.SourceId)
             .ToHashSet(StringComparer.Ordinal);
-        var linkedBIds = existingLinks
+        var linkedDestinationIds = existingLinks
             .Where(l => l.DestinationId != null)
             .Select(l => l.DestinationId!)
             .ToHashSet(StringComparer.Ordinal);
 
         // Reservation sets prevent two actions from sharing the same source or target item.
-        var reservedAIds = new HashSet<string>(StringComparer.Ordinal);
-        var reservedBIds = new HashSet<string>(StringComparer.Ordinal);
+        var reservedSourceIds = new HashSet<string>(StringComparer.Ordinal);
+        var reservedDestinationIds = new HashSet<string>(StringComparer.Ordinal);
 
         // Pass 1: evaluate existing linked pairs. Linked endpoints are always reserved so that
         // they can never be matched as duplicate candidates in subsequent passes.
         foreach (var link in existingLinks)
         {
-            itemsAById.TryGetValue(link.SourceId, out var currentA);
-            var currentB = link.DestinationId != null ? itemsBById.GetValueOrDefault(link.DestinationId) : null;
+            sourceItemsById.TryGetValue(link.SourceId, out var currentSourceItem);
+            var currentDestinationItem = link.DestinationId != null ? destinationItemsById.GetValueOrDefault(link.DestinationId) : null;
 
-            reservedAIds.Add(link.SourceId);
+            reservedSourceIds.Add(link.SourceId);
             if (link.DestinationId != null)
             {
-                reservedBIds.Add(link.DestinationId);
+                reservedDestinationIds.Add(link.DestinationId);
             }
 
-            var action = EvaluateLinkedPair(link, currentA, currentB, jobOptions, force);
+            var action = EvaluateLinkedPair(link, currentSourceItem, currentDestinationItem, jobOptions, force);
             if (action != null)
             {
                 actions.Add(action);
@@ -83,13 +83,13 @@ public sealed class Planner(ILogger<Planner> logger)
         {
             PlanUnlinkedItems(
                 jobOptions,
-                sideAItems,
-                sideBItems,
+                sourceItems,
+                destinationItems,
                 SyncSide.Destination,
-                linkedAIds,
-                linkedBIds,
-                reservedAIds,
-                reservedBIds,
+                linkedSourceIds,
+                linkedDestinationIds,
+                reservedSourceIds,
+                reservedDestinationIds,
                 actions);
         }
 
@@ -98,13 +98,13 @@ public sealed class Planner(ILogger<Planner> logger)
         {
             PlanUnlinkedItems(
                 jobOptions,
-                sideBItems,
-                sideAItems,
+                destinationItems,
+                sourceItems,
                 SyncSide.Source,
-                linkedBIds,
-                linkedAIds,
-                reservedBIds,
-                reservedAIds,
+                linkedDestinationIds,
+                linkedSourceIds,
+                reservedDestinationIds,
+                reservedSourceIds,
                 actions);
         }
 
@@ -113,13 +113,13 @@ public sealed class Planner(ILogger<Planner> logger)
 
     private static SyncAction? EvaluateLinkedPair(
         LinkStateRow link,
-        CanonicalItem? currentA,
-        CanonicalItem? currentB,
+        CanonicalItem? currentSourceItem,
+        CanonicalItem? currentDestinationItem,
         JobOptions jobOptions,
         bool force)
     {
-        // Deletion on side A takes priority.
-        if (currentA?.IsDeleted == true)
+        // Deletion on source takes priority.
+        if (currentSourceItem?.IsDeleted == true)
         {
             if (jobOptions.SyncMode != SyncMode.Reverse
                 && jobOptions.DeletePolicy != DeletePolicy.Ignore
@@ -137,8 +137,8 @@ public sealed class Planner(ILogger<Planner> logger)
             return null;
         }
 
-        // Deletion on side B.
-        if (currentB?.IsDeleted == true)
+        // Deletion on destination.
+        if (currentDestinationItem?.IsDeleted == true)
         {
             if (jobOptions.SyncMode != SyncMode.Forward && jobOptions.DeletePolicy != DeletePolicy.Ignore)
             {
@@ -154,58 +154,58 @@ public sealed class Planner(ILogger<Planner> logger)
             return null;
         }
 
-        bool aChanged = currentA != null && (force || HasChanged(currentA, link, SyncSide.Source));
-        bool bChanged = currentB != null && (force || HasChanged(currentB, link, SyncSide.Destination));
+        bool sourceChanged = currentSourceItem != null && (force || HasChanged(currentSourceItem, link, SyncSide.Source));
+        bool destinationChanged = currentDestinationItem != null && (force || HasChanged(currentDestinationItem, link, SyncSide.Destination));
 
         return jobOptions.SyncMode switch
         {
-            SyncMode.Forward when !aChanged => null,
-            SyncMode.Forward when bChanged => ResolveConflict(currentA!, currentB, SyncSide.Source, SyncSide.Destination, jobOptions),
+            SyncMode.Forward when !sourceChanged => null,
+            SyncMode.Forward when destinationChanged => ResolveConflict(currentSourceItem!, currentDestinationItem, SyncSide.Source, SyncSide.Destination, jobOptions),
             SyncMode.Forward => new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Destination,
-                Item = currentA,
+                Item = currentSourceItem,
                 Reason = "Item changed on source side",
             },
 
-            SyncMode.Reverse when !bChanged => null,
-            SyncMode.Reverse when aChanged => ResolveConflict(currentB!, currentA, SyncSide.Destination, SyncSide.Source, jobOptions),
+            SyncMode.Reverse when !destinationChanged => null,
+            SyncMode.Reverse when sourceChanged => ResolveConflict(currentDestinationItem!, currentSourceItem, SyncSide.Destination, SyncSide.Source, jobOptions),
             SyncMode.Reverse => new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Source,
-                Item = currentB,
+                Item = currentDestinationItem,
                 Reason = "Item changed on source side",
             },
 
             // Bidirectional
-            _ when !aChanged && !bChanged => null,
-            _ when aChanged && !bChanged => new SyncAction
+            _ when !sourceChanged && !destinationChanged => null,
+            _ when sourceChanged && !destinationChanged => new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Destination,
-                Item = currentA,
+                Item = currentSourceItem,
                 Reason = "Item changed on source side",
             },
-            _ when !aChanged => new SyncAction
+            _ when !sourceChanged => new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Source,
-                Item = currentB,
+                Item = currentDestinationItem,
                 Reason = "Item changed on source side",
             },
             // Both changed: resolve using conflict policy. Prefer the A-originating direction
             // as the primary so that SourceWins and LastWriteWins work naturally; DestinationWins is
             // handled by checking the policy explicitly.
-            _ when jobOptions.ConflictPolicy == ConflictPolicy.DestinationWins && currentB != null => new SyncAction
+            _ when jobOptions.ConflictPolicy == ConflictPolicy.DestinationWins && currentDestinationItem != null => new SyncAction
             {
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Source,
-                Item = currentB,
+                Item = currentDestinationItem,
                 Reason = "Conflict: destination wins per policy",
             },
-            _ => ResolveConflict(currentA!, currentB, SyncSide.Source, SyncSide.Destination, jobOptions),
+            _ => ResolveConflict(currentSourceItem!, currentDestinationItem, SyncSide.Source, SyncSide.Destination, jobOptions),
         };
     }
 
@@ -216,13 +216,13 @@ public sealed class Planner(ILogger<Planner> logger)
     /// <param name="sourceItems">All items on the source side.</param>
     /// <param name="targetItems">All items on the target side.</param>
     /// <param name="targetSide">Which side is the target.</param>
-    /// <param name="linkedSourceIds">Source-side IDs that are already part of an existing link.</param>
-    /// <param name="linkedTargetIds">Target-side IDs that are already part of an existing link.</param>
+    /// <param name="linkedSourceIds">Source-side ids that are already part of an existing link.</param>
+    /// <param name="linkedTargetIds">Target-side ids that are already part of an existing link.</param>
     /// <param name="reservedSourceIds">
-    /// Source IDs already claimed by a planned action; updated in place as new actions are added.
+    /// Source ids already claimed by a planned action; updated in place as new actions are added.
     /// </param>
     /// <param name="reservedTargetIds">
-    /// Target IDs already claimed by a planned action; updated in place as new actions are added.
+    /// Target ids already claimed by a planned action; updated in place as new actions are added.
     /// </param>
     /// <param name="actions">Accumulator list for planned actions.</param>
     private void PlanUnlinkedItems(

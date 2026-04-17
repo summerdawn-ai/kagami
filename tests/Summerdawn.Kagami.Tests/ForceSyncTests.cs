@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -9,6 +8,7 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
+namespace Summerdawn.Kagami.Tests;
 public sealed class ForceSyncTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
@@ -18,8 +18,8 @@ public sealed class ForceSyncTests : IDisposable
     private readonly LeaseRepository leaseRepository;
     private readonly OperationLogRepository operationLogRepository;
     private readonly JobExecutor executor;
-    private readonly FakeConnector connectorA = new();
-    private readonly FakeConnector connectorB = new();
+    private readonly FakeConnector sourceConnector = new();
+    private readonly FakeConnector destinationConnector = new();
 
     public ForceSyncTests()
     {
@@ -44,39 +44,39 @@ public sealed class ForceSyncTests : IDisposable
     public async Task ForceResyncWhenNothingChanged()
     {
         // Initial sync creates link state
-        connectorA.Seed(CreateContact("a1", "Alice"));
-        await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
+        sourceConnector.Seed(CreateContact("a1", "Alice"));
+        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
 
-        // Verify link state created; connectorB now has the contact
+        // Verify link state created; destinationConnector now has the contact
         var linksAfterFirst = await linkStateRepository.GetByJobAsync("job-1");
         Assert.Single(linksAfterFirst);
-        int bItemsAfterFirst = connectorB.Items.Count;
+        int bItemsAfterFirst = destinationConnector.Items.Count;
 
         // Normal second sync is a no-op (item hasn't changed, cursor exists)
-        var normalResult = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
+        var normalResult = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
         Assert.True(normalResult.Succeeded);
         Assert.Equal(0, normalResult.ActionsPlanned);
 
         // Force sync should re-evaluate the item and plan an update
-        var forceResult = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, force: true);
+        var forceResult = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, force: true);
         Assert.True(forceResult.Succeeded);
         Assert.True(forceResult.ActionsPlanned > 0, "Force sync should plan at least one action");
 
-        // Item count in connectorB should not have duplicated (it's an update, not create)
-        Assert.Equal(bItemsAfterFirst, connectorB.Items.Count(i => !i.IsDeleted));
+        // Item count in destinationConnector should not have duplicated (it's an update, not create)
+        Assert.Equal(bItemsAfterFirst, destinationConnector.Items.Count(i => !i.IsDeleted));
     }
 
     [Fact]
     public async Task ForceWhatIfLogsActionsWithoutWriting()
     {
-        connectorA.Seed(CreateContact("a1", "Alice"));
-        await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
+        sourceConnector.Seed(CreateContact("a1", "Alice"));
+        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
 
         var linksAfterSync = await linkStateRepository.GetByJobAsync("job-1");
         var lastSyncedAt = linksAfterSync[0].LastSyncedAt;
 
         // force + whatIf: should plan actions but NOT write
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, whatIf: true, force: true);
+        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true, force: true);
         Assert.True(result.Succeeded);
         Assert.True(result.ActionsPlanned > 0);
 
@@ -88,16 +88,16 @@ public sealed class ForceSyncTests : IDisposable
     [Fact]
     public async Task FilterRestrictsScope()
     {
-        connectorA.Seed(CreateContact("a1", "Alice"));
-        connectorA.Seed(CreateContact("a2", "Bob"));
+        sourceConnector.Seed(CreateContact("a1", "Alice"));
+        sourceConnector.Seed(CreateContact("a2", "Bob"));
 
         var filter = ContactFilter.Parse("startswith(name,'A')")!;
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, filter: filter);
+        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, filter: filter);
 
         Assert.True(result.Succeeded);
 
-        // Only Alice should have been synced to connectorB
-        var syncedContacts = connectorB.Items
+        // Only Alice should have been synced to destinationConnector
+        var syncedContacts = destinationConnector.Items
             .Where(i => !i.IsDeleted)
             .Select(i => i.Payload as CanonicalContact)
             .Where(c => c is not null)
@@ -110,39 +110,39 @@ public sealed class ForceSyncTests : IDisposable
     [Fact]
     public async Task FilteredSyncLeavesOutOfScopeContactsUntouched()
     {
-        // Pre-seed connectorB with Bob (simulate Bob already existing there)
-        connectorB.Seed(CreateContact("b-bob", "Bob"));
+        // Pre-seed destinationConnector with Bob (simulate Bob already existing there)
+        destinationConnector.Seed(CreateContact("b-bob", "Bob"));
 
-        connectorA.Seed(CreateContact("a1", "Alice"));
-        connectorA.Seed(CreateContact("a2", "Bob"));
+        sourceConnector.Seed(CreateContact("a1", "Alice"));
+        sourceConnector.Seed(CreateContact("a2", "Bob"));
 
         var filter = ContactFilter.Parse("startswith(name,'A')")!;
-        await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, filter: filter);
+        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, filter: filter);
 
         // Bob was on B before the sync; he must still be there
-        Assert.Contains(connectorB.Items, i => i.SourceId == "b-bob" && !i.IsDeleted);
+        Assert.Contains(destinationConnector.Items, i => i.SourceId == "b-bob" && !i.IsDeleted);
     }
 
     [Fact]
     public async Task ChangingFilterScopeForcesFullEnumeration()
     {
-        connectorA.Seed(CreateContact("a1", "Alice"));
-        connectorA.Seed(CreateContact("a2", "Bob"));
+        sourceConnector.Seed(CreateContact("a1", "Alice"));
+        sourceConnector.Seed(CreateContact("a2", "Bob"));
 
-        ContactFilter filteredScope = ContactFilter.Parse("startswith(name,'A')")!;
-        var filteredResult = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB, filter: filteredScope);
-        EndpointCursorState? filteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
+        var filteredScope = ContactFilter.Parse("startswith(name,'A')")!;
+        var filteredResult = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, filter: filteredScope);
+        var filteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
 
-        var unfilteredResult = await executor.ExecuteAsync("job-1", CreateJob(), connectorA, connectorB);
-        EndpointCursorState? unfilteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
+        var unfilteredResult = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var unfilteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
 
         Assert.True(filteredResult.Succeeded);
         Assert.NotNull(filteredCursor);
         Assert.Equal("startswith(name,'A')", filteredCursor!.Scope);
         Assert.True(unfilteredResult.Succeeded);
         Assert.Equal(1, unfilteredResult.ActionsPlanned);
-        Assert.Equal(2, connectorB.Items.Count(item => !item.IsDeleted));
-        Assert.Contains(connectorB.Items, item => item.Payload is CanonicalContact { DisplayName: "Bob" } && !item.IsDeleted);
+        Assert.Equal(2, destinationConnector.Items.Count(item => !item.IsDeleted));
+        Assert.Contains(destinationConnector.Items, item => item.Payload is CanonicalContact { DisplayName: "Bob" } && !item.IsDeleted);
         Assert.NotNull(unfilteredCursor);
         Assert.Equal(string.Empty, unfilteredCursor!.Scope);
     }

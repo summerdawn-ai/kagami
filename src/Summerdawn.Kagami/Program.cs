@@ -215,7 +215,7 @@ public static class Program
             Description = "Conflict resolution policy: last-write-wins (default), source-wins, dest-wins, skip",
             Required = false,
             DefaultValueFactory = _ => "last-write-wins",
-        };
+        }.AcceptOnlyFromAmong("last-write-wins", "source-wins", "destination-wins", "skip");
 
         var allOption = new Option<bool>("--all")
         {

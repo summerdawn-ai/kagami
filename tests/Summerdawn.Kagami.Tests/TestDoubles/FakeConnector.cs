@@ -1,8 +1,8 @@
-namespace Summerdawn.Kagami.Tests.TestDoubles;
 
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 
+namespace Summerdawn.Kagami.Tests.TestDoubles;
 public sealed class FakeConnector : IConnector
 {
     private readonly List<CanonicalItem> items = [];

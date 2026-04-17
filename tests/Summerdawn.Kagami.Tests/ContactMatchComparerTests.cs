@@ -1,8 +1,8 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 
+namespace Summerdawn.Kagami.Tests;
 public sealed class ContactMatchComparerTests
 {
     private readonly ContactMatchComparer comparer = new();
@@ -10,13 +10,13 @@ public sealed class ContactMatchComparerTests
     [Fact]
     public void IsMatchNormalizesEmailAndPhone()
     {
-        CanonicalItem left = CreateContact(
+        var left = CreateContact(
             "a1",
             "Alice Smith",
             organization: "Contoso",
             email: "Alice@Example.com ",
             phone: "+1 (555) 123-4567");
-        CanonicalItem right = CreateContact(
+        var right = CreateContact(
             "b1",
             " alice smith ",
             organization: "Other Co",
@@ -29,8 +29,8 @@ public sealed class ContactMatchComparerTests
     [Fact]
     public void IsMatchRequiresCompanyWhenDisplayNameIsEmpty()
     {
-        CanonicalItem left = CreateContact("a1", string.Empty, organization: "Contoso", email: "alice@example.com");
-        CanonicalItem right = CreateContact("b1", string.Empty, organization: "Fabrikam", email: "alice@example.com");
+        var left = CreateContact("a1", string.Empty, organization: "Contoso", email: "alice@example.com");
+        var right = CreateContact("b1", string.Empty, organization: "Fabrikam", email: "alice@example.com");
 
         Assert.False(comparer.IsMatch(left, right));
     }
@@ -38,8 +38,8 @@ public sealed class ContactMatchComparerTests
     [Fact]
     public void IsMatchRequiresEmailOrPhoneOverlap()
     {
-        CanonicalItem left = CreateContact("a1", "Alice Smith", organization: "Contoso", email: "alice@example.com");
-        CanonicalItem right = CreateContact("b1", "Alice Smith", organization: "Contoso", email: "other@example.com");
+        var left = CreateContact("a1", "Alice Smith", organization: "Contoso", email: "alice@example.com");
+        var right = CreateContact("b1", "Alice Smith", organization: "Contoso", email: "other@example.com");
 
         Assert.False(comparer.IsMatch(left, right));
     }

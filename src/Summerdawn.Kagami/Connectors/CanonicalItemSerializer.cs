@@ -7,6 +7,7 @@ using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Serialization;
 
 namespace Summerdawn.Kagami.Connectors;
+
 internal static class CanonicalItemSerializer
 {
     public static string ComputeContentHash(object? payload)

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Summerdawn.Kagami.Serialization;
 
 namespace Summerdawn.Kagami.Authentication;
+
 internal sealed class GoogleTokenCache
 {
     private static readonly string StorageDirectory = Path.Combine(

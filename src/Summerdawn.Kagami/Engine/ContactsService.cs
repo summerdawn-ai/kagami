@@ -130,34 +130,50 @@ public sealed class ContactsService(
         }
 
         var nameCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        int successCount = 0;
+        int failed = 0;
 
         foreach (var item in items)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            string baseName = BuildExportBaseName(item);
-            nameCounts.TryGetValue(baseName, out int count);
-            count++;
-            nameCounts[baseName] = count;
-
-            string fileName = count == 1 ? $"{baseName}.json" : $"{baseName}_{count}.json";
-            string filePath = Path.Combine(outputDirectory, fileName);
-
-            // Serialize the contact payload (or the full item if no typed payload)
-            string json = SerializeExportItem(item);
-            await File.WriteAllTextAsync(filePath, json, cancellationToken);
-            logger.LogInformation("Exported contact to {File}", filePath);
-
-            if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out string contentType))
+            try
             {
-                string extension = ContactPhotoMetadata.GetFileExtension(contentType, photoBytes);
-                string photoPath = Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(fileName) + extension);
-                await File.WriteAllBytesAsync(photoPath, photoBytes, cancellationToken);
-                logger.LogInformation("Exported contact photo to {File}", photoPath);
+                string baseName = BuildExportBaseName(item);
+                nameCounts.TryGetValue(baseName, out int count);
+                count++;
+                nameCounts[baseName] = count;
+
+                string fileName = count == 1 ? $"{baseName}.json" : $"{baseName}_{count}.json";
+                string filePath = Path.Combine(outputDirectory, fileName);
+
+                // Serialize the contact payload (or the full item if no typed payload)
+                string json = SerializeExportItem(item);
+                await File.WriteAllTextAsync(filePath, json, cancellationToken);
+                logger.LogInformation("Exported contact to {File}", filePath);
+
+                if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out string contentType))
+                {
+                    string extension = ContactPhotoMetadata.GetFileExtension(contentType, photoBytes);
+                    string photoPath = Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(fileName) + extension);
+                    await File.WriteAllBytesAsync(photoPath, photoBytes, cancellationToken);
+                    logger.LogInformation("Exported contact photo to {File}", photoPath);
+                }
+
+                successCount++;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                logger.LogError(ex, "Export: failed to export contact {ItemId}; skipping", item.SourceId);
             }
         }
 
-        logger.LogInformation("Exported {Count} contact(s) to {Dir}", items.Count, outputDirectory);
+        logger.LogInformation("Exported {Count} contact(s) to {Dir} ({Failed} failed)", successCount, outputDirectory, failed);
     }
 
     /// <summary>
@@ -188,8 +204,8 @@ public sealed class ContactsService(
     {
         await stateDb.InitializeAsync(cancellationToken);
 
-        var connectorA = BuildConnector(fromEndpoint);
-        var connectorB = BuildConnector(toEndpoint);
+        var sourceConnector = BuildConnector(fromEndpoint);
+        var destinationConnector = BuildConnector(toEndpoint);
 
         // Derive a stable job key from the two endpoint names so that sync state
         // is persisted consistently across invocations of the same contacts sync command.
@@ -209,8 +225,8 @@ public sealed class ContactsService(
         return await jobExecutor.ExecuteAsync(
             jobKey,
             jobOptions,
-            connectorA,
-            connectorB,
+            sourceConnector,
+            destinationConnector,
             whatIf,
             filter,
             force,
@@ -332,45 +348,56 @@ public sealed class ContactsService(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Find matching destination contact
-            var matches = activeDestItems
-                .Where(dest => !matchedDestIds.Contains(dest.SourceId) && IsImportMatch(importItem, dest, matchComparer))
-                .ToList();
+            try
+            {
+                // Find matching destination contact
+                var matches = activeDestItems
+                    .Where(dest => !matchedDestIds.Contains(dest.SourceId) && IsImportMatch(importItem, dest, matchComparer))
+                    .ToList();
 
-            if (matches.Count == 0)
-            {
-                // Create new contact
-                logger.LogInformation("Import: creating contact {Name}", importItem.SourceId);
-                if (!whatIf)
+                if (matches.Count == 0)
                 {
-                    var createdItem = await connector.CreateItemAsync(importItem, cancellationToken);
-                    matchedDestIds.Add(createdItem.SourceId);
-                }
-                created++;
-            }
-            else if (matches.Count == 1)
-            {
-                // Update existing contact
-                var destItem = matches[0];
-                matchedDestIds.Add(destItem.SourceId);
-                logger.LogInformation("Import: updating contact {Name} (matched {DestId})", importItem.SourceId, destItem.SourceId);
-                if (!whatIf)
-                {
-                    var targetItem = new CanonicalItem
+                    // Create new contact
+                    logger.LogInformation("Import: creating contact {Name}", importItem.SourceId);
+                    if (!whatIf)
                     {
-                        EntityType = importItem.EntityType,
-                        SourceId = destItem.SourceId,
-                        Payload = importItem.Payload,
-                        Metadata = new Dictionary<string, string>(importItem.Metadata),
-                    };
-                    await connector.UpdateItemAsync(targetItem, cancellationToken);
+                        var createdItem = await connector.CreateItemAsync(importItem, cancellationToken);
+                        matchedDestIds.Add(createdItem.SourceId);
+                    }
+                    created++;
                 }
-                updated++;
+                else if (matches.Count == 1)
+                {
+                    // Update existing contact
+                    var destItem = matches[0];
+                    matchedDestIds.Add(destItem.SourceId);
+                    logger.LogInformation("Import: updating contact {Name} (matched {DestId})", importItem.SourceId, destItem.SourceId);
+                    if (!whatIf)
+                    {
+                        var targetItem = new CanonicalItem
+                        {
+                            EntityType = importItem.EntityType,
+                            SourceId = destItem.SourceId,
+                            Payload = importItem.Payload,
+                            Metadata = new Dictionary<string, string>(importItem.Metadata),
+                        };
+                        await connector.UpdateItemAsync(targetItem, cancellationToken);
+                    }
+                    updated++;
+                }
+                else
+                {
+                    // Multiple matches — ambiguous, skip
+                    logger.LogWarning("Import: skipping contact {Name} — matched {Count} destination contacts (ambiguous)", importItem.SourceId, matches.Count);
+                }
             }
-            else
+            catch (OperationCanceledException)
             {
-                // Multiple matches — ambiguous, skip
-                logger.LogWarning("Import: skipping contact {Name} — matched {Count} destination contacts (ambiguous)", importItem.SourceId, matches.Count);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Import: failed to upsert contact {ItemId}; skipping", importItem.SourceId);
             }
         }
 
@@ -381,12 +408,23 @@ public sealed class ContactsService(
             {
                 if (!matchedDestIds.Contains(destItem.SourceId))
                 {
-                    logger.LogInformation("Import --prune: deleting contact {DestId}", destItem.SourceId);
-                    if (!whatIf)
+                    try
                     {
-                        await connector.DeleteItemAsync(destItem.SourceId, cancellationToken);
+                        logger.LogInformation("Import --prune: deleting contact {DestId}", destItem.SourceId);
+                        if (!whatIf)
+                        {
+                            await connector.DeleteItemAsync(destItem.SourceId, cancellationToken);
+                        }
+                        deleted++;
                     }
-                    deleted++;
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Import --prune: failed to delete contact {DestId}; skipping", destItem.SourceId);
+                    }
                 }
             }
         }

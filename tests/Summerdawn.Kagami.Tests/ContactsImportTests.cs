@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -11,6 +10,7 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
+namespace Summerdawn.Kagami.Tests;
 public sealed class ContactsImportTests : IDisposable
 {
     private static readonly byte[] OnePxPng =
@@ -91,7 +91,7 @@ public sealed class ContactsImportTests : IDisposable
         var result = await service.ImportAsync(importDir, "Destination");
 
         Assert.Equal(1, result.Created);
-        CanonicalItem created = Assert.Single(connectorDest.Items);
+        var created = Assert.Single(connectorDest.Items);
         Assert.False(ContactPhotoMetadata.TryGetPhoto(created, out _, out _),
             "Photo should be explicitly cleared when no image file is present");
     }
@@ -105,7 +105,7 @@ public sealed class ContactsImportTests : IDisposable
         var result = await service.ImportAsync(importDir, "Destination");
 
         Assert.Equal(1, result.Created);
-        CanonicalItem created = Assert.Single(connectorDest.Items);
+        var created = Assert.Single(connectorDest.Items);
         Assert.True(ContactPhotoMetadata.TryGetPhoto(created, out byte[] photoBytes, out string contentType));
         Assert.Equal("image/png", contentType);
         Assert.Equal(OnePxPng.Length, photoBytes.Length);
@@ -174,6 +174,23 @@ public sealed class ContactsImportTests : IDisposable
 
         Assert.Equal(1, result.Created);
         Assert.Empty(connectorDest.Items);
+    }
+
+    // ── ImportAsync: error handling ───────────────────────────────────────
+
+    [Fact]
+    public async Task ImportAsync_SingleContactCreateFailure_ContinuesToNextContact()
+    {
+        await WriteContactJsonAsync("alice_smith", new { displayName = "Alice Smith", givenName = "Alice", familyName = "Smith" });
+        await WriteContactJsonAsync("bob_jones", new { displayName = "Bob Jones", givenName = "Bob", familyName = "Jones" });
+
+        FailingCreateConnector failingConnector = new(throwForSourceId: "alice_smith");
+        factory.Register("Destination", failingConnector);
+
+        var result = await service.ImportAsync(importDir, "Destination");
+
+        Assert.Equal(1, result.Created);
+        Assert.Contains(failingConnector.Items, i => ((CanonicalContact)i.Payload!).DisplayName == "Bob Jones" && !i.IsDeleted);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

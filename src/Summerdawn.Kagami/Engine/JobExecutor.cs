@@ -23,8 +23,8 @@ public sealed class JobExecutor(
     /// </summary>
     /// <param name="jobKey">The job key used for lease and state tracking.</param>
     /// <param name="jobOptions">The job configuration.</param>
-    /// <param name="connectorA">Connector for source side.</param>
-    /// <param name="connectorB">Connector for destination side.</param>
+    /// <param name="sourceConnector">Connector for source side.</param>
+    /// <param name="destinationConnector">Connector for destination side.</param>
     /// <param name="whatIf">When <c>true</c>, no writes are performed; planned actions are logged.</param>
     /// <param name="filter">
     /// Optional in-memory contact filter. Only items matching the filter are included in planning;
@@ -38,8 +38,8 @@ public sealed class JobExecutor(
     public async Task<JobExecutionResult> ExecuteAsync(
         string jobKey,
         JobOptions jobOptions,
-        IConnector connectorA,
-        IConnector connectorB,
+        IConnector sourceConnector,
+        IConnector destinationConnector,
         bool whatIf = false,
         ContactFilter? filter = null,
         bool force = false,
@@ -55,7 +55,7 @@ public sealed class JobExecutor(
 
         try
         {
-            return await RunJobAsync(jobKey, jobOptions, connectorA, connectorB, whatIf, filter, force, cancellationToken);
+            return await RunJobAsync(jobKey, jobOptions, sourceConnector, destinationConnector, whatIf, filter, force, cancellationToken);
         }
         finally
         {
@@ -66,8 +66,8 @@ public sealed class JobExecutor(
     private async Task<JobExecutionResult> RunJobAsync(
         string jobKey,
         JobOptions jobOptions,
-        IConnector connectorA,
-        IConnector connectorB,
+        IConnector sourceConnector,
+        IConnector destinationConnector,
         bool whatIf,
         ContactFilter? filter,
         bool force,
@@ -75,36 +75,36 @@ public sealed class JobExecutor(
     {
         logger.LogInformation("Starting job {JobKey} (whatIf={WhatIf}, force={Force})", jobKey, whatIf, force);
 
-        await connectorA.AuthenticateAsync(cancellationToken);
-        await connectorB.AuthenticateAsync(cancellationToken);
+        await sourceConnector.AuthenticateAsync(cancellationToken);
+        await destinationConnector.AuthenticateAsync(cancellationToken);
 
         var existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
         JobExecutionResult result = new() { JobKey = jobKey };
         string filterScope = filter?.Scope ?? string.Empty;
 
         // --- Read current snapshots from both sides ---
-        var currentPageSetA = await ReadCurrentPagesAsync(connectorA, jobOptions.Source, cancellationToken);
-        var currentItemsA = filter is not null ? filter.Apply(currentPageSetA.Items) : currentPageSetA.Items;
+        var currentSourcePageSet = await ReadCurrentPagesAsync(sourceConnector, jobOptions.Source, cancellationToken);
+        var currentSourceItems = filter is not null ? filter.Apply(currentSourcePageSet.Items) : currentSourcePageSet.Items;
 
-        var currentPageSetB = await ReadCurrentPagesAsync(connectorB, jobOptions.Destination, cancellationToken);
-        var currentItemsB = filter is not null ? filter.Apply(currentPageSetB.Items) : currentPageSetB.Items;
+        var currentDestinationPageSet = await ReadCurrentPagesAsync(destinationConnector, jobOptions.Destination, cancellationToken);
+        var currentDestinationItems = filter is not null ? filter.Apply(currentDestinationPageSet.Items) : currentDestinationPageSet.Items;
 
         // --- Poll incremental changes (for cursor tracking) ---
-        var cursorStateA = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Source, cancellationToken);
-        string? cursorA = GetApplicableCursor(jobKey, jobOptions.Source, cursorStateA, filterScope);
-        var pageSetA = await ReadAllPagesAsync(connectorA, jobOptions.Source, cursorA, force, cancellationToken);
+        var sourceCursorState = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Source, cancellationToken);
+        string? sourceCursor = GetApplicableCursor(jobKey, jobOptions.Source, sourceCursorState, filterScope);
+        var sourcePageSet = await ReadAllPagesAsync(sourceConnector, jobOptions.Source, sourceCursor, force, cancellationToken);
 
-        var cursorStateB = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Destination, cancellationToken);
-        string? cursorB = GetApplicableCursor(jobKey, jobOptions.Destination, cursorStateB, filterScope);
-        var pageSetB = await ReadAllPagesAsync(connectorB, jobOptions.Destination, cursorB, force, cancellationToken);
+        var destinationCursorState = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Destination, cancellationToken);
+        string? destinationCursor = GetApplicableCursor(jobKey, jobOptions.Destination, destinationCursorState, filterScope);
+        var destinationPageSet = await ReadAllPagesAsync(destinationConnector, jobOptions.Destination, destinationCursor, force, cancellationToken);
 
         // --- Plan actions (single pass over full current state from both sides) ---
-        var actions = planner.PlanActions(jobOptions, currentItemsA, currentItemsB, existingLinks, force);
+        var actions = planner.PlanActions(jobOptions, currentSourceItems, currentDestinationItems, existingLinks, force);
 
-        var actionsToB = actions.Where(a => a.TargetSide == SyncSide.Destination).ToList();
-        var actionsToA = actions.Where(a => a.TargetSide == SyncSide.Source).ToList();
+        var actionsToDestination = actions.Where(a => a.TargetSide == SyncSide.Destination).ToList();
+        var actionsToSource = actions.Where(a => a.TargetSide == SyncSide.Source).ToList();
 
-        logger.LogInformation("Job {JobKey}: {Count} actions targeting destination, {CountA} targeting source", jobKey, actionsToB.Count, actionsToA.Count);
+        logger.LogInformation("Job {JobKey}: {Count} actions targeting destination, {CountA} targeting source", jobKey, actionsToDestination.Count, actionsToSource.Count);
         result.ActionsPlanned += actions.Count;
 
         if (whatIf)
@@ -114,21 +114,21 @@ public sealed class JobExecutor(
 
         if (!whatIf)
         {
-            await EnsureActionItemsLoadedAsync(actionsToB, cancellationToken);
-            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToB, connectorB, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.Destination, cancellationToken);
+            await EnsureActionItemsLoadedAsync(actionsToDestination, cancellationToken);
+            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToDestination, destinationConnector, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.Destination, cancellationToken);
             existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
 
-            await EnsureActionItemsLoadedAsync(actionsToA, cancellationToken);
-            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToA, connectorA, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.Source, cancellationToken);
+            await EnsureActionItemsLoadedAsync(actionsToSource, cancellationToken);
+            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToSource, sourceConnector, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.Source, cancellationToken);
 
-            if (pageSetA.Cursor is not null)
+            if (sourcePageSet.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(jobKey, jobOptions.Source, filterScope, pageSetA.Cursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(jobKey, jobOptions.Source, filterScope, sourcePageSet.Cursor, cancellationToken);
             }
 
-            if (pageSetB.Cursor is not null)
+            if (destinationPageSet.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(jobKey, jobOptions.Destination, filterScope, pageSetB.Cursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(jobKey, jobOptions.Destination, filterScope, destinationPageSet.Cursor, cancellationToken);
             }
         }
 
@@ -137,7 +137,7 @@ public sealed class JobExecutor(
         return result;
     }
 
-    private static async Task ApplyActionsAsync(
+    private async Task ApplyActionsAsync(
         string jobKey,
         string entityType,
         IReadOnlyList<SyncAction> actions,
@@ -155,121 +155,147 @@ public sealed class JobExecutor(
 
         foreach (var action in actions)
         {
-            switch (action.Kind)
+            try
             {
-                case SyncActionKind.Create when action.Item is not null:
-                    {
-                        var created = await targetConnector.CreateItemAsync(action.Item, cancellationToken);
-                        await operationLog.AppendAsync(jobKey, entityType, "create", created.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
-
-                        var link = new LinkStateRow
+                switch (action.Kind)
+                {
+                    case SyncActionKind.Create when action.Item is not null:
                         {
-                            JobKey = jobKey,
-                            EntityType = entityType,
-                            SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : created.SourceId,
-                            DestinationId = updateSide == SyncSide.Destination ? created.SourceId : action.Item.SourceId,
-                            SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : created.Version,
-                            DestinationVersion = updateSide == SyncSide.Destination ? created.Version : action.Item.Version,
-                            SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : created.ContentHash,
-                            DestinationHash = updateSide == SyncSide.Destination ? created.ContentHash : action.Item.ContentHash,
-                            OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
-                            LastSyncedAt = DateTimeOffset.UtcNow,
-                            LastSyncResult = "created",
-                        };
-                        await linkStateRepository.UpsertAsync(link, cancellationToken);
-                        break;
-                    }
+                            var created = await targetConnector.CreateItemAsync(action.Item, cancellationToken);
+                            logger.LogInformation("Job {JobKey}: created {Description} on side {Side}", jobKey, DescribeActionTarget(action), updateSide);
+                            await operationLog.AppendAsync(jobKey, entityType, "create", created.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
-                case SyncActionKind.Update when action.Item is not null:
-                    {
-                        var link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId);
-                        if (link is not null && action.MatchedTargetItem is not null && IsDuplicateLinkAction(link, action, updateSide))
-                        {
-                            continue;
+                            var link = new LinkStateRow
+                            {
+                                JobKey = jobKey,
+                                EntityType = entityType,
+                                SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : created.SourceId,
+                                DestinationId = updateSide == SyncSide.Destination ? created.SourceId : action.Item.SourceId,
+                                SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : created.Version,
+                                DestinationVersion = updateSide == SyncSide.Destination ? created.Version : action.Item.Version,
+                                SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : created.ContentHash,
+                                DestinationHash = updateSide == SyncSide.Destination ? created.ContentHash : action.Item.ContentHash,
+                                OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
+                                LastSyncedAt = DateTimeOffset.UtcNow,
+                                LastSyncResult = "created",
+                            };
+                            await linkStateRepository.UpsertAsync(link, cancellationToken);
+                            break;
                         }
 
-                        if (link is null)
+                    case SyncActionKind.Update when action.Item is not null:
                         {
-                            if (action.MatchedTargetItem is null)
+                            var link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId);
+                            if (link is not null && action.MatchedTargetItem is not null && IsDuplicateLinkAction(link, action, updateSide))
                             {
                                 continue;
                             }
 
-                            var matchedTarget = CreateTargetItem(action.Item, null, updateSide, action.MatchedTargetItem);
-                            var matchedUpdate = await targetConnector.UpdateItemAsync(matchedTarget, cancellationToken);
-                            await operationLog.AppendAsync(jobKey, entityType, "update", matchedUpdate.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
-
-                            var matchedLink = new LinkStateRow
+                            if (link is null)
                             {
-                                JobKey = jobKey,
-                                EntityType = entityType,
-                                SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : matchedUpdate.SourceId,
-                                DestinationId = updateSide == SyncSide.Destination ? matchedUpdate.SourceId : action.Item.SourceId,
-                                SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : matchedUpdate.Version,
-                                DestinationVersion = updateSide == SyncSide.Destination ? matchedUpdate.Version : action.Item.Version,
-                                SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : matchedUpdate.ContentHash,
-                                DestinationHash = updateSide == SyncSide.Destination ? matchedUpdate.ContentHash : action.Item.ContentHash,
-                                OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
-                                LastSyncedAt = DateTimeOffset.UtcNow,
-                                LastSyncResult = "updated",
-                            };
-                            await linkStateRepository.UpsertAsync(matchedLink, cancellationToken);
-                            break;
-                        }
+                                if (action.MatchedTargetItem is null)
+                                {
+                                    continue;
+                                }
 
-                        var targetItem = CreateTargetItem(action.Item, link, updateSide, action.MatchedTargetItem);
-                        var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
-                        await operationLog.AppendAsync(jobKey, entityType, "update", updated.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
+                                var matchedTarget = CreateTargetItem(action.Item, null, updateSide, action.MatchedTargetItem);
+                                var matchedUpdate = await targetConnector.UpdateItemAsync(matchedTarget, cancellationToken);
+                                logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", jobKey, DescribeActionTarget(action), updateSide);
+                                await operationLog.AppendAsync(jobKey, entityType, "update", matchedUpdate.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
-                        if (updateSide == SyncSide.Destination)
-                        {
-                            link.SourceVersion = action.Item.Version;
-                            link.SourceHash = action.Item.ContentHash;
-                            link.DestinationVersion = updated.Version;
-                            link.DestinationHash = updated.ContentHash;
-                        }
-                        else
-                        {
-                            link.DestinationVersion = action.Item.Version;
-                            link.DestinationHash = action.Item.ContentHash;
-                            link.SourceVersion = updated.Version;
-                            link.SourceHash = updated.ContentHash;
-                        }
+                                var matchedLink = new LinkStateRow
+                                {
+                                    JobKey = jobKey,
+                                    EntityType = entityType,
+                                    SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : matchedUpdate.SourceId,
+                                    DestinationId = updateSide == SyncSide.Destination ? matchedUpdate.SourceId : action.Item.SourceId,
+                                    SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : matchedUpdate.Version,
+                                    DestinationVersion = updateSide == SyncSide.Destination ? matchedUpdate.Version : action.Item.Version,
+                                    SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : matchedUpdate.ContentHash,
+                                    DestinationHash = updateSide == SyncSide.Destination ? matchedUpdate.ContentHash : action.Item.ContentHash,
+                                    OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
+                                    LastSyncedAt = DateTimeOffset.UtcNow,
+                                    LastSyncResult = "updated",
+                                };
+                                await linkStateRepository.UpsertAsync(matchedLink, cancellationToken);
+                                break;
+                            }
 
-                        link.LastSyncedAt = DateTimeOffset.UtcNow;
-                        link.LastSyncResult = "updated";
-                        await linkStateRepository.UpsertAsync(link, cancellationToken);
+                            var targetItem = CreateTargetItem(action.Item, link, updateSide, action.MatchedTargetItem);
+                            var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
+                            logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", jobKey, DescribeActionTarget(action), updateSide);
+                            await operationLog.AppendAsync(jobKey, entityType, "update", updated.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
 
-                        break;
-                    }
-
-                case SyncActionKind.Delete when action.DeleteId is not null:
-                    {
-                        await targetConnector.DeleteItemAsync(action.DeleteId, cancellationToken);
-                        await operationLog.AppendAsync(jobKey, entityType, "delete", action.DeleteId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
-
-                        var link = updateSide == SyncSide.Destination
-                            ? linksByDestinationId.GetValueOrDefault(action.DeleteId)
-                            : linksBySourceId.GetValueOrDefault(action.DeleteId);
-
-                        if (link is not null)
-                        {
                             if (updateSide == SyncSide.Destination)
                             {
-                                link.DestinationDeleted = true;
+                                link.SourceVersion = action.Item.Version;
+                                link.SourceHash = action.Item.ContentHash;
+                                link.DestinationVersion = updated.Version;
+                                link.DestinationHash = updated.ContentHash;
                             }
                             else
                             {
-                                link.SourceDeleted = true;
+                                link.DestinationVersion = action.Item.Version;
+                                link.DestinationHash = action.Item.ContentHash;
+                                link.SourceVersion = updated.Version;
+                                link.SourceHash = updated.ContentHash;
                             }
 
                             link.LastSyncedAt = DateTimeOffset.UtcNow;
-                            link.LastSyncResult = "deleted";
+                            link.LastSyncResult = "updated";
                             await linkStateRepository.UpsertAsync(link, cancellationToken);
+
+                            break;
                         }
 
-                        break;
-                    }
+                    case SyncActionKind.Delete when action.DeleteId is not null:
+                        {
+                            await targetConnector.DeleteItemAsync(action.DeleteId, cancellationToken);
+                            logger.LogInformation("Job {JobKey}: deleted item {ItemId} on side {Side}", jobKey, action.DeleteId, updateSide);
+                            await operationLog.AppendAsync(jobKey, entityType, "delete", action.DeleteId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
+
+                            var link = updateSide == SyncSide.Destination
+                                ? linksByDestinationId.GetValueOrDefault(action.DeleteId)
+                                : linksBySourceId.GetValueOrDefault(action.DeleteId);
+
+                            if (link is not null)
+                            {
+                                if (updateSide == SyncSide.Destination)
+                                {
+                                    link.DestinationDeleted = true;
+                                }
+                                else
+                                {
+                                    link.SourceDeleted = true;
+                                }
+
+                                link.LastSyncedAt = DateTimeOffset.UtcNow;
+                                link.LastSyncResult = "deleted";
+                                await linkStateRepository.UpsertAsync(link, cancellationToken);
+                            }
+
+                            break;
+                        }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                string itemId = action.Item?.SourceId ?? action.DeleteId ?? "unknown";
+                string operation = action.Kind switch
+                {
+                    SyncActionKind.Create => "create",
+                    SyncActionKind.Update => "update",
+                    SyncActionKind.Delete => "delete",
+                    _ => action.Kind.ToString().ToLowerInvariant()
+                };
+
+                logger.LogError(ex, "Job {JobKey}: failed to apply {Kind} action for item {ItemId} on side {Side}; skipping",
+                    jobKey, action.Kind, itemId, updateSide);
+                await operationLog.AppendAsync(jobKey, entityType, operation, itemId, updateSide.ToString(), "error", cancellationToken: cancellationToken);
             }
         }
     }

@@ -4,6 +4,7 @@ using System.Text;
 using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Engine;
+
 public static class ContactName
 {
     public static string GetName(CanonicalContact contact) =>

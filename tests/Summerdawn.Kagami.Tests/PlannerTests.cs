@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -6,6 +5,8 @@ using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
+
+namespace Summerdawn.Kagami.Tests;
 
 public sealed class PlannerTests
 {
@@ -315,19 +316,19 @@ public sealed class PlannerTests
     public void PlanActions_NeverProducesTwoActionsWithSameSourceItem()
     {
         // Build a scenario with multiple unlinked items to exercise a variety of paths.
-        var sideA = new[]
+        var sourceItems = new[]
         {
             CreateItem("a1", "v1"),
             CreateItem("a2", "v2"),
             CreateItem("a3", "v3"),
         };
-        var sideB = new[]
+        var destinationItems = new[]
         {
             CreateItem("b1", "v1"),
         };
         var links = new[] { CreateLink("a1", "b1") };
 
-        IReadOnlyList<SyncAction> actions = planner.PlanActions(CreateJob(), sideA, sideB, links);
+        var actions = planner.PlanActions(CreateJob(), sourceItems, destinationItems, links);
 
         var sourceIds = actions
             .Where(a => a.Item is not null)
@@ -345,7 +346,7 @@ public sealed class PlannerTests
         var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
         var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
 
-        IReadOnlyList<SyncAction> actions = planner.PlanActions(
+        var actions = planner.PlanActions(
             CreateJob(SyncMode.Forward),
             [a1, a2],
             [b1],

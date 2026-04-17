@@ -1,4 +1,3 @@
-namespace Summerdawn.Kagami.Tests;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -9,6 +8,8 @@ using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
+
+namespace Summerdawn.Kagami.Tests;
 
 public sealed class SyncHostTests : IDisposable
 {
@@ -34,7 +35,7 @@ public sealed class SyncHostTests : IDisposable
         sourceA.Seed(CreateContact("a1", "Alice"));
         sourceB.Seed(CreateContact("b1", "Bob"));
 
-        SyncHost host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
+        var host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
 
         await host.RunOnceAsync(jobKeyFilter: "job-a");
 
@@ -53,10 +54,10 @@ public sealed class SyncHostTests : IDisposable
         sourceA.Seed(CreateContact("a1", "Alice"));
         sourceB.Seed(CreateContact("b1", "Bob"));
 
-        SyncHost host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
+        var host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
 
         using CancellationTokenSource cts = new();
-        Task runTask = host.RunContinuousAsync(jobKeyFilter: "job-a", cancellationToken: cts.Token);
+        var runTask = host.RunContinuousAsync(jobKeyFilter: "job-a", cancellationToken: cts.Token);
         await Task.Delay(100);
         cts.Cancel();
 
@@ -76,10 +77,10 @@ public sealed class SyncHostTests : IDisposable
 
         sourceA.Seed(CreateContact("a1", "Alice"));
 
-        SyncHost host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
+        var host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
 
         using CancellationTokenSource cts = new();
-        Task runTask = host.RunContinuousAsync(whatIf: true, jobKeyFilter: "job-a", cancellationToken: cts.Token);
+        var runTask = host.RunContinuousAsync(whatIf: true, jobKeyFilter: "job-a", cancellationToken: cts.Token);
         await Task.Delay(100);
         cts.Cancel();
 
@@ -98,7 +99,7 @@ public sealed class SyncHostTests : IDisposable
         FakeConnector targetA = new();
         FakeConnector sourceB = new();
         FakeConnector targetB = new();
-        SyncHost host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
+        var host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
         EndpointCursorRepository cursorRepository = new(db);
 
         await cursorRepository.SetCursorAsync("job-a", "endpointA1", "startswith(name,'A')", "cursor-a");
