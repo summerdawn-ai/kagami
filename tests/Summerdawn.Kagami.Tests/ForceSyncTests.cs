@@ -9,6 +9,7 @@ using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
 namespace Summerdawn.Kagami.Tests;
+
 public sealed class ForceSyncTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
@@ -41,7 +42,7 @@ public sealed class ForceSyncTests : IDisposable
     public void Dispose() => databasePath.Dispose();
 
     [Fact]
-    public async Task ForceResyncWhenNothingChanged()
+    public async Task ForceResync_WhenNothingChanged()
     {
         // Initial sync creates link state
         sourceConnector.Seed(CreateContact("a1", "Alice"));
@@ -67,7 +68,7 @@ public sealed class ForceSyncTests : IDisposable
     }
 
     [Fact]
-    public async Task ForceWhatIfLogsActionsWithoutWriting()
+    public async Task Force_WhatIf_LogsActionsWithoutWriting()
     {
         sourceConnector.Seed(CreateContact("a1", "Alice"));
         await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
@@ -86,7 +87,7 @@ public sealed class ForceSyncTests : IDisposable
     }
 
     [Fact]
-    public async Task FilterRestrictsScope()
+    public async Task Filter_RestrictsScope()
     {
         sourceConnector.Seed(CreateContact("a1", "Alice"));
         sourceConnector.Seed(CreateContact("a2", "Bob"));
@@ -108,7 +109,7 @@ public sealed class ForceSyncTests : IDisposable
     }
 
     [Fact]
-    public async Task FilteredSyncLeavesOutOfScopeContactsUntouched()
+    public async Task FilteredSync_LeavesOutOfScopeContactsUntouched()
     {
         // Pre-seed destinationConnector with Bob (simulate Bob already existing there)
         destinationConnector.Seed(CreateContact("b-bob", "Bob"));
@@ -124,7 +125,7 @@ public sealed class ForceSyncTests : IDisposable
     }
 
     [Fact]
-    public async Task ChangingFilterScopeForcesFullEnumeration()
+    public async Task ChangingFilterScope_ForcesFullEnumeration()
     {
         sourceConnector.Seed(CreateContact("a1", "Alice"));
         sourceConnector.Seed(CreateContact("a2", "Bob"));

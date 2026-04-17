@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 
 namespace Summerdawn.Kagami.Tests.TestSupport;
+
 public sealed class InMemoryLogger<T> : ILogger<T>
 {
     public List<string> Entries { get; } = [];

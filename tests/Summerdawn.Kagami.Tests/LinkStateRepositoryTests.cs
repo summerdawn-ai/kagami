@@ -5,6 +5,7 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestSupport;
 
 namespace Summerdawn.Kagami.Tests;
+
 public sealed class LinkStateRepositoryTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
@@ -21,7 +22,7 @@ public sealed class LinkStateRepositoryTests : IDisposable
     public void Dispose() => databasePath.Dispose();
 
     [Fact]
-    public async Task LinkStateIsPartitionedByJobKey()
+    public async Task LinkState_IsPartitionedByJobKey()
     {
         await repo.UpsertAsync(new LinkStateRow { JobKey = "job-1", EntityType = "contact", SourceId = "a1" });
         await repo.UpsertAsync(new LinkStateRow { JobKey = "job-2", EntityType = "contact", SourceId = "a1" });
@@ -34,7 +35,7 @@ public sealed class LinkStateRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task DeleteByJobRemovesOnlyTargetRows()
+    public async Task DeleteByJob_RemovesOnlyTargetRows()
     {
         await repo.UpsertAsync(new LinkStateRow { JobKey = "job-1", EntityType = "contact", SourceId = "a1" });
         await repo.UpsertAsync(new LinkStateRow { JobKey = "job-2", EntityType = "contact", SourceId = "a2" });
@@ -46,7 +47,7 @@ public sealed class LinkStateRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task LinkStateDoesNotStoreMutableJobPolicy()
+    public async Task LinkState_DoesNotStoreMutableJobPolicy()
     {
         await repo.UpsertAsync(new LinkStateRow
         {

@@ -101,11 +101,12 @@ public sealed class JobExecutor(
         // --- Plan actions (single pass over full current state from both sides) ---
         var actions = planner.PlanActions(jobOptions, currentSourceItems, currentDestinationItems, existingLinks, force);
 
-        var actionsToDestination = actions.Where(a => a.TargetSide == SyncSide.Destination).ToList();
-        var actionsToSource = actions.Where(a => a.TargetSide == SyncSide.Source).ToList();
+        var actionsSkip = actions.Where(a => a.Kind == SyncActionKind.Skip).ToList();
+        var actionsToDestination = actions.Where(a => a.TargetSide == SyncSide.Destination).Except(actionsSkip).ToList();
+        var actionsToSource = actions.Where(a => a.TargetSide == SyncSide.Source).Except(actionsSkip).ToList();
 
-        logger.LogInformation("Job {JobKey}: {Count} actions targeting destination, {CountA} targeting source", jobKey, actionsToDestination.Count, actionsToSource.Count);
-        result.ActionsPlanned += actions.Count;
+        logger.LogInformation("Job {JobKey}: {CountDestination} actions targeting destination, {CountSource} targeting source, {CountSkip} skip", jobKey, actionsToDestination.Count, actionsToSource.Count, actionsSkip.Count);
+        result.ActionsPlanned += actionsToSource.Count + actionsToDestination.Count;
 
         if (whatIf)
         {
@@ -396,15 +397,9 @@ public sealed class JobExecutor(
 
     private void LogPlannedActions(string jobKey, IReadOnlyList<SyncAction> actions)
     {
-        foreach (var action in actions.Where(a => a.Kind is SyncActionKind.Create or SyncActionKind.Update or SyncActionKind.Delete))
+        foreach (var action in actions)
         {
-            string verb = action.Kind switch
-            {
-                SyncActionKind.Create => "create",
-                SyncActionKind.Update => "update",
-                SyncActionKind.Delete => "delete",
-                _ => action.Kind.ToString().ToLowerInvariant(),
-            };
+            string verb = action.Kind.ToString().ToLowerInvariant();
 
             logger.LogInformation(
                 "What-if job {JobKey}: would {Verb} {Description} on side {TargetSide} ({Reason})",

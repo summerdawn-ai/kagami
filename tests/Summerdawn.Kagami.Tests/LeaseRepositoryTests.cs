@@ -5,6 +5,7 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestSupport;
 
 namespace Summerdawn.Kagami.Tests;
+
 public sealed class LeaseRepositoryTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
@@ -21,14 +22,14 @@ public sealed class LeaseRepositoryTests : IDisposable
     public void Dispose() => databasePath.Dispose();
 
     [Fact]
-    public async Task LeasePreventsOverlap()
+    public async Task Lease_PreventsOverlap()
     {
         Assert.True(await repo.TryAcquireAsync("job-1", "holder-a", TimeSpan.FromMinutes(5)));
         Assert.False(await repo.TryAcquireAsync("job-1", "holder-b", TimeSpan.FromMinutes(5)));
     }
 
     [Fact]
-    public async Task ReleasedLeaseCanBeReacquired()
+    public async Task ReleasedLease_CanBeReacquired()
     {
         await repo.TryAcquireAsync("job-1", "holder-a", TimeSpan.FromMinutes(5));
         await repo.ReleaseAsync("job-1", "holder-a");

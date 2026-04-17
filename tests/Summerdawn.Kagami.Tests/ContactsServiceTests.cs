@@ -11,6 +11,7 @@ using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
 namespace Summerdawn.Kagami.Tests;
+
 public sealed class ContactsServiceTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
@@ -64,7 +65,7 @@ public sealed class ContactsServiceTests : IDisposable
     // ── ListAsync ─────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task ListAsyncReturnsAllContacts()
+    public async Task ListAsync_ReturnsAllContacts()
     {
         sourceConnector.Seed(MakeContact("a1", "Alice"));
         sourceConnector.Seed(MakeContact("a2", "Bob"));
@@ -75,7 +76,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ListAsyncReturnsAllContactsAcrossPages()
+    public async Task ListAsync_ReturnsAllContactsAcrossPages()
     {
         var pagedService = CreateService(
             new PagedConnector(
@@ -99,7 +100,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ListAsyncHonorsMaxItemsAcrossPages()
+    public async Task ListAsync_HonorsMaxItemsAcrossPages()
     {
         var pagedService = CreateService(
             new PagedConnector(
@@ -123,7 +124,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ListAsyncAppliesFilter()
+    public async Task ListAsync_AppliesFilter()
     {
         sourceConnector.Seed(MakeContact("a1", "Alice"));
         sourceConnector.Seed(MakeContact("a2", "Bob"));
@@ -136,7 +137,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ListAsyncAppliesFilterUsingOrganizationWhenDisplayNameIsEmpty()
+    public async Task ListAsync_AppliesFilterUsingOrganization_WhenDisplayNameIsEmpty()
     {
         sourceConnector.Seed(MakeContact("a1", displayName: string.Empty, organization: "Contoso Ltd"));
         sourceConnector.Seed(MakeContact("a2", "Bob"));
@@ -149,7 +150,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ListAsyncWithFilterLoadsPhotosOnlyForMatchedContacts()
+    public async Task ListAsync_WithFilter_LoadsPhotosOnlyForMatchedContacts()
     {
         LazyPhotoConnector lazyConnector = new(
             MakeContact("a1", "Alice"),
@@ -165,7 +166,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ListAsyncThrowsForUnknownEndpoint()
+    public async Task ListAsync_ThrowsForUnknownEndpoint()
     {
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.ListAsync("Unknown"));
@@ -174,7 +175,7 @@ public sealed class ContactsServiceTests : IDisposable
     // ── ExportAsync ───────────────────────────────────────────────────────
 
     [Fact]
-    public async Task ExportAsyncWritesOneFilePerContact()
+    public async Task ExportAsync_WritesOneFilePerContact()
     {
         sourceConnector.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
         sourceConnector.Seed(MakeContact("a2", "Bob", lastName: "Jones"));
@@ -195,7 +196,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsyncUsesDisplayNameForFileName()
+    public async Task ExportAsync_UsesDisplayNameForFileName()
     {
         sourceConnector.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
@@ -216,7 +217,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsyncAddsSuffixForDuplicateNames()
+    public async Task ExportAsync_AddsSuffix_ForDuplicateNames()
     {
         sourceConnector.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
         sourceConnector.Seed(MakeContact("a2", "Alice", lastName: "Smith"));
@@ -238,7 +239,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsyncDeletesExistingFilesBeforeWriting()
+    public async Task ExportAsync_DeletesExistingFilesBeforeWriting()
     {
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -261,7 +262,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsyncUsesOrganizationWhenDisplayNameIsEmpty()
+    public async Task ExportAsync_UsesOrganization_WhenDisplayNameIsEmpty()
     {
         sourceConnector.Seed(MakeContact("a1", displayName: string.Empty, organization: "Contoso Ltd"));
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
@@ -282,7 +283,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsyncFallsBackToIdWhenNameIsMissing()
+    public async Task ExportAsync_FallsBackToId_WhenNameIsMissing()
     {
         sourceConnector.Seed(MakeContact("contact-42", displayName: string.Empty));
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
@@ -303,7 +304,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsyncWritesPhotoNextToJson()
+    public async Task ExportAsync_WritesPhotoNextToJson()
     {
         var item = MakeContact("a1", "Alice", lastName: "Smith");
         ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
@@ -326,7 +327,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsyncDeletesExistingPhotoFilesBeforeWriting()
+    public async Task ExportAsync_DeletesExistingPhotoFilesBeforeWriting()
     {
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -354,7 +355,7 @@ public sealed class ContactsServiceTests : IDisposable
     // ── SyncAsync ─────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task SyncAsyncCreatesContactsOnDestination()
+    public async Task SyncAsync_CreatesContactsOnDestination()
     {
         sourceConnector.Seed(MakeContact("a1", "Alice"));
 
@@ -365,7 +366,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SyncAsyncWhatIfDoesNotWrite()
+    public async Task SyncAsync_WhatIf_DoesNotWrite()
     {
         sourceConnector.Seed(MakeContact("a1", "Alice"));
 
@@ -377,7 +378,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SyncAsyncForceResyncAfterInitialSync()
+    public async Task SyncAsync_ForceResync_AfterInitialSync()
     {
         sourceConnector.Seed(MakeContact("a1", "Alice"));
         await service.SyncAsync("Microsoft", "Google");
@@ -392,7 +393,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SyncAsyncLinksSingleDuplicateMatchInsteadOfCreating()
+    public async Task SyncAsync_LinksSingleDuplicateMatchInsteadOfCreating()
     {
         sourceConnector.Seed(MakeContact("a1", "Alice", email: "alice@example.com", phone: "+1 (555) 123-4567"));
         destinationConnector.Seed(MakeContact("b1", "Alice", email: " Alice@example.com ", phone: "15551234567"));
@@ -408,7 +409,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SyncAsyncSkipsAutoLinkingWhenMultipleDuplicateMatchesExist()
+    public async Task SyncAsync_SkipsAutoLinkingWhen_MultipleDuplicateMatchesExist()
     {
         sourceConnector.Seed(MakeContact("a1", "Alice", email: "alice@example.com"));
         destinationConnector.Seed(MakeContact("b1", "Alice", email: "alice@example.com"));
@@ -418,13 +419,13 @@ public sealed class ContactsServiceTests : IDisposable
         var links = await new LinkStateRepository(db).GetByJobAsync("contacts:Microsoft:Google");
 
         Assert.True(result.Succeeded);
-        Assert.True(result.ActionsPlanned > 0);
+        Assert.True(result.ActionsPlanned == 0);
         Assert.Equal(2, destinationConnector.Items.Count(item => !item.IsDeleted));
         Assert.Empty(links);
     }
 
     [Fact]
-    public async Task SyncAsyncCopiesPhotoMetadataToDestination()
+    public async Task SyncAsync_CopiesPhotoMetadataToDestination()
     {
         var source = MakeContact("a1", "Alice", lastName: "Smith");
         ContactPhotoMetadata.SetPhoto(source, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
@@ -441,7 +442,7 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SyncAsyncWithFilterLoadsPhotosOnlyForMatchedContacts()
+    public async Task SyncAsync_WithFilter_LoadsPhotosOnlyForMatchedContacts()
     {
         LazyPhotoConnector lazyConnector = new(
             MakeContact("a1", "Alice"),

@@ -25,7 +25,7 @@ public sealed class SyncHostTests : IDisposable
     public void Dispose() => databasePath.Dispose();
 
     [Fact]
-    public async Task RunOnceAsyncIgnoresScheduleAndRunsOnlyFilteredJob()
+    public async Task RunOnceAsync_IgnoresScheduleAndRunsOnlyFilteredJob()
     {
         FakeConnector sourceA = new();
         FakeConnector targetA = new();
@@ -44,7 +44,7 @@ public sealed class SyncHostTests : IDisposable
     }
 
     [Fact]
-    public async Task RunContinuousAsyncCanPollSingleJob()
+    public async Task RunContinuousAsync_CanPollSingleJob()
     {
         FakeConnector sourceA = new();
         FakeConnector targetA = new();
@@ -68,7 +68,7 @@ public sealed class SyncHostTests : IDisposable
     }
 
     [Fact]
-    public async Task RunContinuousAsyncHonorsWhatIf()
+    public async Task RunContinuousAsync_HonorsWhatIf()
     {
         FakeConnector sourceA = new();
         FakeConnector targetA = new();
@@ -93,7 +93,7 @@ public sealed class SyncHostTests : IDisposable
     }
 
     [Fact]
-    public async Task ResetJobAsyncClearsOnlyThatJobsCursorState()
+    public async Task ResetJobAsync_ClearsOnlyThatJobsCursorState()
     {
         FakeConnector sourceA = new();
         FakeConnector targetA = new();

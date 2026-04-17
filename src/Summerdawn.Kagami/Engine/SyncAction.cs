@@ -8,13 +8,13 @@ namespace Summerdawn.Kagami.Engine;
 public sealed class SyncAction
 {
     /// <summary>What kind of action to perform.</summary>
-    public SyncActionKind Kind { get; set; }
+    public required SyncActionKind Kind { get; set; }
 
     /// <summary>Which side is the target of the action.</summary>
-    public SyncSide TargetSide { get; set; }
+    public required SyncSide TargetSide { get; set; }
 
-    /// <summary>The canonical item to create/update (null for Delete).</summary>
-    public CanonicalItem? Item { get; set; }
+    /// <summary>The canonical item to create/update/delete on other side.</summary>
+    public required CanonicalItem? Item { get; set; }
 
     /// <summary>The provider ID to delete (for Delete actions).</summary>
     public string? DeleteId { get; set; }

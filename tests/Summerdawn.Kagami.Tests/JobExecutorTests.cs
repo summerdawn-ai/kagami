@@ -11,6 +11,7 @@ using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
 namespace Summerdawn.Kagami.Tests;
+
 public sealed class JobExecutorTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
@@ -33,7 +34,7 @@ public sealed class JobExecutorTests : IDisposable
     public void Dispose() => databasePath.Dispose();
 
     [Fact]
-    public async Task ExecuteAsyncUpdatesUsingTargetProviderId()
+    public async Task ExecuteAsync_UpdatesUsingTargetProviderId()
     {
         FakeConnector sourceConnector = new();
         FakeConnector destinationConnector = new();
@@ -66,7 +67,7 @@ public sealed class JobExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteAsyncAggregatesMultiPageConnectorReads()
+    public async Task ExecuteAsync_AggregatesMultiPageConnectorReads()
     {
         PagedConnector sourceConnector = new(
             new IncrementalPage
@@ -84,14 +85,14 @@ public sealed class JobExecutorTests : IDisposable
         FakeConnector destinationConnector = new();
         var executor = CreateExecutor();
 
-        JobExecutionResult result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
+        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
 
         Assert.True(result.Succeeded);
         Assert.Equal(2, result.ActionsPlanned);
     }
 
     [Fact]
-    public async Task WhatIfLogsEachPlannedContactOperation()
+    public async Task WhatIf_LogsEachPlannedContactOperation()
     {
         FakeConnector sourceConnector = new();
         FakeConnector destinationConnector = new();
@@ -106,7 +107,7 @@ public sealed class JobExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task WhatIfLogsOrganizationWhenDisplayNameIsEmpty()
+    public async Task WhatIf_LogsOrganizationWhenDisplayNameIsEmpty()
     {
         FakeConnector sourceConnector = new();
         FakeConnector destinationConnector = new();
@@ -121,7 +122,7 @@ public sealed class JobExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task WhatIfLogsOnlyWinningDirectionForMirroredDuplicateMatchUpdates()
+    public async Task WhatIf_LogsOnlyWinningDirection_ForMirroredDuplicateMatchUpdates()
     {
         FakeConnector sourceConnector = new();
         FakeConnector destinationConnector = new();

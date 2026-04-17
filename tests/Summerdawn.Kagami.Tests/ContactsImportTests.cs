@@ -11,6 +11,7 @@ using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
 namespace Summerdawn.Kagami.Tests;
+
 public sealed class ContactsImportTests : IDisposable
 {
     private static readonly byte[] OnePxPng =

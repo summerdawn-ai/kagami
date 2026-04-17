@@ -42,7 +42,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     public void Dispose() => databasePath.Dispose();
 
     [Fact]
-    public async Task WhatIfPlansWithoutWritingState()
+    public async Task WhatIf_PlansWithoutWritingState()
     {
         sourceConnector.Seed(CreateEvent("a1", "Meeting"));
 
@@ -54,7 +54,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     }
 
     [Fact]
-    public async Task InitialSyncCreatesLinkState()
+    public async Task InitialSync_CreatesLinkState()
     {
         sourceConnector.Seed(CreateEvent("a1", "Meeting"));
 
@@ -68,7 +68,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     }
 
     [Fact]
-    public async Task ExistingLeaseSkipsExecution()
+    public async Task ExistingLease_SkipsExecution()
     {
         await leaseRepository.TryAcquireAsync("job-1", "external-holder", TimeSpan.FromMinutes(5));
 
@@ -79,7 +79,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     }
 
     [Fact]
-    public async Task IncrementalRerunDoesNotCreateDuplicateLinks()
+    public async Task IncrementalRerun_DoesNotCreateDuplicateLinks()
     {
         sourceConnector.Seed(CreateEvent("a1", "Meeting"));
         await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
@@ -92,7 +92,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     }
 
     [Fact]
-    public async Task ForwardUpdateRefreshesBothVersionBaselines()
+    public async Task ForwardUpdate_RefreshesBothVersionBaselines()
     {
         sourceConnector.Seed(CreateEvent("a1", "Meeting"));
         destinationConnector.Seed(CreateEvent("b1", "Meeting"));

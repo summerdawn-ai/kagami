@@ -1,8 +1,8 @@
-namespace Summerdawn.Kagami.Tests.TestDoubles;
 
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 
+namespace Summerdawn.Kagami.Tests.TestDoubles;
 /// <summary>
 /// A test connector that delegates to a <see cref="FakeConnector"/> for all operations
 /// except <see cref="CreateItemAsync"/>, which throws <see cref="InvalidOperationException"/>

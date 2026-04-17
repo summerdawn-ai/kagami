@@ -3,12 +3,13 @@ using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Tests;
+
 public sealed class ContactMatchComparerTests
 {
     private readonly ContactMatchComparer comparer = new();
 
     [Fact]
-    public void IsMatchNormalizesEmailAndPhone()
+    public void IsMatch_NormalizesEmailAndPhone()
     {
         var left = CreateContact(
             "a1",
@@ -27,7 +28,7 @@ public sealed class ContactMatchComparerTests
     }
 
     [Fact]
-    public void IsMatchRequiresCompanyWhenDisplayNameIsEmpty()
+    public void IsMatch_RequiresCompanyWhenDisplayNameIsEmpty()
     {
         var left = CreateContact("a1", string.Empty, organization: "Contoso", email: "alice@example.com");
         var right = CreateContact("b1", string.Empty, organization: "Fabrikam", email: "alice@example.com");
@@ -36,7 +37,7 @@ public sealed class ContactMatchComparerTests
     }
 
     [Fact]
-    public void IsMatchRequiresEmailOrPhoneOverlap()
+    public void IsMatch_RequiresEmailOrPhoneOverlap()
     {
         var left = CreateContact("a1", "Alice Smith", organization: "Contoso", email: "alice@example.com");
         var right = CreateContact("b1", "Alice Smith", organization: "Contoso", email: "other@example.com");

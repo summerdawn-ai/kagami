@@ -11,8 +11,6 @@ public enum SyncActionKind
     Update,
     /// <summary>Delete an item on the target side.</summary>
     Delete,
-    /// <summary>No action needed (already in sync).</summary>
-    NoOp,
-    /// <summary>Conflict detected — requires manual resolution or policy.</summary>
-    Conflict,
+    /// <summary>No action possible, or conflict.</summary>
+    Skip,
 }
