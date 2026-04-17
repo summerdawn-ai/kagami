@@ -389,6 +389,14 @@ public static class Program
     private static ServiceProvider BuildServiceProvider(string[] settingsFiles)
     {
         var configBuilder = new ConfigurationBuilder();
+
+        // Suppress the verbose HttpClient request/response log spam by default.
+        // Any settings file that explicitly configures these keys will override this.
+        configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Logging:LogLevel:System.Net.Http.HttpClient"] = "Warning",
+        });
+
         foreach (string path in settingsFiles)
         {
             configBuilder.AddJsonFile(path, optional: false);
@@ -396,7 +404,7 @@ public static class Program
         configBuilder.AddEnvironmentVariables("KAGAMI_");
         var config = configBuilder.Build();
         var services = new ServiceCollection();
-        services.AddLogging(b => b.AddConsole());
+        services.AddLogging(b => b.AddConsole().AddConfiguration(config.GetSection("Logging")));
         services.AddKagami(config.GetSection("Kagami"));
         return services.BuildServiceProvider();
     }
