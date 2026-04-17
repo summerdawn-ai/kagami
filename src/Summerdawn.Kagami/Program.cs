@@ -390,23 +390,15 @@ public static class Program
     {
         var configBuilder = new ConfigurationBuilder();
 
-        // Suppress the verbose HttpClient/Polly request/response log spam by default.
-        // Any settings file that explicitly configures these keys will override this.
-        configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["Logging:LogLevel:System.Net.Http.HttpClient"] = "Warning",
-            ["Logging:LogLevel:Polly"] = "Warning",
-        });
-
-        foreach (string path in settingsFiles)
-        {
-            configBuilder.AddJsonFile(path, optional: false);
-        }
-        configBuilder.AddEnvironmentVariables("KAGAMI_");
+        // Load embedded default and custom settings.
+        configBuilder.AddKagamiSettings(noDefaultSettings: false, settingsFiles);
+        configBuilder.AddEnvironmentVariables();
         var config = configBuilder.Build();
+
         var services = new ServiceCollection();
         services.AddLogging(b => b.AddConsole().AddConfiguration(config.GetSection("Logging")));
         services.AddKagami(config.GetSection("Kagami"));
+
         return services.BuildServiceProvider();
     }
 
