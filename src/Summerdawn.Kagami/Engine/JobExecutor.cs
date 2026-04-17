@@ -285,8 +285,17 @@ public sealed class JobExecutor(
             catch (Exception ex)
             {
                 string itemId = action.Item?.SourceId ?? action.DeleteId ?? "unknown";
+                string operation = action.Kind switch
+                {
+                    SyncActionKind.Create => "create",
+                    SyncActionKind.Update => "update",
+                    SyncActionKind.Delete => "delete",
+                    _ => action.Kind.ToString().ToLowerInvariant()
+                };
+
                 logger.LogError(ex, "Job {JobKey}: failed to apply {Kind} action for item {ItemId} on side {Side}; skipping",
                     jobKey, action.Kind, itemId, updateSide);
+                await operationLog.AppendAsync(jobKey, entityType, operation, itemId, updateSide.ToString(), "error", cancellationToken: cancellationToken);
             }
         }
     }
