@@ -180,7 +180,7 @@ public sealed class PlannerTests
     }
 
     [Fact]
-    public void PlanActions_ReturnsNoOp_WhenBothChangedAndPolicyIsSkip()
+    public void PlanActions_ReturnsSkip_WhenBothChangedAndPolicyIsSkip()
     {
         var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
 
@@ -256,7 +256,7 @@ public sealed class PlannerTests
     }
 
     [Fact]
-    public void PlanActions_ReturnsNoOp_WhenOneSourceMatchesMultipleTargets()
+    public void PlanActions_ReturnsSkip_WhenOneSourceMatchesMultipleTargets()
     {
         // a1 matches both b1 and b2 (ambiguous initial duplicate).
         var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
@@ -274,7 +274,7 @@ public sealed class PlannerTests
     }
 
     [Fact]
-    public void PlanActions_ReturnsNoOp_WhenOneTargetMatchesMultipleSources()
+    public void PlanActions_ReturnsSkip_WhenOneTargetMatchesMultipleSources()
     {
         // Mirror ambiguity: b1 matches both a1 and a2.
         var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
@@ -287,13 +287,13 @@ public sealed class PlannerTests
             [b1],
             []);
 
-        // b1 has multiple A candidates → NoOp for b1 (1 action, ambiguous).
+        // b1 has multiple A candidates → Skip for b1 (1 action, ambiguous).
         Assert.Single(actions);
         Assert.All(actions, a => Assert.Equal(SyncActionKind.Skip, a.Kind));
     }
 
     [Fact]
-    public void PlanActions_NoOpForAllCompetitors_WhenMultipleSourcesCompeteForSameTarget()
+    public void PlanActions_SkipForAllCompetitors_WhenMultipleSourcesCompeteForSameTarget()
     {
         // a1 and a2 both uniquely match b1 (many-to-one competition).
         var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
@@ -306,7 +306,7 @@ public sealed class PlannerTests
             [b1],
             []);
 
-        // Both a1 and a2 must be NoOp — no random winner.
+        // Both a1 and a2 must be Skip — no random winner.
         Assert.Equal(2, actions.Count);
         Assert.All(actions, a => Assert.Equal(SyncActionKind.Skip, a.Kind));
     }
@@ -404,7 +404,7 @@ public sealed class PlannerTests
     }
 
     [Fact]
-    public void PlanActions_ReturnsNoOp_WhenSourceAbsentAndDeletePolicyIsIgnore()
+    public void PlanActions_ReturnsSkip_WhenSourceAbsentAndDeletePolicyIsIgnore()
     {
         var link = CreateLink("a1", "b1");
 
@@ -420,7 +420,7 @@ public sealed class PlannerTests
     }
 
     [Fact]
-    public void PlanActions_ReturnsNoOp_WhenSourceAbsentAndSyncModeIsReverse()
+    public void PlanActions_ReturnsSkip_WhenSourceAbsentAndSyncModeIsReverse()
     {
         var link = CreateLink("a1", "b1");
 
@@ -435,7 +435,7 @@ public sealed class PlannerTests
     }
 
     [Fact]
-    public void PlanActions_ReturnsNoOp_WhenDestinationAbsentAndDeletePolicyIsIgnore()
+    public void PlanActions_ReturnsSkip_WhenDestinationAbsentAndDeletePolicyIsIgnore()
     {
         var link = CreateLink("a1", "b1");
 
@@ -451,7 +451,7 @@ public sealed class PlannerTests
     }
 
     [Fact]
-    public void PlanActions_ReturnsNoOp_WhenDestinationAbsentAndSyncModeIsForward()
+    public void PlanActions_ReturnsSkip_WhenDestinationAbsentAndSyncModeIsForward()
     {
         var link = CreateLink("a1", "b1");
 

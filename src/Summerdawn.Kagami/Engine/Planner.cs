@@ -155,7 +155,7 @@ public sealed class Planner(ILogger<Planner> logger)
             {
                 // --force = "act as if DB is empty". Source is absent, so there is nothing to push.
                 // Returning null (no action) is intentional: unlike the non-force suppression paths
-                // that return NoOp to keep an audit trail, here the caller is explicitly opting out of
+                // that return Skip to keep an audit trail, here the caller is explicitly opting out of
                 // state-based reasoning. A subsequent non-force run will re-evaluate once remote state
                 // is clearer.
                 return null;
@@ -176,7 +176,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 };
             }
 
-            string sourceNoOpReason = jobOptions.DeletePolicy == DeletePolicy.Ignore
+            string sourceSkipReason = jobOptions.DeletePolicy == DeletePolicy.Ignore
                 ? "Source item absent but delete policy is Ignore"
                 : "Source item absent but sync direction does not propagate source-side deletions";
 
@@ -185,7 +185,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Skip,
                 TargetSide = SyncSide.Destination,
                 Item = currentDestinationItem,
-                Reason = sourceNoOpReason,
+                Reason = sourceSkipReason,
             };
         }
 
@@ -219,7 +219,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 };
             }
 
-            string destinationNoOpReason = jobOptions.SyncMode == SyncMode.Forward
+            string destinationSkipReason = jobOptions.SyncMode == SyncMode.Forward
                 ? "Destination item absent but sync direction does not propagate destination-side deletions"
                 : "Destination item absent but delete policy is Ignore";
 
@@ -228,7 +228,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Skip,
                 TargetSide = SyncSide.Source,
                 Item = currentSourceItem,
-                Reason = destinationNoOpReason,
+                Reason = destinationSkipReason,
             };
         }
 
