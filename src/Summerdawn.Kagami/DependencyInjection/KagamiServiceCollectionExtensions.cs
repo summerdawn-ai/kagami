@@ -1,12 +1,12 @@
 
-using System.Diagnostics.CodeAnalysis;
-
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
+using Summerdawn.Kagami.Connectors.Google;
+using Summerdawn.Kagami.Connectors.Microsoft;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Persistence;
 
@@ -31,7 +31,7 @@ public static class KagamiServiceCollectionExtensions
         configuration.Bind(options);
         services.AddSingleton(options);
 
-        // Build a shared HttpClient for credential/token operations
+        // Build a shared HttpClient for credential/token operations (not API calls)
         HttpClient authHttpClient = new();
         authHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd("kagami/0.1");
 
@@ -45,7 +45,47 @@ public static class KagamiServiceCollectionExtensions
                 credentials[endpointName] = CredentialFactory.Create(endpoint.Credential, authHttpClient, scopes, endpointName);
             }
         }
-        services.AddSingleton(credentials);
+
+        // Register a named HttpClient and a keyed IConnector singleton per endpoint
+        services.AddHttpClient();
+        foreach (var (endpointName, endpoint) in options.Endpoints)
+        {
+            services.AddHttpClient($"kagami-{endpointName}", client =>
+            {
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("kagami/0.1");
+            });
+
+            string capturedEndpointName = endpointName;
+            var capturedEndpoint = endpoint;
+            services.AddKeyedSingleton<IConnector>(endpointName, (sp, _) =>
+            {
+                var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+                var httpClient = httpClientFactory.CreateClient($"kagami-{capturedEndpointName}");
+                credentials.TryGetValue(capturedEndpointName, out var credential);
+                return capturedEndpoint.Type switch
+                {
+                    EndpointOptions.GoogleContacts => new GoogleContactsConnector(
+                        httpClient,
+                        capturedEndpointName,
+                        capturedEndpoint,
+                        credential as GoogleOAuthCredential
+                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a GoogleOAuthCredential."),
+                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<GoogleContactsConnector>()),
+                    EndpointOptions.MicrosoftContacts => new MicrosoftContactsConnector(
+                        httpClient,
+                        capturedEndpointName,
+                        capturedEndpoint,
+                        credential as MicrosoftClientCredential
+                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a MicrosoftClientCredential."),
+                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<MicrosoftContactsConnector>()),
+                    _ => throw new InvalidOperationException(
+                        $"No connector registered for endpoint '{capturedEndpointName}' of type '{capturedEndpoint.Type}'."),
+                };
+            });
+        }
+
+        // Func<string, IConnector> that resolves keyed connectors by endpoint name
+        services.AddSingleton<Func<string, IConnector>>(sp => name => sp.GetRequiredKeyedService<IConnector>(name));
 
         services.AddSingleton(sp =>
         {
@@ -60,18 +100,6 @@ public static class KagamiServiceCollectionExtensions
         services.AddSingleton<JobExecutor>();
         services.AddSingleton<SyncHost>();
         services.AddSingleton<ContactsService>();
-        services.AddSingleton<IConnectorFactory, BuiltInConnectorFactory>();
-        return services;
-    }
-
-    /// <summary>Registers a custom connector factory.</summary>
-    public static IServiceCollection AddConnectorFactory<
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactory>(
-        this IServiceCollection services)
-        where TFactory : class, IConnectorFactory
-    {
-        services.AddSingleton<TFactory>();
-        services.AddSingleton<IConnectorFactory>(sp => sp.GetRequiredService<TFactory>());
         return services;
     }
 

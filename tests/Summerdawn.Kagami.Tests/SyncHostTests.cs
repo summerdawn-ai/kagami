@@ -1,8 +1,8 @@
 
 using Microsoft.Extensions.Logging.Abstractions;
 
-using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
+using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
@@ -118,11 +118,13 @@ public sealed class SyncHostTests : IDisposable
         FakeConnector targetB,
         int schedulerIntervalSeconds)
     {
-        FakeConnectorFactory factory = new();
-        factory.Register("endpointA1", sourceA);
-        factory.Register("endpointB1", targetA);
-        factory.Register("endpointA2", sourceB);
-        factory.Register("endpointB2", targetB);
+        var connectors = new Dictionary<string, IConnector>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["endpointA1"] = sourceA,
+            ["endpointB1"] = targetA,
+            ["endpointA2"] = sourceB,
+            ["endpointB2"] = targetB,
+        };
 
         KagamiOptions options = new()
         {
@@ -155,14 +157,7 @@ public sealed class SyncHostTests : IDisposable
 
         return new SyncHost(
             options,
-            new Dictionary<string, IConnectorCredential>
-            {
-                ["endpointA1"] = new FakeConnectorCredential(),
-                ["endpointB1"] = new FakeConnectorCredential(),
-                ["endpointA2"] = new FakeConnectorCredential(),
-                ["endpointB2"] = new FakeConnectorCredential(),
-            },
-            factory,
+            name => connectors[name],
             executor,
             db,
             NullLogger<SyncHost>.Instance);

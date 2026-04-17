@@ -69,7 +69,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddKagami(builder.Configuration.GetSection("Kagami"));
 ```
 
-This registers the sync engine, persistence services, `ContactsService`, and the built-in connector factory. Custom connector factories can still override the default by calling `AddConnectorFactory<TFactory>()`.
+This registers the sync engine, persistence services, `ContactsService`, and a named `HttpClient` and keyed `IConnector` singleton for each configured endpoint. Connectors are resolved by endpoint name via `Func<string, IConnector>`.
 
 ### CLI commands
 

@@ -2,7 +2,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
@@ -14,9 +13,7 @@ namespace Summerdawn.Kagami.Engine;
 /// High-level service for interactive contacts operations: list, export, sync, and import.
 /// </summary>
 public sealed class ContactsService(
-    KagamiOptions options,
-    Dictionary<string, IConnectorCredential> credentials,
-    IConnectorFactory connectorFactory,
+    Func<string, IConnector> connectorResolver,
     JobExecutor jobExecutor,
     StateDatabase stateDb,
     ILogger<ContactsService> logger)
@@ -464,19 +461,7 @@ public sealed class ContactsService(
         return false;
     }
 
-    private IConnector BuildConnector(string endpointName)
-    {
-        if (!options.Endpoints.TryGetValue(endpointName, out var endpoint))
-        {
-            throw new InvalidOperationException(
-                $"Endpoint '{endpointName}' not found in configuration. " +
-                $"Available endpoints: {string.Join(", ", options.Endpoints.Keys)}");
-        }
-
-        credentials.TryGetValue(endpointName, out var credential);
-        return connectorFactory.Create(endpointName, endpoint, credential
-            ?? throw new InvalidOperationException($"No credential resolved for endpoint '{endpointName}'."));
-    }
+    private IConnector BuildConnector(string endpointName) => connectorResolver(endpointName);
 
     private static string BuildExportBaseName(CanonicalItem item)
         => ContactName.BuildExportBaseName(item);

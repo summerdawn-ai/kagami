@@ -1,8 +1,6 @@
 
 using Microsoft.Extensions.Logging.Abstractions;
 
-using Summerdawn.Kagami.Authentication;
-using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
@@ -30,7 +28,6 @@ public sealed class ContactsImportTests : IDisposable
     private readonly TestDatabasePath databasePath = new();
     private readonly StateDatabase db;
     private readonly FakeConnector connectorDest = new();
-    private readonly FakeConnectorFactory factory;
     private readonly ContactsService service;
     private readonly string importDir;
 
@@ -39,15 +36,9 @@ public sealed class ContactsImportTests : IDisposable
         db = new StateDatabase(databasePath.Path, NullLogger<StateDatabase>.Instance);
         db.InitializeAsync().GetAwaiter().GetResult();
 
-        factory = new FakeConnectorFactory();
-        factory.Register("Destination", connectorDest);
-
-        var options = new KagamiOptions
+        var connectors = new Dictionary<string, IConnector>(StringComparer.OrdinalIgnoreCase)
         {
-            Endpoints =
-            {
-                ["Destination"] = new EndpointOptions { Type = "fake" },
-            },
+            ["Destination"] = connectorDest,
         };
 
         var executor = new JobExecutor(
@@ -59,12 +50,7 @@ public sealed class ContactsImportTests : IDisposable
             NullLogger<JobExecutor>.Instance);
 
         service = new ContactsService(
-            options,
-            new Dictionary<string, IConnectorCredential>
-            {
-                ["Destination"] = new FakeConnectorCredential(),
-            },
-            factory,
+            name => connectors[name],
             executor,
             db,
             NullLogger<ContactsService>.Instance);
@@ -186,15 +172,32 @@ public sealed class ContactsImportTests : IDisposable
         await WriteContactJsonAsync("bob_jones", new { displayName = "Bob Jones", givenName = "Bob", familyName = "Jones" });
 
         FailingCreateConnector failingConnector = new(throwForSourceId: "alice_smith");
-        factory.Register("Destination", failingConnector);
+        var failingService = CreateServiceWith(failingConnector);
 
-        var result = await service.ImportAsync(importDir, "Destination");
+        var result = await failingService.ImportAsync(importDir, "Destination");
 
         Assert.Equal(1, result.Created);
         Assert.Contains(failingConnector.Items, i => ((CanonicalContact)i.Payload!).DisplayName == "Bob Jones" && !i.IsDeleted);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    private ContactsService CreateServiceWith(IConnector destinationConnector)
+    {
+        var executor = new JobExecutor(
+            new Planner(NullLogger<Planner>.Instance),
+            new LinkStateRepository(db),
+            new EndpointCursorRepository(db),
+            new OperationLogRepository(db),
+            new LeaseRepository(db),
+            NullLogger<JobExecutor>.Instance);
+
+        return new ContactsService(
+            _ => destinationConnector,
+            executor,
+            db,
+            NullLogger<ContactsService>.Instance);
+    }
 
     private async Task WriteContactJsonAsync(string baseName, object contact)
     {
