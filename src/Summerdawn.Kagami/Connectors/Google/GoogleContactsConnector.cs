@@ -116,9 +116,9 @@ internal sealed class GoogleContactsConnector : IConnector
     private async Task<IncrementalPage> GetConnectionsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
     {
         StringBuilder requestUri = new("https://people.googleapis.com/v1/people/me/connections");
-        requestUri.Append("?personFields=").Append(Uri.EscapeDataString(PersonFields));
+        requestUri.Append("?personFields=").Append(Uri.EscapeDataString("metadata"));
         requestUri.Append("&sources=READ_SOURCE_TYPE_CONTACT");
-        requestUri.Append("&pageSize=1000");
+        requestUri.Append("&pageSize=50");
         if (cursor.RequestSyncToken)
         {
             requestUri.Append("&requestSyncToken=true");
@@ -147,22 +147,43 @@ internal sealed class GoogleContactsConnector : IConnector
         using var document = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken);
 
         List<CanonicalItem> items = [];
+        List<string> nonDeletedResourceNames = [];
         if (document.RootElement.TryGetProperty("connections", out var connections))
         {
-            foreach (var person in connections.EnumerateArray())
+            foreach (var connection in connections.EnumerateArray())
             {
-                var item = ConvertPerson(person);
-                if (item is not null)
+                string? resourceName = connection.TryGetProperty("resourceName", out var resourceNameElement)
+                    ? resourceNameElement.GetString()
+                    : null;
+                if (string.IsNullOrWhiteSpace(resourceName))
                 {
-                    if (!item.IsDeleted)
-                    {
-                        var personClone = person.Clone();
-                        ContactPhotoLoader.Attach(item, ct => PopulatePhotoAsync(item, personClone, ct));
-                    }
+                    continue;
+                }
 
-                    items.Add(item);
+                bool isDeleted = connection.TryGetProperty("metadata", out var metadata)
+                    && metadata.TryGetProperty("deleted", out var deletedElement)
+                    && deletedElement.ValueKind == JsonValueKind.True;
+
+                if (isDeleted)
+                {
+                    items.Add(new CanonicalItem
+                    {
+                        EntityType = EntityType.Contact,
+                        SourceId = resourceName,
+                        IsDeleted = true,
+                    });
+                }
+                else
+                {
+                    nonDeletedResourceNames.Add(resourceName);
                 }
             }
+        }
+
+        if (nonDeletedResourceNames.Count > 0)
+        {
+            var batchItems = await BatchGetPeopleAsync(nonDeletedResourceNames, cancellationToken);
+            items.AddRange(batchItems);
         }
 
         string? nextPageToken = document.RootElement.TryGetProperty("nextPageToken", out var nextPageTokenElement)
@@ -180,6 +201,45 @@ internal sealed class GoogleContactsConnector : IConnector
                 ? SerializeCursor(new GoogleCursor(cursor.SyncToken, nextPageToken, cursor.RequestSyncToken))
                 : nextSyncToken is not null ? SerializeCursor(new GoogleCursor(nextSyncToken, null, false)) : null,
         };
+    }
+
+    private async Task<List<CanonicalItem>> BatchGetPeopleAsync(List<string> resourceNames, CancellationToken cancellationToken)
+    {
+        StringBuilder requestUri = new("https://people.googleapis.com/v1/people:batchGet");
+        requestUri.Append("?personFields=").Append(Uri.EscapeDataString(PersonFields));
+        foreach (string resourceName in resourceNames)
+        {
+            requestUri.Append("&resourceNames=").Append(Uri.EscapeDataString(resourceName));
+        }
+
+        using var request = await CreateRequestAsync(HttpMethod.Get, requestUri.ToString(), cancellationToken);
+        using var document = await SendForJsonAsync(request, cancellationToken);
+
+        List<CanonicalItem> items = [];
+        if (document.RootElement.TryGetProperty("responses", out var responses))
+        {
+            foreach (var responseElement in responses.EnumerateArray())
+            {
+                if (!responseElement.TryGetProperty("person", out var person))
+                {
+                    continue;
+                }
+
+                var item = ConvertPerson(person);
+                if (item is not null)
+                {
+                    if (!item.IsDeleted)
+                    {
+                        var personClone = person.Clone();
+                        ContactPhotoLoader.Attach(item, ct => PopulatePhotoAsync(item, personClone, ct));
+                    }
+
+                    items.Add(item);
+                }
+            }
+        }
+
+        return items;
     }
 
     private async Task<HttpRequestMessage> CreateRequestAsync(HttpMethod method, string requestUri, CancellationToken cancellationToken)
