@@ -1,6 +1,11 @@
 
+using System.Net;
+
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Http.Resilience;
+
+using Polly;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
@@ -50,10 +55,7 @@ public static class KagamiServiceCollectionExtensions
         services.AddHttpClient();
         foreach (var (endpointName, endpoint) in options.Endpoints)
         {
-            services.AddHttpClient($"kagami-{endpointName}", client =>
-            {
-                client.DefaultRequestHeaders.UserAgent.ParseAdd("kagami/0.1");
-            });
+            RegisterEndpointHttpClient(services, endpointName, endpoint.Type);
 
             string capturedEndpointName = endpointName;
             var capturedEndpoint = endpoint;
@@ -109,4 +111,47 @@ public static class KagamiServiceCollectionExtensions
         "google-calendar" => ["https://www.googleapis.com/auth/calendar"],
         _ => []
     };
+
+    private static void RegisterEndpointHttpClient(IServiceCollection services, string endpointName, string endpointType)
+    {
+        var builder = services.AddHttpClient($"kagami-{endpointName}", client =>
+        {
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("kagami/0.1");
+        });
+
+        if (endpointType.StartsWith("Google", StringComparison.Ordinal))
+        {
+            builder.AddResilienceHandler("retry", b =>
+            {
+                b.AddRetry(new HttpRetryStrategyOptions
+                {
+                    MaxRetryAttempts = 2,
+                    UseJitter = false,
+                    ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+                        .HandleResult(r => r.StatusCode == HttpStatusCode.BadGateway)
+                        .Handle<HttpRequestException>(),
+                    DelayGenerator = args => ValueTask.FromResult<TimeSpan?>(
+                        args.AttemptNumber == 0 ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(30)),
+                });
+            });
+        }
+        else if (endpointType.StartsWith("Microsoft", StringComparison.Ordinal))
+        {
+            builder.AddResilienceHandler("retry", b =>
+            {
+                b.AddRetry(new HttpRetryStrategyOptions
+                {
+                    MaxRetryAttempts = 3,
+                    BackoffType = DelayBackoffType.Exponential,
+                    Delay = TimeSpan.FromSeconds(4),
+                    UseJitter = true,
+                    ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+                        .HandleResult(r => r.StatusCode == HttpStatusCode.BadGateway
+                            || r.StatusCode == HttpStatusCode.ServiceUnavailable
+                            || r.StatusCode == HttpStatusCode.TooManyRequests)
+                        .Handle<HttpRequestException>(),
+                });
+            });
+        }
+    }
 }
