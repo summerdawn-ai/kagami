@@ -92,7 +92,7 @@ public sealed class PlannerTests
             [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
     }
 
     // -------------------------------------------------------------------------
@@ -191,7 +191,7 @@ public sealed class PlannerTests
             [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
     }
 
     [Fact]
@@ -270,7 +270,7 @@ public sealed class PlannerTests
             []);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
     }
 
     [Fact]
@@ -289,7 +289,7 @@ public sealed class PlannerTests
 
         // b1 has multiple A candidates → NoOp for b1 (1 action, ambiguous).
         Assert.Single(actions);
-        Assert.All(actions, a => Assert.Equal(SyncActionKind.NoOp, a.Kind));
+        Assert.All(actions, a => Assert.Equal(SyncActionKind.Skip, a.Kind));
     }
 
     [Fact]
@@ -308,7 +308,7 @@ public sealed class PlannerTests
 
         // Both a1 and a2 must be NoOp — no random winner.
         Assert.Equal(2, actions.Count);
-        Assert.All(actions, a => Assert.Equal(SyncActionKind.NoOp, a.Kind));
+        Assert.All(actions, a => Assert.Equal(SyncActionKind.Skip, a.Kind));
     }
 
     // -------------------------------------------------------------------------
@@ -415,7 +415,7 @@ public sealed class PlannerTests
             existingLinks: [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
         Assert.Contains("Ignore", actions[0].Reason, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -431,7 +431,7 @@ public sealed class PlannerTests
             existingLinks: [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
     }
 
     [Fact]
@@ -446,7 +446,7 @@ public sealed class PlannerTests
             existingLinks: [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
         Assert.Contains("Ignore", actions[0].Reason, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -462,7 +462,7 @@ public sealed class PlannerTests
             existingLinks: [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
     }
 
     [Fact]

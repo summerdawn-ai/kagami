@@ -170,6 +170,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 {
                     Kind = SyncActionKind.Delete,
                     TargetSide = SyncSide.Destination,
+                    Item = currentDestinationItem,
                     DeleteId = link.DestinationId,
                     Reason = "Source item absent (deleted or out of filter scope)",
                 };
@@ -181,8 +182,9 @@ public sealed class Planner(ILogger<Planner> logger)
 
             return new SyncAction
             {
-                Kind = SyncActionKind.NoOp,
+                Kind = SyncActionKind.Skip,
                 TargetSide = SyncSide.Destination,
+                Item = currentDestinationItem,
                 Reason = sourceNoOpReason,
             };
         }
@@ -211,19 +213,21 @@ public sealed class Planner(ILogger<Planner> logger)
                 {
                     Kind = SyncActionKind.Delete,
                     TargetSide = SyncSide.Source,
+                    Item = currentSourceItem,
                     DeleteId = link.SourceId,
                     Reason = "Destination item absent (deleted or out of filter scope)",
                 };
             }
 
-            string destinationNoOpReason = jobOptions.DeletePolicy == DeletePolicy.Ignore
-                ? "Destination item absent but delete policy is Ignore"
-                : "Destination item absent but sync direction does not propagate destination-side deletions";
+            string destinationNoOpReason = jobOptions.SyncMode == SyncMode.Forward
+                ? "Destination item absent but sync direction does not propagate destination-side deletions"
+                : "Destination item absent but delete policy is Ignore";
 
             return new SyncAction
             {
-                Kind = SyncActionKind.NoOp,
+                Kind = SyncActionKind.Skip,
                 TargetSide = SyncSide.Source,
+                Item = currentSourceItem,
                 Reason = destinationNoOpReason,
             };
         }
@@ -251,7 +255,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Source,
                 Item = currentDestinationItem,
-                Reason = "Item changed on source side",
+                Reason = "Item changed on destination side",
             },
 
             // Bidirectional
@@ -268,7 +272,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Source,
                 Item = currentDestinationItem,
-                Reason = "Item changed on source side",
+                Reason = "Item changed on destination side",
             },
             // Both changed: resolve using conflict policy. Prefer the A-originating direction
             // as the primary so that SourceWins and LastWriteWins work naturally; DestinationWins is
@@ -367,7 +371,7 @@ public sealed class Planner(ILogger<Planner> logger)
 
                 actions.Add(new SyncAction
                 {
-                    Kind = SyncActionKind.NoOp,
+                    Kind = SyncActionKind.Skip,
                     TargetSide = targetSide,
                     Item = item,
                     Reason = "Multiple matching contacts on target side",
@@ -404,7 +408,7 @@ public sealed class Planner(ILogger<Planner> logger)
 
                 actions.Add(new SyncAction
                 {
-                    Kind = SyncActionKind.NoOp,
+                    Kind = SyncActionKind.Skip,
                     TargetSide = targetSide,
                     Item = item,
                     Reason = "Target contact matches multiple source contacts",
@@ -474,7 +478,7 @@ public sealed class Planner(ILogger<Planner> logger)
             },
             ConflictPolicy.SourceWins => new SyncAction
             {
-                Kind = SyncActionKind.NoOp,
+                Kind = SyncActionKind.Skip,
                 TargetSide = targetSide,
                 Item = sourceItem,
                 Reason = "Conflict: source wins per policy",
@@ -488,14 +492,14 @@ public sealed class Planner(ILogger<Planner> logger)
             },
             ConflictPolicy.DestinationWins => new SyncAction
             {
-                Kind = SyncActionKind.NoOp,
+                Kind = SyncActionKind.Skip,
                 TargetSide = targetSide,
                 Item = sourceItem,
                 Reason = "Conflict: destination wins per policy",
             },
             ConflictPolicy.Skip => new SyncAction
             {
-                Kind = SyncActionKind.NoOp,
+                Kind = SyncActionKind.Skip,
                 TargetSide = targetSide,
                 Item = sourceItem,
                 Reason = "Conflict: skipped per policy",
@@ -526,7 +530,7 @@ public sealed class Planner(ILogger<Planner> logger)
             }
             : new SyncAction
             {
-                Kind = SyncActionKind.NoOp,
+                Kind = SyncActionKind.Skip,
                 TargetSide = targetSide,
                 Item = sourceItem,
                 Reason = "Conflict: target side wins per last-write-wins policy",
