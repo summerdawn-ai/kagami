@@ -5,6 +5,7 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestSupport;
 
 namespace Summerdawn.Kagami.Tests;
+
 public sealed class LeaseRepositoryTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();

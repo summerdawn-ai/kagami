@@ -5,6 +5,7 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestSupport;
 
 namespace Summerdawn.Kagami.Tests;
+
 public sealed class EndpointCursorRepositoryTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();

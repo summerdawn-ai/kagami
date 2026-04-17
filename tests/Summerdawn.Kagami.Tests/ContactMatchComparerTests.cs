@@ -3,6 +3,7 @@ using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Tests;
+
 public sealed class ContactMatchComparerTests
 {
     private readonly ContactMatchComparer comparer = new();

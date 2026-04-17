@@ -206,6 +206,30 @@ kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')
 - `--force`: re-sync all in-scope contacts even if their version/hash has not changed
 - `--filter`: apply an OData-style filter in memory before planning or writing changes
 
+### `--force` semantics and filter-scope deletions
+
+#### What `--force` means
+
+Running with `--force` is semantically equivalent to running the job for the first time with an empty state database. The end result — which items exist on each side and are linked — is the same as a first run, **except** that existing links are reused rather than re-created from scratch. `--force` does **not** mean "clobber the destination regardless of conflict policy"; conflict policies still apply in full.
+
+| Combination | Behavior |
+|---|---|
+| `--force` (forward) | Re-pushes all in-scope source items to destination. Items on destination not matched by source are unchanged (no deletions unless `--prune` is also set). |
+| `--force --prune` (forward) | Mirrors the source completely: items missing from source are deleted on destination, same as a first forward+prune run on empty state. |
+| `--bidirectional --force --prune` | Produces **no deletions**. Because `--force` is equivalent to a first run, and a first bidirectional run with `--prune` produces no deletions (there is no prior change log to compare against), the result is the same here. |
+
+#### Filter scope and deletions
+
+When a filter is active (e.g. `--filter "name eq 'Alice'"`) and an item on one side changes such that it no longer satisfies the filter (e.g. the contact is renamed), Kagami treats that item as **deleted within the scope of this sync job**. The same logic applies to items deleted externally that do not appear in a full scan.
+
+| Scenario | Result |
+|---|---|
+| Source item moves out of filter scope; `--prune` set (forward) | Corresponding destination item is deleted. |
+| Source item moves out of filter scope; `--prune` not set | No-op is recorded; the item is left untouched on destination. |
+| Destination item moves out of filter scope; `--prune` set (bidirectional or reverse) | Corresponding source item is deleted. |
+| Source item deleted externally; `--force --prune` (forward) | Destination item is deleted (mirrors a fresh run). |
+| Source item deleted externally; `--force` without `--prune` | No deletion; a subsequent normal run will resolve the state once the filter or remote state is clear. |
+
 ### Filter expressions
 
 | Expression | Meaning |

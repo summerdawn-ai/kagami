@@ -71,6 +71,15 @@ public sealed class Planner(ILogger<Planner> logger)
                 reservedDestinationIds.Add(link.DestinationId);
             }
 
+            // Both sides are absent — no action is possible regardless of policy or --force.
+            // Still reserved above so neither endpoint leaks into the unlinked-item passes.
+            bool sourcePresent = currentSourceItem != null && !currentSourceItem.IsDeleted;
+            bool destinationPresent = currentDestinationItem != null && !currentDestinationItem.IsDeleted;
+            if (!sourcePresent && !destinationPresent)
+            {
+                continue;
+            }
+
             var action = EvaluateLinkedPair(link, currentSourceItem, currentDestinationItem, jobOptions, force);
             if (action != null)
             {
@@ -111,6 +120,20 @@ public sealed class Planner(ILogger<Planner> logger)
         return actions;
     }
 
+    /// <summary>
+    /// Evaluates a known-linked pair and returns the action to take, or <c>null</c> if no action is needed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An item that is absent from the current filtered scan (<c>null</c>) is treated identically to
+    /// one with <c>IsDeleted = true</c>.  This covers both hard remote deletions and items that have
+    /// drifted out of the active filter scope (e.g. a contact that moved from category X to category Y).
+    /// </para>
+    /// <para>
+    /// The method is only called when at least one side is present; the caller short-circuits when both
+    /// sides are absent.
+    /// </para>
+    /// </remarks>
     private static SyncAction? EvaluateLinkedPair(
         LinkStateRow link,
         CanonicalItem? currentSourceItem,
@@ -118,44 +141,96 @@ public sealed class Planner(ILogger<Planner> logger)
         JobOptions jobOptions,
         bool force)
     {
-        // Deletion on source takes priority.
-        if (currentSourceItem?.IsDeleted == true)
+        // An item absent from the full filtered scan (null) is treated the same as IsDeleted=true
+        // within the scope of this filter/job. This covers both true remote deletions and items that
+        // have drifted out of the active filter (e.g. category X→Y).
+        bool sourceIsGone = currentSourceItem == null || currentSourceItem.IsDeleted;
+        bool destinationIsGone = link.DestinationId != null
+            && (currentDestinationItem == null || currentDestinationItem.IsDeleted);
+
+        // --- Source gone ---
+        if (sourceIsGone)
         {
+            if (force)
+            {
+                // --force = "act as if DB is empty". Source is absent, so there is nothing to push.
+                // Returning null (no action) is intentional: unlike the non-force suppression paths
+                // that return NoOp to keep an audit trail, here the caller is explicitly opting out of
+                // state-based reasoning. A subsequent non-force run will re-evaluate once remote state
+                // is clearer.
+                return null;
+            }
+
             if (jobOptions.SyncMode != SyncMode.Reverse
                 && jobOptions.DeletePolicy != DeletePolicy.Ignore
-                && link.DestinationId != null)
+                && link.DestinationId != null
+                && !destinationIsGone)
             {
                 return new SyncAction
                 {
                     Kind = SyncActionKind.Delete,
                     TargetSide = SyncSide.Destination,
                     DeleteId = link.DestinationId,
-                    Reason = "Source item deleted",
+                    Reason = "Source item absent (deleted or out of filter scope)",
                 };
             }
 
-            return null;
+            string sourceNoOpReason = jobOptions.DeletePolicy == DeletePolicy.Ignore
+                ? "Source item absent but delete policy is Ignore"
+                : "Source item absent but sync direction does not propagate source-side deletions";
+
+            return new SyncAction
+            {
+                Kind = SyncActionKind.NoOp,
+                TargetSide = SyncSide.Destination,
+                Reason = sourceNoOpReason,
+            };
         }
 
-        // Deletion on destination.
-        if (currentDestinationItem?.IsDeleted == true)
+        // --- Destination gone ---
+        if (destinationIsGone)
         {
-            if (jobOptions.SyncMode != SyncMode.Forward && jobOptions.DeletePolicy != DeletePolicy.Ignore)
+            if (force && jobOptions.SyncMode != SyncMode.Reverse)
+            {
+                // --force: act as if DB is empty. Source is present but destination is gone.
+                // On first run with empty DB we would Create on destination — do the same here
+                // instead of trying to Update a missing item (→ 404).
+                return new SyncAction
+                {
+                    Kind = SyncActionKind.Create,
+                    TargetSide = SyncSide.Destination,
+                    Item = currentSourceItem,
+                    Reason = "Destination absent; recreating per --force",
+                };
+            }
+
+            if (jobOptions.SyncMode != SyncMode.Forward
+                && jobOptions.DeletePolicy != DeletePolicy.Ignore)
             {
                 return new SyncAction
                 {
                     Kind = SyncActionKind.Delete,
                     TargetSide = SyncSide.Source,
                     DeleteId = link.SourceId,
-                    Reason = "Source item deleted",
+                    Reason = "Destination item absent (deleted or out of filter scope)",
                 };
             }
 
-            return null;
+            string destinationNoOpReason = jobOptions.DeletePolicy == DeletePolicy.Ignore
+                ? "Destination item absent but delete policy is Ignore"
+                : "Destination item absent but sync direction does not propagate destination-side deletions";
+
+            return new SyncAction
+            {
+                Kind = SyncActionKind.NoOp,
+                TargetSide = SyncSide.Source,
+                Reason = destinationNoOpReason,
+            };
         }
 
-        bool sourceChanged = currentSourceItem != null && (force || HasChanged(currentSourceItem, link, SyncSide.Source));
-        bool destinationChanged = currentDestinationItem != null && (force || HasChanged(currentDestinationItem, link, SyncSide.Destination));
+        // Both items are present and non-deleted from this point on.
+        bool sourceChanged = force || HasChanged(currentSourceItem!, link, SyncSide.Source);
+        bool destinationChanged = force || HasChanged(currentDestinationItem!, link, SyncSide.Destination);
 
         return jobOptions.SyncMode switch
         {

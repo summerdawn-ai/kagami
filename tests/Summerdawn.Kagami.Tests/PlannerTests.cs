@@ -72,7 +72,7 @@ public sealed class PlannerTests
         var actions = planner.PlanActions(
             CreateJob(deletePolicy: DeletePolicy.Mirror),
             [new CanonicalItem { EntityType = EntityType.CalendarEvent, SourceId = "a1", IsDeleted = true }],
-            [],
+            [CreateItem("b1")],
             [link]);
 
         Assert.Single(actions);
@@ -88,10 +88,11 @@ public sealed class PlannerTests
         var actions = planner.PlanActions(
             CreateJob(deletePolicy: DeletePolicy.Ignore),
             [new CanonicalItem { EntityType = EntityType.CalendarEvent, SourceId = "a1", IsDeleted = true }],
-            [],
+            [CreateItem("b1")],
             [link]);
 
-        Assert.Empty(actions);
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
     }
 
     // -------------------------------------------------------------------------
@@ -212,16 +213,17 @@ public sealed class PlannerTests
     [Fact]
     public void PlanActions_CreatesOnDestination_WhenLinkedBIsNotEligibleAndNewAMatchesIt()
     {
-        // a1 is already linked to b1.
+        // a1 is already linked to b1 (both present, unchanged).
         // a2 appears and semantically matches b1 (same display name + email).
         // b1 must NOT be a duplicate candidate for a2; a2 should result in Create(Destination).
-        var link = CreateLink("a1", "b1", entityType: EntityType.Contact);
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1", entityType: EntityType.Contact);
+        var a1 = CreateContactItem("a1", version: "v1"); // linked, unchanged → no action
         var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
-        var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateContactItem("b1", version: "v1", displayName: "Alice", email: "alice@example.com");
 
         var actions = planner.PlanActions(
             CreateJob(SyncMode.Forward),
-            [a2],
+            [a1, a2],
             [b1],
             [link]);
 
@@ -234,16 +236,17 @@ public sealed class PlannerTests
     [Fact]
     public void PlanActions_CreatesOnSource_WhenLinkedAIsNotEligibleAndNewBMatchesIt()
     {
-        // Mirror of the scenario above: b1 is linked to a1; b2 matches a1 semantically.
+        // b1 is linked to a1 (both present, unchanged); b2 matches a1 semantically.
         // a1 must NOT be a duplicate candidate for b2; b2 should result in Create(Source).
-        var link = CreateLink("a1", "b1", entityType: EntityType.Contact);
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1", entityType: EntityType.Contact);
+        var a1 = CreateContactItem("a1", version: "v1", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateContactItem("b1", version: "v1"); // linked, unchanged → no action
         var b2 = CreateContactItem("b2", displayName: "Alice", email: "alice@example.com");
-        var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
 
         var actions = planner.PlanActions(
             CreateJob(SyncMode.Reverse),
             [a1],
-            [b2],
+            [b1, b2],
             [link]);
 
         Assert.Single(actions);
@@ -359,6 +362,138 @@ public sealed class PlannerTests
             .ToList();
 
         Assert.Equal(targetIds.Count, targetIds.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    // -------------------------------------------------------------------------
+    // Absent-item and filter-scope deletion scenarios
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void PlanActions_DeletesLinkedDestination_WhenSourceAbsentFromFullScan()
+    {
+        var link = CreateLink("a1", "b1");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Forward, deletePolicy: DeletePolicy.Mirror),
+            sourceItems: [],
+            destinationItems: [CreateItem("b1")],
+            existingLinks: [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Delete, actions[0].Kind);
+        Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
+        Assert.Equal("b1", actions[0].DeleteId);
+    }
+
+    [Fact]
+    public void PlanActions_CreatesOnDestination_WhenDestinationAbsentAndForce()
+    {
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Forward),
+            sourceItems: [CreateItem("a1", "v1")],
+            destinationItems: [],
+            existingLinks: [link],
+            force: true);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Create, actions[0].Kind);
+        Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
+        Assert.Equal("a1", actions[0].Item!.SourceId);
+    }
+
+    [Fact]
+    public void PlanActions_ReturnsNoOp_WhenSourceAbsentAndDeletePolicyIsIgnore()
+    {
+        var link = CreateLink("a1", "b1");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Forward, deletePolicy: DeletePolicy.Ignore),
+            sourceItems: [],
+            destinationItems: [CreateItem("b1")],
+            existingLinks: [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+        Assert.Contains("Ignore", actions[0].Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PlanActions_ReturnsNoOp_WhenSourceAbsentAndSyncModeIsReverse()
+    {
+        var link = CreateLink("a1", "b1");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Reverse, deletePolicy: DeletePolicy.Mirror),
+            sourceItems: [],
+            destinationItems: [CreateItem("b1")],
+            existingLinks: [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+    }
+
+    [Fact]
+    public void PlanActions_ReturnsNoOp_WhenDestinationAbsentAndDeletePolicyIsIgnore()
+    {
+        var link = CreateLink("a1", "b1");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Bidirectional, deletePolicy: DeletePolicy.Ignore),
+            sourceItems: [CreateItem("a1")],
+            destinationItems: [],
+            existingLinks: [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+        Assert.Contains("Ignore", actions[0].Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PlanActions_ReturnsNoOp_WhenDestinationAbsentAndSyncModeIsForward()
+    {
+        var link = CreateLink("a1", "b1");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Forward, deletePolicy: DeletePolicy.Mirror),
+            sourceItems: [CreateItem("a1")],
+            destinationItems: [],
+            existingLinks: [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.NoOp, actions[0].Kind);
+    }
+
+    [Fact]
+    public void PlanActions_ReturnsEmpty_WhenBothSidesAbsent()
+    {
+        var link = CreateLink("a1", "b1");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Bidirectional, deletePolicy: DeletePolicy.Mirror),
+            sourceItems: [],
+            destinationItems: [],
+            existingLinks: [link]);
+
+        Assert.Empty(actions);
+    }
+
+    [Fact]
+    public void PlanActions_DeletesLinkedDestination_WhenSourceItemFilteredOutOfScope()
+    {
+        // Source is empty for this filter scope (a1 changed category, no longer in scope).
+        var link = CreateLink("a1", "b1");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Bidirectional, deletePolicy: DeletePolicy.Mirror),
+            sourceItems: [],
+            destinationItems: [CreateItem("b1")],
+            existingLinks: [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(SyncActionKind.Delete, actions[0].Kind);
+        Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
     }
 
     // -------------------------------------------------------------------------
