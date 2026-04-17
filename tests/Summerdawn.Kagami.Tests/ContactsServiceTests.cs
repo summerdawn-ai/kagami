@@ -1,8 +1,6 @@
 
 using Microsoft.Extensions.Logging.Abstractions;
 
-using Summerdawn.Kagami.Authentication;
-using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
@@ -18,7 +16,6 @@ public sealed class ContactsServiceTests : IDisposable
     private readonly StateDatabase db;
     private readonly FakeConnector sourceConnector = new();
     private readonly FakeConnector destinationConnector = new();
-    private readonly FakeConnectorFactory factory;
     private readonly ContactsService service;
 
     public ContactsServiceTests()
@@ -26,17 +23,10 @@ public sealed class ContactsServiceTests : IDisposable
         db = new StateDatabase(databasePath.Path, NullLogger<StateDatabase>.Instance);
         db.InitializeAsync().GetAwaiter().GetResult();
 
-        factory = new FakeConnectorFactory();
-        factory.Register("Microsoft", sourceConnector);
-        factory.Register("Google", destinationConnector);
-
-        var options = new KagamiOptions
+        var connectors = new Dictionary<string, IConnector>(StringComparer.OrdinalIgnoreCase)
         {
-            Endpoints =
-            {
-                ["Microsoft"] = new EndpointOptions { Type = "fake" },
-                ["Google"] = new EndpointOptions { Type = "fake" },
-            },
+            ["Microsoft"] = sourceConnector,
+            ["Google"] = destinationConnector,
         };
 
         var executor = new JobExecutor(
@@ -48,13 +38,7 @@ public sealed class ContactsServiceTests : IDisposable
             NullLogger<JobExecutor>.Instance);
 
         service = new ContactsService(
-            options,
-            new Dictionary<string, IConnectorCredential>
-            {
-                ["Microsoft"] = new FakeConnectorCredential(),
-                ["Google"] = new FakeConnectorCredential(),
-            },
-            factory,
+            name => connectors[name],
             executor,
             db,
             NullLogger<ContactsService>.Instance);
@@ -168,7 +152,7 @@ public sealed class ContactsServiceTests : IDisposable
     [Fact]
     public async Task ListAsync_ThrowsForUnknownEndpoint()
     {
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<KeyNotFoundException>(
             () => service.ListAsync("Unknown"));
     }
 
@@ -490,17 +474,10 @@ public sealed class ContactsServiceTests : IDisposable
 
     private ContactsService CreateService(IConnector microsoftConnector)
     {
-        FakeConnectorFactory pagedFactory = new();
-        pagedFactory.Register("Microsoft", microsoftConnector);
-        pagedFactory.Register("Google", destinationConnector);
-
-        var options = new KagamiOptions
+        var connectors = new Dictionary<string, IConnector>(StringComparer.OrdinalIgnoreCase)
         {
-            Endpoints =
-            {
-                ["Microsoft"] = new EndpointOptions { Type = "fake" },
-                ["Google"] = new EndpointOptions { Type = "fake" },
-            },
+            ["Microsoft"] = microsoftConnector,
+            ["Google"] = destinationConnector,
         };
 
         var executor = new JobExecutor(
@@ -512,13 +489,7 @@ public sealed class ContactsServiceTests : IDisposable
             NullLogger<JobExecutor>.Instance);
 
         return new ContactsService(
-            options,
-            new Dictionary<string, IConnectorCredential>
-            {
-                ["Microsoft"] = new FakeConnectorCredential(),
-                ["Google"] = new FakeConnectorCredential(),
-            },
-            pagedFactory,
+            name => connectors[name],
             executor,
             db,
             NullLogger<ContactsService>.Instance);
