@@ -37,6 +37,7 @@ end_of_line = crlf
 
 # C# files
 [*.cs]
+end_of_line = crlf
 
 #### C# Layout ####
 
