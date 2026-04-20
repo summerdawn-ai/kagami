@@ -32,4 +32,11 @@ internal static class CanonicalItemSerializer
         item.ContentHash ??= ComputeContentHash(item.Payload);
         return item;
     }
+
+    /// <summary>
+    /// Returns <c>true</c> if <paramref name="a"/> and <paramref name="b"/> carry the same canonical
+    /// payload (photo is excluded from this comparison).
+    /// </summary>
+    public static bool HaveIdenticalContent(CanonicalItem a, CanonicalItem b) =>
+        ComputeContentHash(a.Payload) == ComputeContentHash(b.Payload);
 }

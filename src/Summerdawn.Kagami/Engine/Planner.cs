@@ -1,5 +1,6 @@
 
 using Summerdawn.Kagami.Configuration;
+using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
@@ -30,16 +31,17 @@ public sealed class Planner(ILogger<Planner> logger)
     /// <param name="sourceItems">Current items observed on source.</param>
     /// <param name="destinationItems">Current items observed on destination.</param>
     /// <param name="existingLinks">Current link state rows for this job.</param>
-    /// <param name="force">
-    /// When <c>true</c>, the HasChanged short-circuit is bypassed and all in-scope linked items
-    /// are re-evaluated regardless of whether their version/hash has changed.
-    /// </param>
+    /// <remarks>
+    /// <see cref="JobOptions.Force"/> bypasses both HasChanged and the content-sameness check,
+    /// causing every in-scope item to be written unconditionally.
+    /// <see cref="JobOptions.Full"/> only affects cursor behavior in the executor; the planner
+    /// treats it identically to a normal run.
+    /// </remarks>
     public IReadOnlyList<SyncAction> PlanActions(
         JobOptions jobOptions,
         IReadOnlyList<CanonicalItem> sourceItems,
         IReadOnlyList<CanonicalItem> destinationItems,
-        IReadOnlyList<LinkStateRow> existingLinks,
-        bool force = false)
+        IReadOnlyList<LinkStateRow> existingLinks)
     {
         var actions = new List<SyncAction>();
 
@@ -80,7 +82,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 continue;
             }
 
-            var action = EvaluateLinkedPair(link, currentSourceItem, currentDestinationItem, jobOptions, force);
+            var action = EvaluateLinkedPair(link, currentSourceItem, currentDestinationItem, jobOptions);
             if (action != null)
             {
                 actions.Add(action);
@@ -138,9 +140,9 @@ public sealed class Planner(ILogger<Planner> logger)
         LinkStateRow link,
         CanonicalItem? currentSourceItem,
         CanonicalItem? currentDestinationItem,
-        JobOptions jobOptions,
-        bool force)
+        JobOptions jobOptions)
     {
+        bool force = jobOptions.Force;
         // An item absent from the full filtered scan (null) is treated the same as IsDeleted=true
         // within the scope of this filter/job. This covers both true remote deletions and items that
         // have drifted out of the active filter (e.g. category X→Y).
@@ -235,6 +237,22 @@ public sealed class Planner(ILogger<Planner> logger)
         // Both items are present and non-deleted from this point on.
         bool sourceChanged = force || HasChanged(currentSourceItem!, link, SyncSide.Source);
         bool destinationChanged = force || HasChanged(currentDestinationItem!, link, SyncSide.Destination);
+
+        // If the payload is identical on both sides there is nothing to write — return a Skip so the
+        // caller can still record/update the link without re-uploading the item.
+        if (!jobOptions.Force && (sourceChanged || destinationChanged)
+            && CanonicalItemSerializer.HaveIdenticalContent(currentSourceItem!, currentDestinationItem!))
+        {
+            SyncSide skipTargetSide = jobOptions.SyncMode == SyncMode.Reverse ? SyncSide.Source : SyncSide.Destination;
+            return new SyncAction
+            {
+                Kind = SyncActionKind.Skip,
+                TargetSide = skipTargetSide,
+                Item = currentSourceItem,
+                MatchedTargetItem = currentDestinationItem,
+                Reason = "Content identical on both sides",
+            };
+        }
 
         return jobOptions.SyncMode switch
         {
@@ -421,15 +439,29 @@ public sealed class Planner(ILogger<Planner> logger)
                 continue;
             }
 
-            // Clean 1:1 match.
-            actions.Add(new SyncAction
+            // Clean 1:1 match — skip if content is already identical.
+            if (!jobOptions.Force && CanonicalItemSerializer.HaveIdenticalContent(item, target))
             {
-                Kind = SyncActionKind.Update,
-                TargetSide = targetSide,
-                Item = item,
-                MatchedTargetItem = target,
-                Reason = "Matched existing contact on target side",
-            });
+                actions.Add(new SyncAction
+                {
+                    Kind = SyncActionKind.Skip,
+                    TargetSide = targetSide,
+                    Item = item,
+                    MatchedTargetItem = target,
+                    Reason = "Content identical on both sides",
+                });
+            }
+            else
+            {
+                actions.Add(new SyncAction
+                {
+                    Kind = SyncActionKind.Update,
+                    TargetSide = targetSide,
+                    Item = item,
+                    MatchedTargetItem = target,
+                    Reason = "Matched existing contact on target side",
+                });
+            }
             reservedSourceIds.Add(item.SourceId);
             reservedTargetIds.Add(target.SourceId);
         }

@@ -1,3 +1,5 @@
+﻿
+using System.Security.Cryptography;
 
 using Summerdawn.Kagami.Models;
 
@@ -26,6 +28,31 @@ internal static class ContactPhotoMetadata
     public static bool HasKnownAbsence(CanonicalItem item) =>
         item.Metadata.TryGetValue(PhotoPresenceKey, out string? presence)
         && string.Equals(presence, "absent", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Returns a deterministic hash of the photo on <paramref name="item"/>.
+    /// Returns <c>null</c> when photo presence has not yet been determined (loader not yet run).
+    /// Returns a fixed sentinel string when the item is known to have no photo.
+    /// </summary>
+    public static string? ComputePhotoHash(CanonicalItem item)
+    {
+        if (!item.Metadata.TryGetValue(PhotoPresenceKey, out string? presence))
+        {
+            return null;
+        }
+
+        if (string.Equals(presence, "absent", StringComparison.Ordinal))
+        {
+            return "absent";
+        }
+
+        if (!TryGetPhoto(item, out byte[] photoBytes, out _))
+        {
+            return null;
+        }
+
+        return Convert.ToHexString(SHA256.HashData(photoBytes));
+    }
 
     public static bool TryGetPhoto(CanonicalItem item, out byte[] photoBytes, out string contentType)
     {
@@ -71,6 +98,17 @@ internal static class ContactPhotoMetadata
         item.Metadata.Remove(PhotoBytesKey);
         item.Metadata.Remove(PhotoContentTypeKey);
         item.Metadata[PhotoPresenceKey] = "absent";
+    }
+
+    /// <summary>
+    /// Removes all photo metadata keys so the photo is neither present nor absent —
+    /// causing connectors to treat photo sync as a no-op for this item.
+    /// </summary>
+    public static void DetachPhoto(CanonicalItem item)
+    {
+        item.Metadata.Remove(PhotoPresenceKey);
+        item.Metadata.Remove(PhotoBytesKey);
+        item.Metadata.Remove(PhotoContentTypeKey);
     }
 
     public static string GetFileExtension(string? contentType, ReadOnlySpan<byte> photoBytes)

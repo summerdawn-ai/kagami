@@ -30,10 +30,6 @@ public sealed class JobExecutor(
     /// Optional in-memory contact filter. Only items matching the filter are included in planning;
     /// items not matching the filter are left completely untouched on both sides.
     /// </param>
-    /// <param name="force">
-    /// When <c>true</c>, bypasses the HasChanged short-circuit so that all in-scope contacts
-    /// are re-evaluated and re-applied even if their version/hash has not changed.
-    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task<JobExecutionResult> ExecuteAsync(
         string jobKey,
@@ -42,7 +38,6 @@ public sealed class JobExecutor(
         IConnector destinationConnector,
         bool whatIf = false,
         ContactFilter? filter = null,
-        bool force = false,
         CancellationToken cancellationToken = default)
     {
         string holderId = Guid.NewGuid().ToString("N");
@@ -55,7 +50,7 @@ public sealed class JobExecutor(
 
         try
         {
-            return await RunJobAsync(jobKey, jobOptions, sourceConnector, destinationConnector, whatIf, filter, force, cancellationToken);
+            return await RunJobAsync(jobKey, jobOptions, sourceConnector, destinationConnector, whatIf, filter, cancellationToken);
         }
         finally
         {
@@ -70,10 +65,9 @@ public sealed class JobExecutor(
         IConnector destinationConnector,
         bool whatIf,
         ContactFilter? filter,
-        bool force,
         CancellationToken cancellationToken)
     {
-        logger.LogInformation("Starting job {JobKey} (whatIf={WhatIf}, force={Force})", jobKey, whatIf, force);
+        logger.LogInformation("Starting job {JobKey} (whatIf={WhatIf}, force={Force})", jobKey, whatIf, jobOptions.Force);
 
         await sourceConnector.AuthenticateAsync(cancellationToken);
         await destinationConnector.AuthenticateAsync(cancellationToken);
@@ -92,14 +86,14 @@ public sealed class JobExecutor(
         // --- Poll incremental changes (for cursor tracking) ---
         var sourceCursorState = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Source, cancellationToken);
         string? sourceCursor = GetApplicableCursor(jobKey, jobOptions.Source, sourceCursorState, filterScope);
-        var sourcePageSet = await ReadAllPagesAsync(sourceConnector, jobOptions.Source, sourceCursor, force, cancellationToken);
+        var sourcePageSet = await ReadAllPagesAsync(sourceConnector, jobOptions.Source, sourceCursor, jobOptions.Full || jobOptions.Force, cancellationToken);
 
         var destinationCursorState = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Destination, cancellationToken);
         string? destinationCursor = GetApplicableCursor(jobKey, jobOptions.Destination, destinationCursorState, filterScope);
-        var destinationPageSet = await ReadAllPagesAsync(destinationConnector, jobOptions.Destination, destinationCursor, force, cancellationToken);
+        var destinationPageSet = await ReadAllPagesAsync(destinationConnector, jobOptions.Destination, destinationCursor, jobOptions.Full || jobOptions.Force, cancellationToken);
 
         // --- Plan actions (single pass over full current state from both sides) ---
-        var actions = planner.PlanActions(jobOptions, currentSourceItems, currentDestinationItems, existingLinks, force);
+        var actions = planner.PlanActions(jobOptions, currentSourceItems, currentDestinationItems, existingLinks);
 
         var actionsSkip = actions.Where(a => a.Kind == SyncActionKind.Skip).ToList();
         var actionsToDestination = actions.Where(a => a.TargetSide == SyncSide.Destination).Except(actionsSkip).ToList();
@@ -121,6 +115,13 @@ public sealed class JobExecutor(
 
             await EnsureActionItemsLoadedAsync(actionsToSource, cancellationToken);
             await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToSource, sourceConnector, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.Source, cancellationToken);
+
+            var skipsWithMatches = actionsSkip.Where(a => a.Item is not null && a.MatchedTargetItem is not null).ToList();
+            if (skipsWithMatches.Count > 0)
+            {
+                existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
+                await RecordUnchangedLinksAsync(jobKey, jobOptions.EntityType, skipsWithMatches, existingLinks, SyncSide.Destination, cancellationToken);
+            }
 
             if (sourcePageSet.Cursor is not null)
             {
@@ -195,6 +196,10 @@ public sealed class JobExecutor(
                                 }
 
                                 var matchedTarget = CreateTargetItem(action.Item, null, updateSide, action.MatchedTargetItem);
+                                if (PhotoHashesMatch(action.Item, action.MatchedTargetItem))
+                                {
+                                    ContactPhotoMetadata.DetachPhoto(matchedTarget);
+                                }
                                 var matchedUpdate = await targetConnector.UpdateItemAsync(matchedTarget, cancellationToken);
                                 logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", jobKey, DescribeActionTarget(action), updateSide);
                                 await operationLog.AppendAsync(jobKey, entityType, "update", matchedUpdate.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
@@ -218,6 +223,10 @@ public sealed class JobExecutor(
                             }
 
                             var targetItem = CreateTargetItem(action.Item, link, updateSide, action.MatchedTargetItem);
+                            if (PhotoHashesMatch(action.Item, action.MatchedTargetItem))
+                            {
+                                ContactPhotoMetadata.DetachPhoto(targetItem);
+                            }
                             var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
                             logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", jobKey, DescribeActionTarget(action), updateSide);
                             await operationLog.AppendAsync(jobKey, entityType, "update", updated.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
@@ -395,7 +404,6 @@ public sealed class JobExecutor(
         foreach (var action in actions)
         {
             string verb = action.Kind.ToString().ToLowerInvariant();
-
             logger.LogInformation(
                 "What-if job {JobKey}: would {Verb} {Description} on side {TargetSide} ({Reason})",
                 jobKey,
@@ -445,6 +453,11 @@ public sealed class JobExecutor(
             {
                 await ContactPhotoLoader.EnsureLoadedAsync(action.Item, cancellationToken);
             }
+
+            if (action.Kind == SyncActionKind.Update && action.MatchedTargetItem is not null)
+            {
+                await ContactPhotoLoader.EnsureLoadedAsync(action.MatchedTargetItem, cancellationToken);
+            }
         }
     }
 
@@ -463,6 +476,61 @@ public sealed class JobExecutor(
             IsDeleted = sourceItem.IsDeleted,
             Metadata = new Dictionary<string, string>(sourceItem.Metadata),
         };
+
+    /// <summary>
+    /// Returns <c>true</c> if both items have a known photo hash and the hashes are equal,
+    /// indicating the photo does not need to be re-uploaded during an update.
+    /// </summary>
+    private static bool PhotoHashesMatch(CanonicalItem? source, CanonicalItem? destination)
+    {
+        if (source is null || destination is null)
+        {
+            return false;
+        }
+
+        string? srcHash = ContactPhotoMetadata.ComputePhotoHash(source);
+        string? dstHash = ContactPhotoMetadata.ComputePhotoHash(destination);
+        return srcHash is not null && dstHash is not null && srcHash == dstHash;
+    }
+
+    /// <summary>
+    /// Records or updates link rows for Skip actions where the content was already identical
+    /// on both sides, so the planner did not emit an Update action.
+    /// </summary>
+    private async Task RecordUnchangedLinksAsync(
+        string jobKey,
+        string entityType,
+        IReadOnlyList<SyncAction> unchangedActions,
+        IReadOnlyList<LinkStateRow> existingLinks,
+        SyncSide updateSide,
+        CancellationToken cancellationToken)
+    {
+        foreach (var action in unchangedActions)
+        {
+            if (action.Item is null || action.MatchedTargetItem is null)
+            {
+                continue;
+            }
+
+            var link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId)
+                ?? new LinkStateRow
+                {
+                    JobKey = jobKey,
+                    EntityType = entityType,
+                    OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
+                };
+
+            link.SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : action.MatchedTargetItem.SourceId;
+            link.DestinationId = updateSide == SyncSide.Destination ? action.MatchedTargetItem.SourceId : action.Item.SourceId;
+            link.SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : action.MatchedTargetItem.Version;
+            link.DestinationVersion = updateSide == SyncSide.Destination ? action.MatchedTargetItem.Version : action.Item.Version;
+            link.SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : action.MatchedTargetItem.ContentHash;
+            link.DestinationHash = updateSide == SyncSide.Destination ? action.MatchedTargetItem.ContentHash : action.Item.ContentHash;
+            link.LastSyncedAt = DateTimeOffset.UtcNow;
+            link.LastSyncResult = "unchanged";
+            await linkStateRepo.UpsertAsync(link, cancellationToken);
+        }
+    }
 
     private sealed record PageSet(IReadOnlyList<CanonicalItem> Items, string? Cursor);
 }
