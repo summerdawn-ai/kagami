@@ -103,8 +103,8 @@ public sealed class FakeSyncIntegrationTests : IDisposable
             EntityType = EntityType.CalendarEvent,
             SourceId = "a1",
             DestinationId = "b1",
-            SourceVersion = "v1",
-            DestinationVersion = "v1",
+            SourceVersion = "0",
+            DestinationVersion = "0",
         });
 
         await sourceConnector.UpdateItemAsync(CreateEvent("a1", "Updated Meeting"));

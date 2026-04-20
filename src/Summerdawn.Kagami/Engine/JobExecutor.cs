@@ -187,11 +187,6 @@ public sealed class JobExecutor(
                     case SyncActionKind.Update when action.Item is not null:
                         {
                             var link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId);
-                            if (link is not null && action.MatchedTargetItem is not null && IsDuplicateLinkAction(link, action, updateSide))
-                            {
-                                continue;
-                            }
-
                             if (link is null)
                             {
                                 if (action.MatchedTargetItem is null)
@@ -468,13 +463,6 @@ public sealed class JobExecutor(
             IsDeleted = sourceItem.IsDeleted,
             Metadata = new Dictionary<string, string>(sourceItem.Metadata),
         };
-
-    private static bool IsDuplicateLinkAction(LinkStateRow link, SyncAction action, SyncSide updateSide) =>
-        action.Item is not null
-        && action.MatchedTargetItem is not null
-        && (updateSide == SyncSide.Destination
-            ? link.SourceId == action.Item.SourceId && link.DestinationId == action.MatchedTargetItem.SourceId
-            : link.DestinationId == action.Item.SourceId && link.SourceId == action.MatchedTargetItem.SourceId);
 
     private sealed record PageSet(IReadOnlyList<CanonicalItem> Items, string? Cursor);
 }

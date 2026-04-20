@@ -245,6 +245,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Destination,
                 Item = currentSourceItem,
+                MatchedTargetItem = currentDestinationItem,
                 Reason = "Item changed on source side",
             },
 
@@ -255,6 +256,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Source,
                 Item = currentDestinationItem,
+                MatchedTargetItem = currentSourceItem,
                 Reason = "Item changed on destination side",
             },
 
@@ -265,6 +267,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Destination,
                 Item = currentSourceItem,
+                MatchedTargetItem = currentDestinationItem,
                 Reason = "Item changed on source side",
             },
             _ when !sourceChanged => new SyncAction
@@ -272,6 +275,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Source,
                 Item = currentDestinationItem,
+                MatchedTargetItem = currentSourceItem,
                 Reason = "Item changed on destination side",
             },
             // Both changed: resolve using conflict policy. Prefer the A-originating direction
@@ -282,6 +286,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Update,
                 TargetSide = SyncSide.Source,
                 Item = currentDestinationItem,
+                MatchedTargetItem = currentSourceItem,
                 Reason = "Conflict: destination wins per policy",
             },
             _ => ResolveConflict(currentSourceItem!, currentDestinationItem, SyncSide.Source, SyncSide.Destination, jobOptions),
@@ -474,6 +479,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Update,
                 TargetSide = targetSide,
                 Item = sourceItem,
+                MatchedTargetItem = targetItem,
                 Reason = "Conflict: source wins per policy",
             },
             ConflictPolicy.SourceWins => new SyncAction
@@ -488,6 +494,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Update,
                 TargetSide = targetSide,
                 Item = sourceItem,
+                MatchedTargetItem = targetItem,
                 Reason = "Conflict: destination wins per policy",
             },
             ConflictPolicy.DestinationWins => new SyncAction
@@ -526,6 +533,7 @@ public sealed class Planner(ILogger<Planner> logger)
                 Kind = SyncActionKind.Update,
                 TargetSide = targetSide,
                 Item = sourceItem,
+                MatchedTargetItem = targetItem,
                 Reason = "Conflict: last write wins per policy",
             }
             : new SyncAction
