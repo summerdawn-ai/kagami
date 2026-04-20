@@ -2,7 +2,7 @@
   "profiles": {
     "Summerdawn.Kagami": {
       "commandName": "Project",
-      "commandLineArgs": "contacts sync --from=Microsoft --to Google --on-conflict source-wins --filter \"startswith(name,'Alex Wolf')\" --settings .\\appsettings.json --what-if"
+      "commandLineArgs": "contacts sync --from=Microsoft --to Google --bidirectional --settings .\\appsettings.json --what-if --force --filter \"startswith(name, 'K')\""
     }
   }
 }
