@@ -1,11 +1,7 @@
-
 using System.Net;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Http.Resilience;
-
-using Polly;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
@@ -119,39 +115,23 @@ public static class KagamiServiceCollectionExtensions
             client.DefaultRequestHeaders.UserAgent.ParseAdd("kagami/0.1");
         });
 
-        if (endpointType.StartsWith("Google", StringComparison.Ordinal))
+        builder.AddStandardResilienceHandler(options =>
         {
-            builder.AddResilienceHandler("retry", b =>
+            options.Retry.DelayGenerator = args =>
             {
-                b.AddRetry(new HttpRetryStrategyOptions
+                // Use Retry-After header if available
+                var defaultDelayForTooManyRequests = TimeSpan.FromSeconds(10);
+
+                if (args.Outcome.Result is { StatusCode: HttpStatusCode.TooManyRequests, Headers.RetryAfter: { } retryAfter })
                 {
-                    MaxRetryAttempts = 2,
-                    UseJitter = false,
-                    ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
-                        .HandleResult(r => r.StatusCode == HttpStatusCode.BadGateway)
-                        .Handle<HttpRequestException>(),
-                    DelayGenerator = args => ValueTask.FromResult<TimeSpan?>(
-                        args.AttemptNumber == 0 ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(30)),
-                });
-            });
-        }
-        else if (endpointType.StartsWith("Microsoft", StringComparison.Ordinal))
-        {
-            builder.AddResilienceHandler("retry", b =>
-            {
-                b.AddRetry(new HttpRetryStrategyOptions
-                {
-                    MaxRetryAttempts = 3,
-                    BackoffType = DelayBackoffType.Exponential,
-                    Delay = TimeSpan.FromSeconds(4),
-                    UseJitter = true,
-                    ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
-                        .HandleResult(r => r.StatusCode == HttpStatusCode.BadGateway
-                            || r.StatusCode == HttpStatusCode.ServiceUnavailable
-                            || r.StatusCode == HttpStatusCode.TooManyRequests)
-                        .Handle<HttpRequestException>(),
-                });
-            });
-        }
+                    var delay = retryAfter?.Delta
+                                ?? (retryAfter?.Date is DateTimeOffset date ? date - DateTimeOffset.UtcNow : defaultDelayForTooManyRequests);
+
+                    return ValueTask.FromResult<TimeSpan?>(delay);
+                }
+
+                return ValueTask.FromResult<TimeSpan?>(defaultDelayForTooManyRequests);
+            };
+        });
     }
 }
