@@ -15,7 +15,13 @@ namespace Summerdawn.Kagami.Connectors.Microsoft;
 internal sealed class MicrosoftContactsConnector : IConnector
 {
     private const string MicrosoftScope = "https://graph.microsoft.com/.default";
-    private const string ContactSelectFields = "id,displayName,givenName,middleName,surname,emailAddresses,businessPhones,homePhones,mobilePhone,companyName,jobTitle,personalNotes,birthday,categories,homeAddress,businessAddress,otherAddress,lastModifiedDateTime";
+
+    // The beta endpoint is used because it exposes the `phones` collection, which supports
+    // multiple phone numbers of the same type (e.g. two mobile numbers). The v1.0 endpoint
+    // only has `mobilePhone` (a single string) and therefore loses any second mobile number.
+    private const string GraphBaseUrl = "https://graph.microsoft.com/beta";
+
+    private const string ContactSelectFields = "id,displayName,givenName,middleName,surname,emailAddresses,phones,businessPhones,homePhones,mobilePhone,companyName,jobTitle,personalNotes,birthday,categories,homeAddress,businessAddress,otherAddress,lastModifiedDateTime";
 
     private readonly HttpClient httpClient;
     private readonly TokenCredential credential;
@@ -34,8 +40,8 @@ internal sealed class MicrosoftContactsConnector : IConnector
         string userId = endpoint.Properties.GetRequiredValue("userId", $"endpoint '{endpointName}'");
         string? folderId = endpoint.Properties.GetOptionalValue("folderId");
         collectionPath = folderId is null
-            ? $"https://graph.microsoft.com/v1.0/users/{Uri.EscapeDataString(userId)}/contacts"
-            : $"https://graph.microsoft.com/v1.0/users/{Uri.EscapeDataString(userId)}/contactFolders/{Uri.EscapeDataString(folderId)}/contacts";
+            ? $"{GraphBaseUrl}/users/{Uri.EscapeDataString(userId)}/contacts"
+            : $"{GraphBaseUrl}/users/{Uri.EscapeDataString(userId)}/contactFolders/{Uri.EscapeDataString(folderId)}/contacts";
     }
 
     public ConnectorCapabilities Capabilities { get; } = new()
@@ -188,6 +194,14 @@ internal sealed class MicrosoftContactsConnector : IConnector
                 ["name"] = contact.DisplayName,
                 ["address"] = email.Address,
             })),
+            // phones (beta) supports all types and multiple entries with the same type,
+            // so all numbers are preserved (e.g. two mobile numbers).
+            ["phones"] = CreateArray(contact.Phones.Select(phone => (JsonNode?)new JsonObject
+            {
+                ["number"] = phone.Number,
+                ["type"] = MapToMicrosoftPhoneType(phone.Label),
+            })),
+            // Keep legacy v1.0 fields so contacts are readable by clients that only use v1.0.
             ["businessPhones"] = CreateStringArray(contact.Phones.Where(phone => string.Equals(phone.Label, "work", StringComparison.OrdinalIgnoreCase)).Select(phone => phone.Number)),
             ["homePhones"] = CreateStringArray(contact.Phones.Where(phone => string.Equals(phone.Label, "home", StringComparison.OrdinalIgnoreCase)).Select(phone => phone.Number)),
             ["mobilePhone"] = contact.Phones.FirstOrDefault(phone => string.Equals(phone.Label, "mobile", StringComparison.OrdinalIgnoreCase))?.Number,
@@ -293,12 +307,34 @@ internal sealed class MicrosoftContactsConnector : IConnector
             }
         }
 
-        AddPhones(contact.Phones, element, "businessPhones", "work");
-        AddPhones(contact.Phones, element, "homePhones", "home");
-        string? mobilePhone = ReadString(element, "mobilePhone");
-        if (!string.IsNullOrWhiteSpace(mobilePhone))
+        // Prefer the beta `phones` collection: it supports every phone type and allows multiple
+        // entries with the same type (e.g. two mobile numbers).  Fall back to the v1.0
+        // individual fields (`businessPhones`, `homePhones`, `mobilePhone`) only when the
+        // beta property is absent so that contacts fetched without the beta endpoint still work.
+        if (element.TryGetProperty("phones", out var phonesElement) && phonesElement.ValueKind == JsonValueKind.Array)
         {
-            contact.Phones.Add(new ContactPhone { Number = mobilePhone, Label = "mobile" });
+            foreach (var phone in phonesElement.EnumerateArray())
+            {
+                string? number = ReadString(phone, "number");
+                if (!string.IsNullOrWhiteSpace(number))
+                {
+                    contact.Phones.Add(new ContactPhone
+                    {
+                        Number = number,
+                        Label = MapFromMicrosoftPhoneType(ReadString(phone, "type")),
+                    });
+                }
+            }
+        }
+        else
+        {
+            AddPhones(contact.Phones, element, "businessPhones", "work");
+            AddPhones(contact.Phones, element, "homePhones", "home");
+            string? mobilePhone = ReadString(element, "mobilePhone");
+            if (!string.IsNullOrWhiteSpace(mobilePhone))
+            {
+                contact.Phones.Add(new ContactPhone { Number = mobilePhone, Label = "mobile" });
+            }
         }
 
         AddAddress(contact.Addresses, element, "homeAddress", "home");
@@ -390,6 +426,32 @@ internal sealed class MicrosoftContactsConnector : IConnector
             }
         }
     }
+
+    /// <summary>
+    /// Maps a Microsoft Graph beta <c>phoneType</c> value to a canonical phone label.
+    /// The beta API uses "business" where the canonical model uses "work"; everything else
+    /// is passed through as-is (lowercased).
+    /// </summary>
+    internal static string MapFromMicrosoftPhoneType(string? microsoftType) =>
+        microsoftType?.ToLowerInvariant() switch
+        {
+            "business" => "work",
+            string other => other,
+            null => "other",
+        };
+
+    /// <summary>
+    /// Maps a canonical phone label to a Microsoft Graph beta <c>phoneType</c> value.
+    /// The canonical model uses "work" where the beta API uses "business"; everything else
+    /// is passed through as-is (lowercased).
+    /// </summary>
+    internal static string MapToMicrosoftPhoneType(string? canonicalLabel) =>
+        canonicalLabel?.ToLowerInvariant() switch
+        {
+            "work" => "business",
+            string other => other,
+            null => "other",
+        };
 
     private static void AddAddress(ICollection<ContactAddress> addresses, JsonElement element, string propertyName, string label)
     {
