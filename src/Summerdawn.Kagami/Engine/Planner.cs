@@ -10,7 +10,7 @@ namespace Summerdawn.Kagami.Engine;
 /// </summary>
 public sealed class Planner(ILogger<Planner> logger)
 {
-    private static readonly ContactMatchComparer ContactMatchComparer = new();
+    private static readonly ContactMatchComparer Matcher = new();
 
     /// <summary>
     /// Computes the full set of sync actions from current snapshots of both sides and existing links.
@@ -585,7 +585,7 @@ public sealed class Planner(ILogger<Planner> logger)
         var targetsByName = targetItems
             .Where(t => t.Payload is CanonicalContact)
             .GroupBy(ContactMatchComparer.GetNormalizedName)
-            .ToDictionary(g => g.Key, g => (IReadOnlyList<CanonicalItem>)g.ToList(), StringComparer.Ordinal);
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
         var sourceCountByName = sourceItems
             .Where(s => s.Payload is CanonicalContact)
@@ -621,7 +621,7 @@ public sealed class Planner(ILogger<Planner> logger)
             else
             {
                 // Step 2: ambiguous name group — require at least one overlapping detail identifier.
-                result[item.SourceId] = [.. targetsWithName.Where(t => ContactMatchComparer.HasDetailMatch(item, t))];
+                result[item.SourceId] = [.. targetsWithName.Where(t => Matcher.HasDetailMatch(item, t))];
             }
         }
 

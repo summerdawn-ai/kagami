@@ -81,7 +81,7 @@ public sealed class ContactMatchComparer
     /// detection. If the display name is non-empty it is returned; otherwise the organisation
     /// name is used.
     /// </summary>
-    internal string GetNormalizedName(CanonicalItem item)
+    internal static string GetNormalizedName(CanonicalItem item)
     {
         if (item.Payload is not CanonicalContact contact)
         {
