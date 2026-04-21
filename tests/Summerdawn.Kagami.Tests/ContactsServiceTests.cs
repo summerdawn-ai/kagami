@@ -409,6 +409,70 @@ public sealed class ContactsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SyncAsync_PreservesBothPhones_WhenTwoMobilePhonesShareSameLabel()
+    {
+        var contact = new CanonicalContact
+        {
+            GivenName = "Alice",
+            DisplayName = "Alice Smith",
+            Phones =
+            [
+                new ContactPhone { Number = "111-111-1111", Label = "mobile" },
+                new ContactPhone { Number = "222-222-2222", Label = "mobile" },
+            ],
+        };
+        sourceConnector.Seed(new CanonicalItem
+        {
+            EntityType = EntityType.Contact,
+            SourceId = "a1",
+            Version = "v1",
+            Payload = contact,
+        });
+
+        var result = await service.SyncAsync("Microsoft", "Google");
+
+        Assert.True(result.Succeeded);
+        var created = Assert.Single(destinationConnector.Items, i => !i.IsDeleted);
+        var destContact = Assert.IsType<CanonicalContact>(created.Payload);
+        Assert.Equal(2, destContact.Phones.Count);
+        Assert.All(destContact.Phones, p => Assert.Equal("mobile", p.Label, StringComparer.OrdinalIgnoreCase));
+        Assert.Contains(destContact.Phones, p => p.Number == "111-111-1111");
+        Assert.Contains(destContact.Phones, p => p.Number == "222-222-2222");
+    }
+
+    [Fact]
+    public async Task SyncAsync_PreservesBothPhones_WhenTwoWorkPhonesShareSameLabel()
+    {
+        var contact = new CanonicalContact
+        {
+            GivenName = "Bob",
+            DisplayName = "Bob Jones",
+            Phones =
+            [
+                new ContactPhone { Number = "333-333-3333", Label = "work" },
+                new ContactPhone { Number = "444-444-4444", Label = "work" },
+            ],
+        };
+        sourceConnector.Seed(new CanonicalItem
+        {
+            EntityType = EntityType.Contact,
+            SourceId = "a2",
+            Version = "v1",
+            Payload = contact,
+        });
+
+        var result = await service.SyncAsync("Microsoft", "Google");
+
+        Assert.True(result.Succeeded);
+        var created = Assert.Single(destinationConnector.Items, i => !i.IsDeleted);
+        var destContact = Assert.IsType<CanonicalContact>(created.Payload);
+        Assert.Equal(2, destContact.Phones.Count);
+        Assert.All(destContact.Phones, p => Assert.Equal("work", p.Label, StringComparer.OrdinalIgnoreCase));
+        Assert.Contains(destContact.Phones, p => p.Number == "333-333-3333");
+        Assert.Contains(destContact.Phones, p => p.Number == "444-444-4444");
+    }
+
+    [Fact]
     public async Task SyncAsync_CopiesPhotoMetadataToDestination()
     {
         var source = MakeContact("a1", "Alice", lastName: "Smith");

@@ -68,6 +68,35 @@ public sealed class ContactsImportTests : IDisposable
         }
     }
 
+    // ── ImportAsync: phone preservation ───────────────────────────────────
+
+    [Fact]
+    public async Task ImportAsync_PreservesBothPhones_WhenTwoPhoneNumbersShareSameLabel()
+    {
+        var phones = new[]
+        {
+            new { number = "111-111-1111", label = "mobile" },
+            new { number = "222-222-2222", label = "mobile" },
+        };
+        await WriteContactJsonAsync("alice_smith", new
+        {
+            displayName = "Alice Smith",
+            givenName = "Alice",
+            familyName = "Smith",
+            phones,
+        });
+
+        var result = await service.ImportAsync(importDir, "Destination");
+
+        Assert.Equal(1, result.Created);
+        var created = Assert.Single(connectorDest.Items);
+        var contact = Assert.IsType<CanonicalContact>(created.Payload);
+        Assert.Equal(2, contact.Phones.Count);
+        Assert.All(contact.Phones, p => Assert.Equal("mobile", p.Label, StringComparer.OrdinalIgnoreCase));
+        Assert.Contains(contact.Phones, p => p.Number == "111-111-1111");
+        Assert.Contains(contact.Phones, p => p.Number == "222-222-2222");
+    }
+
     // ── ImportAsync: photo handling ────────────────────────────────────────
 
     [Fact]
