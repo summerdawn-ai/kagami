@@ -76,6 +76,20 @@ public static class KagamiServiceCollectionExtensions
                         credential as MicrosoftClientCredential
                             ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a MicrosoftClientCredential."),
                         sp.GetRequiredService<ILoggerFactory>().CreateLogger<MicrosoftContactsConnector>()),
+                    EndpointOptions.GoogleCalendar => new GoogleCalendarConnector(
+                        httpClient,
+                        capturedEndpointName,
+                        capturedEndpoint,
+                        credential as GoogleOAuthCredential
+                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a GoogleOAuthCredential."),
+                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<GoogleCalendarConnector>()),
+                    EndpointOptions.MicrosoftCalendar => new MicrosoftCalendarConnector(
+                        httpClient,
+                        capturedEndpointName,
+                        capturedEndpoint,
+                        credential as MicrosoftClientCredential
+                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a MicrosoftClientCredential."),
+                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<MicrosoftCalendarConnector>()),
                     _ => throw new InvalidOperationException(
                         $"No connector registered for endpoint '{capturedEndpointName}' of type '{capturedEndpoint.Type}'."),
                 };
@@ -98,13 +112,14 @@ public static class KagamiServiceCollectionExtensions
         services.AddSingleton<JobExecutor>();
         services.AddSingleton<SyncHost>();
         services.AddSingleton<ContactsService>();
+        services.AddSingleton<CalendarService>();
         return services;
     }
 
     private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType switch
     {
         EndpointOptions.GoogleContacts => ["https://www.googleapis.com/auth/contacts"],
-        "google-calendar" => ["https://www.googleapis.com/auth/calendar"],
+        EndpointOptions.GoogleCalendar => ["https://www.googleapis.com/auth/calendar"],
         _ => []
     };
 

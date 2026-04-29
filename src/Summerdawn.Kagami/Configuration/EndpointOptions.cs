@@ -11,8 +11,15 @@ public sealed class EndpointOptions
     /// <summary>Connector type value for Microsoft Contacts (Exchange Online / Microsoft 365).</summary>
     public const string MicrosoftContacts = "MicrosoftContacts";
 
+    /// <summary>Connector type value for Google Calendar (Calendar API v3).</summary>
+    public const string GoogleCalendar = "GoogleCalendar";
+
+    /// <summary>Connector type value for Microsoft Calendar (Microsoft 365 / Exchange Online via Graph API).</summary>
+    public const string MicrosoftCalendar = "MicrosoftCalendar";
+
     /// <summary>
-    /// Connector type identifier: <see cref="GoogleContacts"/> or <see cref="MicrosoftContacts"/>.
+    /// Connector type identifier: <see cref="GoogleContacts"/>, <see cref="MicrosoftContacts"/>,
+    /// <see cref="GoogleCalendar"/>, or <see cref="MicrosoftCalendar"/>.
     /// </summary>
     public string Type { get; set; } = string.Empty;
 

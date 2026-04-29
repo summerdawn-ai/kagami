@@ -367,12 +367,147 @@ public static class Program
             contactsSyncCommand,
         };
 
+        // ── calendar command group ────────────────────────────────────────
+
+        var calendarFromOption = new Option<string>("--from")
+        {
+            Description = "Source endpoint name (as configured in the settings file)",
+            Required = true,
+        };
+
+        var calendarToOption = new Option<string>("--to")
+        {
+            Description = "Destination endpoint name",
+            Required = true,
+        };
+
+        var calendarBidirectionalOption = new Option<bool>("--bidirectional")
+        {
+            Description = "Sync in both directions (default: source to destination only)",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var calendarPruneOption = new Option<bool>("--prune")
+        {
+            Description = "Delete events on the destination that no longer exist on the source",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var calendarOnConflictOption = new Option<string>("--on-conflict")
+        {
+            Description = "Conflict resolution policy: last-write-wins (default), source-wins, dest-wins, skip",
+            Required = false,
+            DefaultValueFactory = _ => "last-write-wins",
+        }.AcceptOnlyFromAmong("last-write-wins", "source-wins", "destination-wins", "skip");
+
+        var calendarForceOption = new Option<bool>("--force")
+        {
+            Description = "Re-sync all events even if not changed",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var calendarAllOption = new Option<bool>("--all")
+        {
+            Description = "Fetch and display all matching events",
+            Arity = ArgumentArity.Zero,
+        };
+
+        // calendar list
+        var calendarListCommand = new Command("list", "List calendar events from a configured endpoint")
+        {
+            settingsOption,
+            calendarFromOption,
+            calendarAllOption,
+        };
+        calendarListCommand.SetAction(async parseResult =>
+        {
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            string from = parseResult.GetValue(calendarFromOption)!;
+            bool all = parseResult.GetValue(calendarAllOption);
+            var svc = BuildCalendarService(settingsFiles);
+            var items = await svc.ListAsync(from, all ? null : 100, CancellationToken.None);
+            items = [.. items.OrderBy(i => (i.Payload as CanonicalCalendarEvent)?.Start)];
+
+            if (items.Count == 0)
+            {
+                Console.WriteLine("No calendar events found.");
+                return;
+            }
+
+            Console.WriteLine($"{"Start",-22} {"End",-22} {"Subject"}");
+            Console.WriteLine(new string('-', 80));
+            foreach (var item in items)
+            {
+                if (item.Payload is not CanonicalCalendarEvent ev)
+                {
+                    Console.WriteLine($"  (non-event item: {item.SourceId})");
+                    continue;
+                }
+
+                Console.WriteLine($"{ev.Start.ToString("yyyy-MM-dd HH:mm"),-22} {ev.End.ToString("yyyy-MM-dd HH:mm"),-22} {ev.Subject}");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine(all
+                ? $"Total: {items.Count} event(s)"
+                : $"Showing {items.Count} event(s) (default limit: 100; use --all to fetch everything)");
+        });
+
+        // calendar sync
+        var calendarSyncCommand = new Command("sync", "Synchronize calendar events between two configured endpoints")
+        {
+            settingsOption,
+            calendarFromOption,
+            calendarToOption,
+            calendarBidirectionalOption,
+            calendarPruneOption,
+            calendarOnConflictOption,
+            whatIfOption,
+            calendarForceOption,
+        };
+        calendarSyncCommand.SetAction(async parseResult =>
+        {
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            string from = parseResult.GetValue(calendarFromOption)!;
+            string to = parseResult.GetValue(calendarToOption)!;
+            bool bidirectional = parseResult.GetValue(calendarBidirectionalOption);
+            bool prune = parseResult.GetValue(calendarPruneOption);
+            string onConflictStr = parseResult.GetValue(calendarOnConflictOption)!;
+            bool whatIf = parseResult.GetValue(whatIfOption);
+            bool force = parseResult.GetValue(calendarForceOption);
+
+            var mode = bidirectional ? SyncMode.Bidirectional : SyncMode.Forward;
+
+            var conflictPolicy = onConflictStr.ToLowerInvariant() switch
+            {
+                "source-wins" => ConflictPolicy.SourceWins,
+                "dest-wins" or "destination-wins" => ConflictPolicy.DestinationWins,
+                "skip" => ConflictPolicy.Skip,
+                _ => ConflictPolicy.LastWriteWins,
+            };
+
+            var deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
+
+            var svc = BuildCalendarService(settingsFiles);
+            var result = await svc.SyncAsync(from, to, mode, whatIf, force, deletePolicy, conflictPolicy, CancellationToken.None);
+            Console.WriteLine(result.Succeeded
+                ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
+                : $"Sync failed or skipped: {result.SkipReason}");
+        });
+
+        var calendarCommand = new Command("calendar", "Interactive calendar operations")
+        {
+            calendarListCommand,
+            calendarSyncCommand,
+        };
+
         // ── Root command ──────────────────────────────────────────────────
 
         var rootCommand = new RootCommand("Kagami — polling-first calendar and contact synchronization")
         {
             jobsCommand,
             contactsCommand,
+            calendarCommand,
         };
 
         try
@@ -407,6 +542,9 @@ public static class Program
 
     private static ContactsService BuildContactsService(string[] settingsFiles) =>
         BuildServiceProvider(settingsFiles).GetRequiredService<ContactsService>();
+
+    private static CalendarService BuildCalendarService(string[] settingsFiles) =>
+        BuildServiceProvider(settingsFiles).GetRequiredService<CalendarService>();
 
     private static KagamiOptions BuildKagamiOptions(string[] settingsFiles) =>
         BuildServiceProvider(settingsFiles).GetRequiredService<KagamiOptions>();
