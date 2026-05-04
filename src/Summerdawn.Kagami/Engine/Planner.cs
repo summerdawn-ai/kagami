@@ -11,7 +11,7 @@ namespace Summerdawn.Kagami.Engine;
 /// </summary>
 public sealed class Planner(ILogger<Planner> logger)
 {
-    private static readonly ContactMatchComparer ContactMatchComparer = new();
+    private static readonly ContactMatchComparer Matcher = new();
 
     /// <summary>
     /// Computes the full set of sync actions from current snapshots of both sides and existing links.
@@ -347,12 +347,8 @@ public sealed class Planner(ILogger<Planner> logger)
             .Where(s => !s.IsDeleted && !linkedSourceIds.Contains(s.SourceId) && !reservedSourceIds.Contains(s.SourceId))
             .ToList();
 
-        // Build a candidate map: for each source item, which eligible target items match it?
-        var candidatesBySourceId = new Dictionary<string, CanonicalItem[]>(StringComparer.Ordinal);
-        foreach (var item in unlinkedSources)
-        {
-            candidatesBySourceId[item.SourceId] = FindDuplicateMatches(item, eligibleTargets);
-        }
+        // Build a candidate map using the two-step best-match strategy.
+        var candidatesBySourceId = BuildDuplicateCandidateMap(unlinkedSources, eligibleTargets);
 
         // For each eligible target that appears as the unique candidate for exactly one source,
         // count how many sources point to it. If > 1 the match is ambiguous (many-to-one).
@@ -585,15 +581,82 @@ public sealed class Planner(ILogger<Planner> logger)
             _ => null,
         };
 
-    private static CanonicalItem[] FindDuplicateMatches(
-        CanonicalItem item,
-        IReadOnlyList<CanonicalItem> eligibleTargetItems)
+    /// <summary>
+    /// Builds a candidate map from each source item's ID to its matching target items using a
+    /// two-step best-match strategy.
+    /// </summary>
+    /// <remarks>
+    /// <list type="number">
+    ///   <item>
+    ///     <term>Step 1 – unique name match</term>
+    ///     <description>
+    ///       When exactly one source item and exactly one target item share the same primary name
+    ///       (display name or organisation), they are treated as a match without requiring
+    ///       overlapping identifiers. This handles contacts that only carry non-contactable data
+    ///       (e.g. a LinkedIn URL) and would otherwise be incorrectly duplicated on every resync.
+    ///     </description>
+    ///   </item>
+    ///   <item>
+    ///     <term>Step 2 – detail disambiguation</term>
+    ///     <description>
+    ///       When the name group is ambiguous (multiple sources or multiple targets share the same
+    ///       primary name), a second pass filters the name-group candidates by overlapping
+    ///       identifiers (email, phone). Only targets that share at least one identifier with
+    ///       the source item are included in the candidate set. If no identifier overlap exists
+    ///       the candidate set is empty for that source item and the planner falls back to
+    ///       creating a new contact.
+    ///     </description>
+    ///   </item>
+    /// </list>
+    /// </remarks>
+    private static Dictionary<string, CanonicalItem[]> BuildDuplicateCandidateMap(
+        IReadOnlyList<CanonicalItem> sourceItems,
+        IReadOnlyList<CanonicalItem> targetItems)
     {
-        if (item.Payload is not CanonicalContact)
+        // Group contact items by their normalised primary name.
+        var targetsByName = targetItems
+            .Where(t => t.Payload is CanonicalContact)
+            .GroupBy(ContactMatchComparer.GetNormalizedName)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+
+        var sourceCountByName = sourceItems
+            .Where(s => s.Payload is CanonicalContact)
+            .GroupBy(ContactMatchComparer.GetNormalizedName)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+
+        var result = new Dictionary<string, CanonicalItem[]>(StringComparer.Ordinal);
+
+        foreach (var item in sourceItems)
         {
-            return [];
+            if (item.Payload is not CanonicalContact)
+            {
+                result[item.SourceId] = [];
+                continue;
+            }
+
+            string name = ContactMatchComparer.GetNormalizedName(item);
+            var targetsWithName = targetsByName.GetValueOrDefault(name) ?? [];
+            int sourcesWithNameCount = sourceCountByName.GetValueOrDefault(name, 0);
+
+            if (targetsWithName.Count == 0)
+            {
+                // No target shares this name — nothing to match.
+                result[item.SourceId] = [];
+                continue;
+            }
+
+            if (sourcesWithNameCount == 1 && targetsWithName.Count == 1)
+            {
+                // Step 1: unique 1:1 name match — accept without requiring overlapping identifiers.
+                result[item.SourceId] = [targetsWithName[0]];
+            }
+            else
+            {
+                // Step 2: ambiguous name group — require at least one overlapping detail identifier.
+                result[item.SourceId] = [.. targetsWithName.Where(t => Matcher.HasDetailMatch(item, t))];
+            }
         }
 
-        return [.. eligibleTargetItems.Where(targetItem => ContactMatchComparer.IsMatch(item, targetItem))];
+        return result;
     }
 }

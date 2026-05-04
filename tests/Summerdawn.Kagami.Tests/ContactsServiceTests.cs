@@ -408,6 +408,65 @@ public sealed class ContactsServiceTests : IDisposable
         Assert.Empty(links);
     }
 
+    // ── Two-step best-match duplicate detection ───────────────────────
+
+    [Fact]
+    public async Task SyncAsync_MatchesByNameOnly_WhenUniqueOneToOne()
+    {
+        // Step 1: unique 1:1 name match with no phone or email should still be treated as a match.
+        sourceConnector.Seed(MakeContact("a1", "Alice"));
+        destinationConnector.Seed(MakeContact("b1", "Alice"));
+
+        var result = await service.SyncAsync("Microsoft", "Google");
+        var links = await new LinkStateRepository(db).GetByJobAsync("contacts:Microsoft:Google");
+
+        Assert.True(result.Succeeded);
+        Assert.Single(destinationConnector.Items, item => !item.IsDeleted);
+        Assert.Single(links);
+        Assert.Equal("a1", links[0].SourceId);
+        Assert.Equal("b1", links[0].DestinationId);
+    }
+
+    [Fact]
+    public async Task SyncAsync_DoesNotAutoLink_WhenAmbiguousNameAndNoDetailIdentifiers()
+    {
+        // Step 2: ambiguous name group (1 source, 2 targets with same name) with no detail
+        // identifiers to disambiguate — neither pre-existing target should be linked to the
+        // source; a new contact is created instead (safe fall-through).
+        sourceConnector.Seed(MakeContact("a1", "Alice"));
+        destinationConnector.Seed(MakeContact("b1", "Alice"));
+        destinationConnector.Seed(MakeContact("b2", "Alice"));
+
+        var result = await service.SyncAsync("Microsoft", "Google");
+        var links = await new LinkStateRepository(db).GetByJobAsync("contacts:Microsoft:Google");
+
+        Assert.True(result.Succeeded);
+        // A new contact is created (the source was not matched to any existing destination contact).
+        Assert.Equal(3, destinationConnector.Items.Count(item => !item.IsDeleted));
+        // The resulting link points to the newly created copy, not to either existing contact.
+        var link = Assert.Single(links);
+        Assert.Equal("a1", link.SourceId);
+        Assert.NotEqual("b1", link.DestinationId);
+        Assert.NotEqual("b2", link.DestinationId);
+    }
+
+    [Fact]
+    public async Task SyncAsync_DisambiguatesAmbiguousNameMatch_ByEmail()
+    {
+        // Step 2: ambiguous name group resolved by email — should link the matching pair.
+        sourceConnector.Seed(MakeContact("a1", "Alice", email: "alice@example.com"));
+        destinationConnector.Seed(MakeContact("b1", "Alice", email: "alice@example.com"));
+        destinationConnector.Seed(MakeContact("b2", "Alice", email: "other@example.com"));
+
+        var result = await service.SyncAsync("Microsoft", "Google");
+        var links = await new LinkStateRepository(db).GetByJobAsync("contacts:Microsoft:Google");
+
+        Assert.True(result.Succeeded);
+        Assert.Single(links);
+        Assert.Equal("a1", links[0].SourceId);
+        Assert.Equal("b1", links[0].DestinationId);
+    }
+
     [Fact]
     public async Task SyncAsync_CopiesPhotoMetadataToDestination()
     {

@@ -45,6 +45,82 @@ public sealed class ContactMatchComparerTests
         Assert.False(comparer.IsMatch(left, right));
     }
 
+    // ── HasNameMatch ────────────────────────────────────────────────────
+
+    [Fact]
+    public void HasNameMatch_ReturnsTrueWhenDisplayNamesMatch()
+    {
+        var left = CreateContact("a1", "Alice Smith");
+        var right = CreateContact("b1", " Alice Smith ");  // extra whitespace
+
+        Assert.True(comparer.HasNameMatch(left, right));
+    }
+
+    [Fact]
+    public void HasNameMatch_ReturnsFalseWhenDisplayNamesDiffer()
+    {
+        var left = CreateContact("a1", "Alice");
+        var right = CreateContact("b1", "Bob");
+
+        Assert.False(comparer.HasNameMatch(left, right));
+    }
+
+    [Fact]
+    public void HasNameMatch_FallsBackToOrganisationWhenDisplayNameEmpty()
+    {
+        var left = CreateContact("a1", string.Empty, organization: "Contoso");
+        var right = CreateContact("b1", string.Empty, organization: "Contoso");
+
+        Assert.True(comparer.HasNameMatch(left, right));
+    }
+
+    [Fact]
+    public void HasNameMatch_ReturnsFalseWhenOrganisationsDifferAndDisplayNameEmpty()
+    {
+        var left = CreateContact("a1", string.Empty, organization: "Contoso");
+        var right = CreateContact("b1", string.Empty, organization: "Fabrikam");
+
+        Assert.False(comparer.HasNameMatch(left, right));
+    }
+
+    // ── HasDetailMatch ──────────────────────────────────────────────────
+
+    [Fact]
+    public void HasDetailMatch_ReturnsFalseWhenNeitherSideHasIdentifiers()
+    {
+        var left = CreateContact("a1", "Alice");
+        var right = CreateContact("b1", "Alice");
+
+        Assert.False(comparer.HasDetailMatch(left, right));
+    }
+
+    [Fact]
+    public void HasDetailMatch_ReturnsFalseWhenNoOverlap()
+    {
+        var left = CreateContact("a1", "Alice", email: "alice@example.com");
+        var right = CreateContact("b1", "Alice", email: "other@example.com");
+
+        Assert.False(comparer.HasDetailMatch(left, right));
+    }
+
+    [Fact]
+    public void HasDetailMatch_ReturnsTrueWhenEmailOverlaps()
+    {
+        var left = CreateContact("a1", "Alice", email: "Alice@Example.com");
+        var right = CreateContact("b1", "Alice", email: " alice@example.com ");
+
+        Assert.True(comparer.HasDetailMatch(left, right));
+    }
+
+    [Fact]
+    public void HasDetailMatch_ReturnsTrueWhenPhoneOverlaps()
+    {
+        var left = CreateContact("a1", "Alice", phone: "+1 (555) 123-4567");
+        var right = CreateContact("b1", "Alice", phone: "15551234567");
+
+        Assert.True(comparer.HasDetailMatch(left, right));
+    }
+
     private static CanonicalItem CreateContact(
         string id,
         string displayName,
