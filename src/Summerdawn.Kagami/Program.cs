@@ -194,7 +194,13 @@ public static class Program
 
         var forceOption = new Option<bool>("--force")
         {
-            Description = "Re-sync all in-scope contacts even if not changed (ignores HasChanged short-circuit)",
+            Description = "Ignore cursors, bypass change and content-sameness checks, and write all in-scope contacts unconditionally (clobbers destination drift)",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var fullOption = new Option<bool>("--full")
+        {
+            Description = "Ignore saved cursors and fetch all rows from both sides, but still skip contacts whose content is already identical",
             Arity = ArgumentArity.Zero,
         };
 
@@ -301,6 +307,7 @@ public static class Program
             onConflictOption,
             whatIfOption,
             filterOption,
+            fullOption,
             forceOption,
         };
         contactsSyncCommand.SetAction(async parseResult =>
@@ -312,6 +319,7 @@ public static class Program
             bool prune = parseResult.GetValue(pruneOption);
             string onConflictStr = parseResult.GetValue(onConflictOption)!;
             bool whatIf = parseResult.GetValue(whatIfOption);
+            bool full = parseResult.GetValue(fullOption);
             bool force = parseResult.GetValue(forceOption);
             string? filter = parseResult.GetValue(filterOption);
 
@@ -329,7 +337,7 @@ public static class Program
 
             var svc = BuildContactsService(settingsFiles);
             var contactFilter = ContactFilter.Parse(filter);
-            var result = await svc.SyncAsync(from, to, mode, whatIf, contactFilter, force, deletePolicy, conflictPolicy, CancellationToken.None);
+            var result = await svc.SyncAsync(from, to, mode, whatIf, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
             Console.WriteLine(result.Succeeded
                 ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
                 : $"Sync failed or skipped: {result.SkipReason}");

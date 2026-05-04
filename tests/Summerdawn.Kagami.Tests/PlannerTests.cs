@@ -391,11 +391,10 @@ public sealed class PlannerTests
         var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Forward),
+            CreateJob(SyncMode.Forward, force: true),
             sourceItems: [CreateItem("a1", "v1")],
             destinationItems: [],
-            existingLinks: [link],
-            force: true);
+            existingLinks: [link]);
 
         Assert.Single(actions);
         Assert.Equal(SyncActionKind.Create, actions[0].Kind);
@@ -503,7 +502,8 @@ public sealed class PlannerTests
     private static JobOptions CreateJob(
         SyncMode mode = SyncMode.Bidirectional,
         DeletePolicy deletePolicy = DeletePolicy.Mirror,
-        ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins) =>
+        ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
+        bool force = false) =>
         new()
         {
             Enabled = true,
@@ -513,6 +513,7 @@ public sealed class PlannerTests
             SyncMode = mode,
             DeletePolicy = deletePolicy,
             ConflictPolicy = conflictPolicy,
+            Force = force,
         };
 
     private static CanonicalItem CreateItem(string id, string version = "v1", DateTimeOffset? lastModified = null) =>

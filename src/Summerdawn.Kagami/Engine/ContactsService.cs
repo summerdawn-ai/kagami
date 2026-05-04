@@ -181,10 +181,8 @@ public sealed class ContactsService(
     /// <param name="mode">Sync direction.</param>
     /// <param name="whatIf">When <c>true</c>, logs actions without writing any changes.</param>
     /// <param name="filter">Optional in-memory filter; only matching contacts are touched.</param>
-    /// <param name="force">
-    /// When <c>true</c>, bypasses the HasChanged short-circuit so all in-scope contacts
-    /// are re-evaluated, preserving last-write-wins conflict resolution.
-    /// </param>
+    /// <param name="full">When <c>true</c>, re-enumerates both sides in full regardless of cursor state.</param>
+    /// <param name="force">When <c>true</c>, unconditionally writes all in-scope items, bypassing sameness checks.</param>
     /// <param name="deletePolicy">Delete handling policy.</param>
     /// <param name="conflictPolicy">Conflict resolution policy.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -194,6 +192,7 @@ public sealed class ContactsService(
         SyncMode mode = SyncMode.Forward,
         bool whatIf = false,
         ContactFilter? filter = null,
+        bool full = false,
         bool force = false,
         DeletePolicy deletePolicy = DeletePolicy.Ignore,
         ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
@@ -217,6 +216,8 @@ public sealed class ContactsService(
             SyncMode = mode,
             DeletePolicy = deletePolicy,
             ConflictPolicy = conflictPolicy,
+            Full = full,
+            Force = force,
         };
 
         return await jobExecutor.ExecuteAsync(
@@ -226,7 +227,6 @@ public sealed class ContactsService(
             destinationConnector,
             whatIf,
             filter,
-            force,
             cancellationToken);
     }
 
