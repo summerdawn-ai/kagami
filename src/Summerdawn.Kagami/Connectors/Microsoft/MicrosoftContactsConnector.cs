@@ -411,7 +411,7 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         AddAddress(contact.Addresses, element, "businessAddress", "work");
         AddAddress(contact.Addresses, element, "otherAddress", "other");
 
-        return CanonicalItemSerializer.WithComputedHash(contact);
+        return ContentHashHelper.WithComputedHash(contact);
     }
 
     private async Task PopulatePhotoAsync(CanonicalContact contact, string id, CancellationToken cancellationToken)
@@ -419,11 +419,11 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         var photo = await DownloadPhotoAsync(id, cancellationToken);
         if (photo is null)
         {
-            ContactPhotoMetadata.SetNoPhoto(contact);
+            ContactPhotoMetadataHelper.SetNoPhoto(contact);
             return;
         }
 
-        ContactPhotoMetadata.SetPhoto(contact, photo.Value.photoBytes, photo.Value.contentType);
+        ContactPhotoMetadataHelper.SetPhoto(contact, photo.Value.photoBytes, photo.Value.contentType);
     }
 
     private async Task<(byte[] photoBytes, string contentType)?> DownloadPhotoAsync(string id, CancellationToken cancellationToken)
@@ -448,7 +448,7 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
 
     private async Task SyncPhotoAsync(string id, CanonicalContact contact, bool deleteWhenAbsent, CancellationToken cancellationToken)
     {
-        if (ContactPhotoMetadata.TryGetPhoto(contact, out byte[] photoBytes, out string contentType))
+        if (ContactPhotoMetadataHelper.TryGetPhoto(contact, out byte[] photoBytes, out string contentType))
         {
             using var request = await CreateRequestAsync(HttpMethod.Put, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
             request.Content = new ByteArrayContent(photoBytes);
@@ -458,7 +458,7 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
             return;
         }
 
-        if (!deleteWhenAbsent || !ContactPhotoMetadata.HasKnownAbsence(contact))
+        if (!deleteWhenAbsent || !ContactPhotoMetadataHelper.HasKnownAbsence(contact))
         {
             return;
         }

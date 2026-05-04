@@ -290,7 +290,7 @@ public sealed class SyncServiceTests : IDisposable
     public async Task ExportAsync_WritesPhotoNextToJson()
     {
         var item = MakeContact("a1", "Alice", lastName: "Smith");
-        ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
+        ContactPhotoMetadataHelper.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
         sourceConnector.Seed(item);
 
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
@@ -318,7 +318,7 @@ public sealed class SyncServiceTests : IDisposable
         await File.WriteAllBytesAsync(stalePhoto, [0x01]);
 
         var item = MakeContact("a1", "Alice", lastName: "Smith");
-        ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
+        ContactPhotoMetadataHelper.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
         sourceConnector.Seed(item);
         try
         {
@@ -470,14 +470,14 @@ public sealed class SyncServiceTests : IDisposable
     public async Task SyncAsync_CopiesPhotoMetadataToDestination()
     {
         var source = MakeContact("a1", "Alice", lastName: "Smith");
-        ContactPhotoMetadata.SetPhoto(source, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
+        ContactPhotoMetadataHelper.SetPhoto(source, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
         sourceConnector.Seed(source);
 
         var result = await service.SyncAsync("Microsoft", "Google");
 
         Assert.True(result.Succeeded);
         var created = Assert.Single(destinationConnector.Items);
-        Assert.True(ContactPhotoMetadata.TryGetPhoto(created, out byte[] photoBytes, out string contentType));
+        Assert.True(ContactPhotoMetadataHelper.TryGetPhoto(created, out byte[] photoBytes, out string contentType));
         Assert.Equal("image/png", contentType);
         Assert.Equal(source.Metadata["contact.photo.bytes"], created.Metadata["contact.photo.bytes"]);
         Assert.Equal(8, photoBytes.Length);
@@ -498,7 +498,7 @@ public sealed class SyncServiceTests : IDisposable
         Assert.Equal(["a1"], lazyConnector.LoadedPhotoIds);
         var created = Assert.Single(destinationConnector.Items);
         Assert.Equal("Alice", created.DisplayName);
-        Assert.True(ContactPhotoMetadata.TryGetPhoto(created, out _, out _));
+        Assert.True(ContactPhotoMetadataHelper.TryGetPhoto(created, out _, out _));
     }
 
     //[Fact]
@@ -631,7 +631,7 @@ public sealed class SyncServiceTests : IDisposable
                 ContactPhotoLoader.Attach(item, _ =>
                 {
                     LoadedPhotoIds.Add(item.Provenance.ProviderId);
-                    ContactPhotoMetadata.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
+                    ContactPhotoMetadataHelper.SetPhoto(item, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "image/png");
                     return Task.CompletedTask;
                 });
             }

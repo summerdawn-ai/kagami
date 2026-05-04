@@ -1,5 +1,4 @@
 using Summerdawn.Kagami.Configuration;
-using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
@@ -239,7 +238,7 @@ public sealed class Planner(ILogger<Planner> logger)
         // If the payload is identical on both sides there is nothing to write — return a Skip so the
         // caller can still record/update the link without re-uploading the item.
         if (!jobOptions.Force && (sourceChanged || destinationChanged)
-            && CanonicalItemSerializer.HaveIdenticalContent(currentSourceItem!, currentDestinationItem!))
+            && ContentHashHelper.HaveIdenticalContent(currentSourceItem!, currentDestinationItem!))
         {
             var skipTargetSide = jobOptions.SyncMode == SyncMode.Reverse ? SyncSide.Source : SyncSide.Destination;
             return new SyncAction<TItem>
@@ -434,7 +433,7 @@ public sealed class Planner(ILogger<Planner> logger)
             }
 
             // Clean 1:1 match — skip if content is already identical.
-            if (!jobOptions.Force && CanonicalItemSerializer.HaveIdenticalContent(item, target))
+            if (!jobOptions.Force && ContentHashHelper.HaveIdenticalContent(item, target))
             {
                 actions.Add(new SyncAction<TItem>
                 {

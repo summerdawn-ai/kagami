@@ -1,9 +1,9 @@
-namespace Summerdawn.Kagami.Models;
+namespace Summerdawn.Kagami.Configuration;
 
 /// <summary>
 /// Well-known entity type identifiers.
 /// </summary>
-public static class ItemType
+public static class EntityType
 {
     /// <summary>Calendar event entity type.</summary>
     public const string CalendarEvent = "calendar-event";

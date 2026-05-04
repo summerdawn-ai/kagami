@@ -1,8 +1,6 @@
 using System.Text.RegularExpressions;
 
-using Summerdawn.Kagami.Models;
-
-namespace Summerdawn.Kagami.Engine;
+namespace Summerdawn.Kagami.Models;
 
 /// <summary>
 /// Evaluates a simple OData-style filter expression against a <see cref="CanonicalContact"/>.
@@ -93,7 +91,7 @@ public sealed partial class ContactFilter : IFilter<CanonicalContact>
         contacts.Where(predicate).ToList();
 
     private static bool MatchesName(CanonicalContact contact, Func<string, bool> check) =>
-        check(ContactName.GetName(contact));
+        check(ContactNameHelper.GetName(contact));
 
     private static string UnescapeODataString(string value) =>
         value.Replace("''", "'", StringComparison.Ordinal);

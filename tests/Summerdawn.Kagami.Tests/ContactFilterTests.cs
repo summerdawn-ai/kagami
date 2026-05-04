@@ -1,5 +1,6 @@
-using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
+
+using ContactFilter = Summerdawn.Kagami.Models.ContactFilter;
 
 namespace Summerdawn.Kagami.Tests;
 

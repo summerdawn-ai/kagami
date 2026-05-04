@@ -7,6 +7,8 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
+using ContactFilter = Summerdawn.Kagami.Models.ContactFilter;
+
 namespace Summerdawn.Kagami.Tests;
 
 public sealed class ForceSyncTests : IDisposable
@@ -181,7 +183,7 @@ public sealed class ForceSyncTests : IDisposable
         new()
         {
             Enabled = true,
-            EntityType = ItemType.Contact,
+            EntityType = EntityType.Contact,
             Source = "endpointA",
             Destination = "endpointB",
             SyncMode = SyncMode.Bidirectional,

@@ -78,7 +78,7 @@ public sealed class ContactsImportTests : IDisposable
 
         Assert.Equal(1, result.Created);
         var created = Assert.Single(connectorDest.Items);
-        Assert.False(ContactPhotoMetadata.TryGetPhoto(created, out _, out _),
+        Assert.False(ContactPhotoMetadataHelper.TryGetPhoto(created, out _, out _),
             "Photo should be explicitly cleared when no image file is present");
     }
 
@@ -92,7 +92,7 @@ public sealed class ContactsImportTests : IDisposable
 
         Assert.Equal(1, result.Created);
         var created = Assert.Single(connectorDest.Items);
-        Assert.True(ContactPhotoMetadata.TryGetPhoto(created, out byte[] photoBytes, out string contentType));
+        Assert.True(ContactPhotoMetadataHelper.TryGetPhoto(created, out byte[] photoBytes, out string contentType));
         Assert.Equal("image/png", contentType);
         Assert.Equal(OnePxPng.Length, photoBytes.Length);
     }

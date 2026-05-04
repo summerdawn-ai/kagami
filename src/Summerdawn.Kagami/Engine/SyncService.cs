@@ -153,9 +153,9 @@ public sealed class SyncService<TItem>(
                 // Export photo for contacts
                 if (item is CanonicalContact contact)
                 {
-                    if (ContactPhotoMetadata.TryGetPhoto(contact, out byte[] photoBytes, out string contentType))
+                    if (ContactPhotoMetadataHelper.TryGetPhoto(contact, out byte[] photoBytes, out string contentType))
                     {
-                        string extension = ContactPhotoMetadata.GetFileExtension(contentType, photoBytes);
+                        string extension = ContactPhotoMetadataHelper.GetFileExtension(contentType, photoBytes);
                         string photoPath = Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(fileName) + extension);
                         await File.WriteAllBytesAsync(photoPath, photoBytes, cancellationToken);
                         logger.LogInformation("Exported contact photo to {File}", photoPath);
@@ -215,7 +215,7 @@ public sealed class SyncService<TItem>(
         var jobOptions = new JobOptions
         {
             Enabled = true,
-            EntityType = ItemType.Contact,
+            EntityType = EntityType.Contact,
             Source = fromEndpoint,
             Destination = toEndpoint,
             SyncMode = mode,
@@ -313,14 +313,14 @@ public sealed class SyncService<TItem>(
                 if (photoPath is not null)
                 {
                     byte[] photoBytes = await File.ReadAllBytesAsync(photoPath, cancellationToken);
-                    string contentType = ContactPhotoMetadata.GetContentTypeFromExtension(Path.GetExtension(photoPath));
-                    ContactPhotoMetadata.SetPhoto(contact, photoBytes, contentType);
+                    string contentType = ContactPhotoMetadataHelper.GetContentTypeFromExtension(Path.GetExtension(photoPath));
+                    ContactPhotoMetadataHelper.SetPhoto(contact, photoBytes, contentType);
                     logger.LogDebug("Attached photo from {Photo} to contact {Name}", photoPath, baseName);
                 }
                 else
                 {
                     // Explicitly clear photo (import is a true upsert including the photo property)
-                    ContactPhotoMetadata.ClearPhoto(contact);
+                    ContactPhotoMetadataHelper.ClearPhoto(contact);
                 }
             }
 
@@ -445,7 +445,7 @@ public sealed class SyncService<TItem>(
 
     private static string BuildExportBaseName(CanonicalItem item) => item switch
     {
-        CanonicalContact contact => ContactName.BuildExportBaseName(contact),
+        CanonicalContact contact => ContactNameHelper.BuildExportBaseName(contact),
         _ => throw new ArgumentException("Item type not supported.")
     };
 

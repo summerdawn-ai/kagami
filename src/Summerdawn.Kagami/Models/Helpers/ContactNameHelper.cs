@@ -1,10 +1,9 @@
+
 using System.Text;
 
-using Summerdawn.Kagami.Models;
+namespace Summerdawn.Kagami.Models;
 
-namespace Summerdawn.Kagami.Engine;
-
-public static class ContactName
+public static class ContactNameHelper
 {
     public static string GetName(CanonicalContact contact) =>
         !string.IsNullOrWhiteSpace(contact.DisplayName)

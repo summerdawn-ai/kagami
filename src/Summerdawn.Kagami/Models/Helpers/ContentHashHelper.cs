@@ -3,12 +3,11 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Serialization;
 
-namespace Summerdawn.Kagami.Connectors;
+namespace Summerdawn.Kagami.Models;
 
-internal static class CanonicalItemSerializer
+internal static class ContentHashHelper
 {
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "KagamiJsonContext supports all possible types of item")]

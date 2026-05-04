@@ -5,8 +5,6 @@ namespace Summerdawn.Kagami.Models;
 /// </summary>
 public sealed record CanonicalCalendarEvent : CanonicalItem
 {
-    public override string ItemType => "calendar-event";
-
     /// <summary>Event subject/title.</summary>
     public string Subject { get; set; } = string.Empty;
 

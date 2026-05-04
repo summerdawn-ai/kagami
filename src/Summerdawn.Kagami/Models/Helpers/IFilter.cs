@@ -1,6 +1,4 @@
-using Summerdawn.Kagami.Models;
-
-namespace Summerdawn.Kagami.Engine;
+namespace Summerdawn.Kagami.Models;
 
 public interface IFilter<TItem> where TItem : CanonicalItem
 {

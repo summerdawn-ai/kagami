@@ -465,7 +465,7 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
             }
         }
 
-        return CanonicalItemSerializer.WithComputedHash(contact);
+        return ContentHashHelper.WithComputedHash(contact);
     }
 
     private async Task PopulatePhotoAsync(CanonicalContact item, JsonElement person, CancellationToken cancellationToken)
@@ -473,18 +473,18 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
         string? photoUrl = ReadPhotoUrl(person);
         if (string.IsNullOrWhiteSpace(photoUrl))
         {
-            ContactPhotoMetadata.SetNoPhoto(item);
+            ContactPhotoMetadataHelper.SetNoPhoto(item);
             return;
         }
 
         var photo = await DownloadPhotoAsync(photoUrl, cancellationToken);
         if (photo is null)
         {
-            ContactPhotoMetadata.SetNoPhoto(item);
+            ContactPhotoMetadataHelper.SetNoPhoto(item);
             return;
         }
 
-        ContactPhotoMetadata.SetPhoto(item, photo.Value.photoBytes, photo.Value.contentType);
+        ContactPhotoMetadataHelper.SetPhoto(item, photo.Value.photoBytes, photo.Value.contentType);
     }
 
     private async Task<(byte[] photoBytes, string contentType)?> DownloadPhotoAsync(string photoUrl, CancellationToken cancellationToken)
@@ -509,7 +509,7 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
 
     private async Task SyncPhotoAsync(string personId, CanonicalContact item, bool deleteWhenAbsent, CancellationToken cancellationToken)
     {
-        if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out _))
+        if (ContactPhotoMetadataHelper.TryGetPhoto(item, out byte[] photoBytes, out _))
         {
             JsonObject body = new()
             {
@@ -523,7 +523,7 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
             return;
         }
 
-        if (!deleteWhenAbsent || !ContactPhotoMetadata.HasKnownAbsence(item))
+        if (!deleteWhenAbsent || !ContactPhotoMetadataHelper.HasKnownAbsence(item))
         {
             return;
         }

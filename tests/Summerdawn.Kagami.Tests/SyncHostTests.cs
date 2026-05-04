@@ -171,7 +171,7 @@ public sealed class SyncHostTests : IDisposable
         new()
         {
             Enabled = true,
-            EntityType = ItemType.Contact,
+            EntityType = EntityType.Contact,
             Source = endpointA,
             Destination = endpointB,
             SyncMode = SyncMode.Bidirectional,

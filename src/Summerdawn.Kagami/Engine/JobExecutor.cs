@@ -430,7 +430,7 @@ public sealed class JobExecutor(
     {
         if (action.Item is CanonicalContact contact)
         {
-            string name = ContactName.GetName(contact);
+            string name = ContactNameHelper.GetName(contact);
             if (string.IsNullOrWhiteSpace(name))
             {
                 name = action.Item.Provenance.ProviderId;
@@ -500,9 +500,9 @@ public sealed class JobExecutor(
             return;
         }
 
-        if (ContactPhotoMetadata.PhotoHashesMatch(action.Item as CanonicalContact, action.MatchedTargetItem as CanonicalContact))
+        if (ContactPhotoMetadataHelper.PhotoHashesMatch(action.Item as CanonicalContact, action.MatchedTargetItem as CanonicalContact))
         {
-            ContactPhotoMetadata.DetachPhoto((matchedTarget as CanonicalContact)!);
+            ContactPhotoMetadataHelper.DetachPhoto((matchedTarget as CanonicalContact)!);
         }
     }
 

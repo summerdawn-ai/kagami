@@ -5,8 +5,6 @@ namespace Summerdawn.Kagami.Models;
 /// </summary>
 public sealed record CanonicalContact : CanonicalItem
 {
-    public override string ItemType => "contact";
-
     /// <summary>Given (first) name.</summary>
     public string? GivenName { get; set; }
 

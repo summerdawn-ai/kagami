@@ -7,12 +7,6 @@ namespace Summerdawn.Kagami.Models;
 /// </summary>
 public abstract record CanonicalItem
 {
-    /// <summary>
-    /// Entity type identifier (e.g., "calendar-event", "contact").
-    /// </summary>
-    [JsonIgnore]
-    public abstract string ItemType { get; }
-
     public ItemProvenance Provenance { get; set; } = new();
 
     /// <summary>

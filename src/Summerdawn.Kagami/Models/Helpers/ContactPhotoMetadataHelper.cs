@@ -1,10 +1,9 @@
+
 using System.Security.Cryptography;
 
-using Summerdawn.Kagami.Models;
+namespace Summerdawn.Kagami.Models;
 
-namespace Summerdawn.Kagami.Connectors;
-
-internal static class ContactPhotoMetadata
+internal static class ContactPhotoMetadataHelper
 {
     private const string PhotoPresenceKey = "contact.photo.presence";
     private const string PhotoBytesKey = "contact.photo.bytes";
@@ -201,8 +200,8 @@ internal static class ContactPhotoMetadata
             return false;
         }
 
-        string? srcHash = ContactPhotoMetadata.ComputePhotoHash(source);
-        string? dstHash = ContactPhotoMetadata.ComputePhotoHash(destination);
+        string? srcHash = ComputePhotoHash(source);
+        string? dstHash = ComputePhotoHash(destination);
         return srcHash is not null && dstHash is not null && srcHash == dstHash;
     }
 }

@@ -111,8 +111,8 @@ public sealed class SyncHost(
         {
             return jobOptions.EntityType switch
             {
-                ItemType.Contact => ExecuteJobAsync<CanonicalContact>(jobKey, jobOptions, whatIf, cancellationToken),
-                ItemType.CalendarEvent => ExecuteJobAsync<CanonicalCalendarEvent>(jobKey, jobOptions, whatIf, cancellationToken),
+                EntityType.Contact => ExecuteJobAsync<CanonicalContact>(jobKey, jobOptions, whatIf, cancellationToken),
+                EntityType.CalendarEvent => ExecuteJobAsync<CanonicalCalendarEvent>(jobKey, jobOptions, whatIf, cancellationToken),
                 _ => throw new InvalidOperationException($"Unknown entity type {jobOptions.EntityType}.")
             };
         }
