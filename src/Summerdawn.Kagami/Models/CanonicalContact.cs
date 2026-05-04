@@ -1,10 +1,16 @@
+using System.Text.Json.Serialization;
+
 namespace Summerdawn.Kagami.Models;
 
 /// <summary>
 /// Canonical model for a contact.
 /// </summary>
-public sealed class CanonicalContact
+public sealed class CanonicalContact : CanonicalItem
 {
+    /// <inheritdoc/>
+    [JsonIgnore]
+    public override string EntityType => Models.EntityType.Contact;
+
     /// <summary>Given (first) name.</summary>
     public string? GivenName { get; set; }
 
@@ -41,8 +47,13 @@ public sealed class CanonicalContact
     /// <summary>Birthday.</summary>
     public DateOnly? Birthday { get; set; }
 
-    /// <summary>Last modified time (UTC).</summary>
-    public DateTimeOffset? LastModified { get; set; }
+    /// <inheritdoc/>
+    public override CanonicalContact CloneWithProvenance(ItemProvenance provenance)
+    {
+        var clone = (CanonicalContact)MemberwiseClone();
+        clone.Provenance = provenance;
+        return clone;
+    }
 }
 
 /// <summary>Email address entry.</summary>
