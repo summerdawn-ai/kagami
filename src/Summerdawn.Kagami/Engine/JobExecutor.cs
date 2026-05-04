@@ -120,7 +120,22 @@ public sealed class JobExecutor(
             if (skipsWithMatches.Count > 0)
             {
                 existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
-                await RecordUnchangedLinksAsync(jobKey, jobOptions.EntityType, skipsWithMatches, existingLinks, SyncSide.Destination, cancellationToken);
+
+                var destinationSkipsWithMatches = skipsWithMatches
+                    .Where(a => a.TargetSide == SyncSide.Destination)
+                    .ToList();
+                if (destinationSkipsWithMatches.Count > 0)
+                {
+                    await RecordUnchangedLinksAsync(jobKey, jobOptions.EntityType, destinationSkipsWithMatches, existingLinks, SyncSide.Destination, cancellationToken);
+                }
+
+                var sourceSkipsWithMatches = skipsWithMatches
+                    .Where(a => a.TargetSide == SyncSide.Source)
+                    .ToList();
+                if (sourceSkipsWithMatches.Count > 0)
+                {
+                    await RecordUnchangedLinksAsync(jobKey, jobOptions.EntityType, sourceSkipsWithMatches, existingLinks, SyncSide.Source, cancellationToken);
+                }
             }
 
             if (sourcePageSet.Cursor is not null)
