@@ -1,4 +1,4 @@
-﻿
+
 using System.Security.Cryptography;
 
 using Summerdawn.Kagami.Models;
