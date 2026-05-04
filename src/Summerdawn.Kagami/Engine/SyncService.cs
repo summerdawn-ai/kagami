@@ -225,13 +225,8 @@ public sealed class SyncService<TItem>(
             Force = force,
         };
 
-        return await jobExecutor.ExecuteAsync(
-            jobKey,
-            jobOptions,
-            sourceConnector,
-            destinationConnector,
+        return await jobExecutor.ExecuteAsync(new Job<TItem>(jobKey, jobOptions, sourceConnector, destinationConnector, filter),
             whatIf,
-            filter,
             cancellationToken);
     }
 

@@ -129,10 +129,12 @@ public sealed class SyncHost(
         try
         {
             var connectorResolver = provider.GetRequiredService<Func<string, IConnector<TItem>>>();
-
             var sourceConnector = connectorResolver(jobOptions.Source);
             var destinationConnector = connectorResolver(jobOptions.Destination);
-            await executor.ExecuteAsync(jobKey, jobOptions, sourceConnector, destinationConnector, whatIf, cancellationToken: cancellationToken);
+
+            var job = new Job<TItem>(jobKey, jobOptions, sourceConnector, destinationConnector);
+
+            await executor.ExecuteAsync(job, whatIf, cancellationToken);
         }
         catch (Exception ex)
         {

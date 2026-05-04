@@ -5,6 +5,10 @@ using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
+using static Summerdawn.Kagami.Configuration.DeletePolicy;
+using static Summerdawn.Kagami.Engine.SyncActionKind;
+using static Summerdawn.Kagami.Engine.SyncDirection;
+
 namespace Summerdawn.Kagami.Tests;
 
 public sealed class PlannerTests
@@ -35,8 +39,8 @@ public sealed class PlannerTests
         var actions = planner.PlanActions(CreateJob(SyncMode.Forward), [CreateItem("a1")], [], []);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Create, actions[0].Kind);
-        Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
+        Assert.Equal(Create, actions[0].Kind);
+        Assert.Equal(SourceToDestination, actions[0].Direction);
     }
 
     [Fact]
@@ -45,8 +49,8 @@ public sealed class PlannerTests
         var actions = planner.PlanActions(CreateJob(SyncMode.Reverse), [], [CreateItem("b1")], []);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Create, actions[0].Kind);
-        Assert.Equal(SyncSide.Source, actions[0].TargetSide);
+        Assert.Equal(Create, actions[0].Kind);
+        Assert.Equal(DestinationToSource, actions[0].Direction);
     }
 
     [Fact]
@@ -55,8 +59,8 @@ public sealed class PlannerTests
         var actions = planner.PlanActions(CreateJob(SyncMode.Bidirectional), [CreateItem("a1", displayName: "foo")], [CreateItem("b1", displayName: "bar")], []);
 
         Assert.Equal(2, actions.Count);
-        Assert.Contains(actions, a => a.Kind == SyncActionKind.Create && a.TargetSide == SyncSide.Destination);
-        Assert.Contains(actions, a => a.Kind == SyncActionKind.Create && a.TargetSide == SyncSide.Source);
+        Assert.Contains(actions, a => a is { Kind: Create, Direction: SourceToDestination });
+        Assert.Contains(actions, a => a is { Kind: Create, Direction: DestinationToSource });
     }
 
     // -------------------------------------------------------------------------
@@ -69,13 +73,13 @@ public sealed class PlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(deletePolicy: DeletePolicy.Mirror),
+            CreateJob(deletePolicy: Mirror),
             [new CanonicalContact { IsDeleted = true, Provenance = { ProviderId = "a1" } }],
             [CreateItem("b1")],
             [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Delete, actions[0].Kind);
+        Assert.Equal(Delete, actions[0].Kind);
         Assert.Equal("b1", actions[0].DeleteId);
     }
 
@@ -85,13 +89,13 @@ public sealed class PlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(deletePolicy: DeletePolicy.Ignore),
+            CreateJob(deletePolicy: Ignore),
             [new CanonicalContact { IsDeleted = true, Provenance = { ProviderId = "a1" } }],
             [CreateItem("b1")],
             [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
+        Assert.Equal(Skip, actions[0].Kind);
     }
 
     // -------------------------------------------------------------------------
@@ -124,8 +128,8 @@ public sealed class PlannerTests
             [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
-        Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
+        Assert.Equal(Update, actions[0].Kind);
+        Assert.Equal(SourceToDestination, actions[0].Direction);
     }
 
     [Fact]
@@ -140,8 +144,8 @@ public sealed class PlannerTests
             [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
-        Assert.Equal(SyncSide.Source, actions[0].TargetSide);
+        Assert.Equal(Update, actions[0].Kind);
+        Assert.Equal(DestinationToSource, actions[0].Direction);
     }
 
     [Fact]
@@ -156,8 +160,8 @@ public sealed class PlannerTests
             [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
-        Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
+        Assert.Equal(Update, actions[0].Kind);
+        Assert.Equal(SourceToDestination, actions[0].Direction);
         Assert.Equal("a1", actions[0].Item!.Provenance.ProviderId);
     }
 
@@ -173,8 +177,8 @@ public sealed class PlannerTests
             [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Update, actions[0].Kind);
-        Assert.Equal(SyncSide.Source, actions[0].TargetSide);
+        Assert.Equal(Update, actions[0].Kind);
+        Assert.Equal(DestinationToSource, actions[0].Direction);
         Assert.Equal("b1", actions[0].Item!.Provenance.ProviderId);
     }
 
@@ -190,7 +194,7 @@ public sealed class PlannerTests
             [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
+        Assert.Equal(Skip, actions[0].Kind);
     }
 
     [Fact]
@@ -227,8 +231,8 @@ public sealed class PlannerTests
             [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Create, actions[0].Kind);
-        Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
+        Assert.Equal(Create, actions[0].Kind);
+        Assert.Equal(SourceToDestination, actions[0].Direction);
         Assert.Equal("a2", actions[0].Item!.Provenance.ProviderId);
     }
 
@@ -249,8 +253,8 @@ public sealed class PlannerTests
             [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Create, actions[0].Kind);
-        Assert.Equal(SyncSide.Source, actions[0].TargetSide);
+        Assert.Equal(Create, actions[0].Kind);
+        Assert.Equal(DestinationToSource, actions[0].Direction);
         Assert.Equal("b2", actions[0].Item!.Provenance.ProviderId);
     }
 
@@ -269,7 +273,7 @@ public sealed class PlannerTests
             []);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
+        Assert.Equal(Skip, actions[0].Kind);
     }
 
     [Fact]
@@ -288,7 +292,7 @@ public sealed class PlannerTests
 
         // b1 has multiple A candidates → Skip for b1 (1 action, ambiguous).
         Assert.Single(actions);
-        Assert.All(actions, a => Assert.Equal(SyncActionKind.Skip, a.Kind));
+        Assert.All(actions, a => Assert.Equal(Skip, a.Kind));
     }
 
     [Fact]
@@ -307,7 +311,7 @@ public sealed class PlannerTests
 
         // Both a1 and a2 must be Skip — no random winner.
         Assert.Equal(2, actions.Count);
-        Assert.All(actions, a => Assert.Equal(SyncActionKind.Skip, a.Kind));
+        Assert.All(actions, a => Assert.Equal(Skip, a.Kind));
     }
 
     // -------------------------------------------------------------------------
@@ -356,7 +360,7 @@ public sealed class PlannerTests
 
         // Collect target IDs from Update/Create actions.
         var targetIds = actions
-            .Where(a => a.Kind is SyncActionKind.Update && a.MatchedTargetItem is not null)
+            .Where(a => a.Kind is Update && a.MatchedTargetItem is not null)
             .Select(a => a.MatchedTargetItem!.Provenance.ProviderId)
             .ToList();
 
@@ -373,14 +377,14 @@ public sealed class PlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Forward, deletePolicy: DeletePolicy.Mirror),
+            CreateJob(SyncMode.Forward, deletePolicy: Mirror),
             sourceItems: [],
             destinationItems: [CreateItem("b1")],
             existingLinks: [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Delete, actions[0].Kind);
-        Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
+        Assert.Equal(Delete, actions[0].Kind);
+        Assert.Equal(SourceToDestination, actions[0].Direction);
         Assert.Equal("b1", actions[0].DeleteId);
     }
 
@@ -396,8 +400,8 @@ public sealed class PlannerTests
             existingLinks: [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Create, actions[0].Kind);
-        Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
+        Assert.Equal(Create, actions[0].Kind);
+        Assert.Equal(SourceToDestination, actions[0].Direction);
         Assert.Equal("a1", actions[0].Item!.Provenance.ProviderId);
     }
 
@@ -407,13 +411,13 @@ public sealed class PlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Forward, deletePolicy: DeletePolicy.Ignore),
+            CreateJob(SyncMode.Forward, deletePolicy: Ignore),
             sourceItems: [],
             destinationItems: [CreateItem("b1")],
             existingLinks: [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
+        Assert.Equal(Skip, actions[0].Kind);
         Assert.Contains("Ignore", actions[0].Reason, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -423,13 +427,13 @@ public sealed class PlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Reverse, deletePolicy: DeletePolicy.Mirror),
+            CreateJob(SyncMode.Reverse, deletePolicy: Mirror),
             sourceItems: [],
             destinationItems: [CreateItem("b1")],
             existingLinks: [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
+        Assert.Equal(Skip, actions[0].Kind);
     }
 
     [Fact]
@@ -438,13 +442,13 @@ public sealed class PlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Bidirectional, deletePolicy: DeletePolicy.Ignore),
+            CreateJob(SyncMode.Bidirectional, deletePolicy: Ignore),
             sourceItems: [CreateItem("a1")],
             destinationItems: [],
             existingLinks: [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
+        Assert.Equal(Skip, actions[0].Kind);
         Assert.Contains("Ignore", actions[0].Reason, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -454,13 +458,13 @@ public sealed class PlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Forward, deletePolicy: DeletePolicy.Mirror),
+            CreateJob(SyncMode.Forward, deletePolicy: Mirror),
             sourceItems: [CreateItem("a1")],
             destinationItems: [],
             existingLinks: [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Skip, actions[0].Kind);
+        Assert.Equal(Skip, actions[0].Kind);
     }
 
     [Fact]
@@ -469,7 +473,7 @@ public sealed class PlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions<CanonicalContact>(
-            CreateJob(SyncMode.Bidirectional, deletePolicy: DeletePolicy.Mirror),
+            CreateJob(SyncMode.Bidirectional, deletePolicy: Mirror),
             sourceItems: [],
             destinationItems: [],
             existingLinks: [link]);
@@ -484,14 +488,14 @@ public sealed class PlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Bidirectional, deletePolicy: DeletePolicy.Mirror),
+            CreateJob(SyncMode.Bidirectional, deletePolicy: Mirror),
             sourceItems: [],
             destinationItems: [CreateItem("b1")],
             existingLinks: [link]);
 
         Assert.Single(actions);
-        Assert.Equal(SyncActionKind.Delete, actions[0].Kind);
-        Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
+        Assert.Equal(Delete, actions[0].Kind);
+        Assert.Equal(SourceToDestination, actions[0].Direction);
     }
 
     // -------------------------------------------------------------------------
@@ -500,7 +504,7 @@ public sealed class PlannerTests
 
     private static JobOptions CreateJob(
         SyncMode mode = SyncMode.Bidirectional,
-        DeletePolicy deletePolicy = DeletePolicy.Mirror,
+        DeletePolicy deletePolicy = Mirror,
         ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
         bool force = false) =>
         new()

@@ -47,7 +47,7 @@ public sealed class ForceSyncTests : IDisposable
     {
         // Initial sync creates link state
         sourceConnector.Seed(CreateContact("a1", "Alice"));
-        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        await executor.ExecuteAsync(CreateJob("job-1"));
 
         // Verify link state created; destinationConnector now has the contact
         var linksAfterFirst = await linkStateRepository.GetByJobAsync("job-1");
@@ -55,12 +55,12 @@ public sealed class ForceSyncTests : IDisposable
         int bItemsAfterFirst = destinationConnector.Items.Count;
 
         // Normal second sync is a no-op (item hasn't changed, cursor exists)
-        var normalResult = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var normalResult = await executor.ExecuteAsync(CreateJob("job-1"));
         Assert.True(normalResult.Succeeded);
         Assert.Equal(0, normalResult.ActionsPlanned);
 
         // Force sync should re-evaluate the item and plan an update
-        var forceResult = await executor.ExecuteAsync("job-1", CreateJob(force: true), sourceConnector, destinationConnector);
+        var forceResult = await executor.ExecuteAsync(CreateJob("job-1", force: true));
         Assert.True(forceResult.Succeeded);
         Assert.True(forceResult.ActionsPlanned > 0, "Force sync should plan at least one action");
 
@@ -72,13 +72,13 @@ public sealed class ForceSyncTests : IDisposable
     public async Task Force_WhatIf_LogsActionsWithoutWriting()
     {
         sourceConnector.Seed(CreateContact("a1", "Alice"));
-        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        await executor.ExecuteAsync(CreateJob("job-1"));
 
         var linksAfterSync = await linkStateRepository.GetByJobAsync("job-1");
         var lastSyncedAt = linksAfterSync[0].LastSyncedAt;
 
         // force + whatIf: should plan actions but NOT write
-        var result = await executor.ExecuteAsync("job-1", CreateJob(force: true), sourceConnector, destinationConnector, whatIf: true);
+        var result = await executor.ExecuteAsync(CreateJob("job-1", force: true), whatIf: true);
         Assert.True(result.Succeeded);
         Assert.True(result.ActionsPlanned > 0);
 
@@ -94,7 +94,7 @@ public sealed class ForceSyncTests : IDisposable
         sourceConnector.Seed(CreateContact("a2", "Bob"));
 
         var filter = ContactFilter.Parse("startswith(name,'A')")!;
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, filter: filter);
+        var result = await executor.ExecuteAsync(CreateJob("job-1") with { Filter = filter });
 
         Assert.True(result.Succeeded);
 
@@ -117,7 +117,7 @@ public sealed class ForceSyncTests : IDisposable
         sourceConnector.Seed(CreateContact("a2", "Bob"));
 
         var filter = ContactFilter.Parse("startswith(name,'A')")!;
-        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, filter: filter);
+        await executor.ExecuteAsync(CreateJob("job-1") with { Filter = filter });
 
         // Bob was on B before the sync; he must still be there
         Assert.Contains(destinationConnector.Items, i => i.Provenance.ProviderId == "b-bob" && !i.IsDeleted);
@@ -130,10 +130,10 @@ public sealed class ForceSyncTests : IDisposable
         sourceConnector.Seed(CreateContact("a2", "Bob"));
 
         var filteredScope = ContactFilter.Parse("startswith(name,'A')")!;
-        var filteredResult = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, filter: filteredScope);
+        var filteredResult = await executor.ExecuteAsync(CreateJob("job-1") with { Filter = filteredScope });
         var filteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
 
-        var unfilteredResult = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var unfilteredResult = await executor.ExecuteAsync(CreateJob("job-1"));
         var unfilteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
 
         Assert.True(filteredResult.Succeeded);
@@ -152,7 +152,7 @@ public sealed class ForceSyncTests : IDisposable
     {
         // Initial sync establishes link state and cursors.
         sourceConnector.Seed(CreateContact("a1", "Alice"));
-        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        await executor.ExecuteAsync(CreateJob("job-1"));
 
         var linksAfterFirst = await linkStateRepository.GetByJobAsync("job-1");
         Assert.Single(linksAfterFirst);
@@ -160,7 +160,7 @@ public sealed class ForceSyncTests : IDisposable
         // --full re-fetches everything (ignores cursor) but still runs HasChanged.
         // Because nothing has changed since the last sync, HasChanged returns false and
         // the planner emits no Update actions — so ActionsPlanned must be 0.
-        var fullResult = await executor.ExecuteAsync("job-1", CreateJob(full: true), sourceConnector, destinationConnector);
+        var fullResult = await executor.ExecuteAsync(CreateJob("job-1", full: true));
         Assert.True(fullResult.Succeeded);
         Assert.Equal(0, fullResult.ActionsPlanned);
     }
@@ -171,27 +171,29 @@ public sealed class ForceSyncTests : IDisposable
         // Initial sync establishes link state.
         sourceConnector.Seed(CreateContact("a1", "Alice"));
         sourceConnector.Seed(CreateContact("a2", "Bob"));
-        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        await executor.ExecuteAsync(CreateJob("job-1"));
 
         // --full --what-if must not report any updates when nothing has changed.
-        var whatIfResult = await executor.ExecuteAsync("job-1", CreateJob(full: true), sourceConnector, destinationConnector, whatIf: true);
+        var whatIfResult = await executor.ExecuteAsync(CreateJob("job-1", full: true), whatIf: true);
         Assert.True(whatIfResult.Succeeded);
         Assert.Equal(0, whatIfResult.ActionsPlanned);
     }
 
-    private static JobOptions CreateJob(bool force = false, bool full = false) =>
-        new()
-        {
-            Enabled = true,
-            EntityType = EntityType.Contact,
-            Source = "endpointA",
-            Destination = "endpointB",
-            SyncMode = SyncMode.Bidirectional,
-            DeletePolicy = DeletePolicy.Mirror,
-            ConflictPolicy = ConflictPolicy.LastWriteWins,
-            Force = force,
-            Full = full,
-        };
+    private Job<CanonicalContact> CreateJob(string jobKey, bool force = false, bool full = false) =>
+        new(jobKey, CreateJobOptions(force, full), sourceConnector, destinationConnector);
+
+    private static JobOptions CreateJobOptions(bool force = false, bool full = false) => new()
+    {
+        Enabled = true,
+        EntityType = EntityType.Contact,
+        Source = "endpointA",
+        Destination = "endpointB",
+        SyncMode = SyncMode.Bidirectional,
+        DeletePolicy = DeletePolicy.Mirror,
+        ConflictPolicy = ConflictPolicy.LastWriteWins,
+        Force = force,
+        Full = full,
+    };
 
     private static CanonicalContact CreateContact(string id, string displayName) => new()
     {

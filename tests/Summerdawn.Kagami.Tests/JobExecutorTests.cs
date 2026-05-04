@@ -56,7 +56,7 @@ public sealed class JobExecutorTests : IDisposable
 
         var executor = CreateExecutor();
 
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
         var updatedTarget = await destinationConnector.GetItemAsync("b1");
 
         Assert.True(result.Succeeded);
@@ -84,7 +84,7 @@ public sealed class JobExecutorTests : IDisposable
         FakeConnector destinationConnector = new();
         var executor = CreateExecutor();
 
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
         Assert.True(result.Succeeded);
         Assert.Equal(2, result.ActionsPlanned);
@@ -100,7 +100,7 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
 
-        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
+        await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
         Assert.Contains(logger.Entries, entry => entry.Contains("would create contact 'Alice Logging'", StringComparison.Ordinal));
     }
@@ -115,7 +115,7 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
 
-        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
+        await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
         Assert.Contains(logger.Entries, entry => entry.Contains("would create contact 'Contoso Ltd'", StringComparison.Ordinal));
     }
@@ -131,15 +131,11 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
 
-        await executor.ExecuteAsync(
-            "job-1",
-            CreateJob(conflictPolicy: ConflictPolicy.SourceWins),
-            sourceConnector,
-            destinationConnector,
-            whatIf: true);
+        await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, conflictPolicy: ConflictPolicy.SourceWins),
+            true);
 
-        Assert.Contains(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side Destination", StringComparison.Ordinal));
-        Assert.DoesNotContain(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side Source", StringComparison.Ordinal));
+        Assert.Contains(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' in direction SourceToDestination", StringComparison.Ordinal));
+        Assert.DoesNotContain(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' in direction DestinationToSource", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -153,7 +149,7 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
 
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
 
         Assert.True(result.Succeeded);
         Assert.Contains(destinationConnector.Items, i => i.DisplayName == "Bob" && !i.IsDeleted);
@@ -169,7 +165,12 @@ public sealed class JobExecutorTests : IDisposable
             leaseRepository,
             logger ?? NullLogger<JobExecutor>.Instance);
 
-    private static JobOptions CreateJob(ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins) =>
+    private static Job<CanonicalContact> CreateJob(string jobKey, IConnector<CanonicalContact> sourceConnector, IConnector<CanonicalContact> destinationConnector, ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins)
+    {
+        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy), sourceConnector, destinationConnector);
+    }
+
+    private static JobOptions CreateJobOptions(ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins) =>
         new()
         {
             Enabled = true,
