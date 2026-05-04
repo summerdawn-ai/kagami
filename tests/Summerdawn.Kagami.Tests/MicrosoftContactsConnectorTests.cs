@@ -19,9 +19,9 @@ public sealed class MicrosoftContactsConnectorTests
 {
     // ── helpers ───────────────────────────────────────────────────────────
 
-    private static MicrosoftContactsConnector CreateConnector(params (HttpRequestMessage req, string responseJson)[] responses)
+    private static MicrosoftContactsConnector CreateConnector(params string[] responseJsons)
     {
-        var handler = new FakeHttpHandler(responses);
+        var handler = new FakeHttpHandler(responseJsons);
         var httpClient = new HttpClient(handler);
         var endpoint = new EndpointOptions
         {
@@ -105,8 +105,8 @@ public sealed class MicrosoftContactsConnectorTests
         string contact = ContactJson("c1", businessPhones: ["555-0001", "555-0002"]);
         string enrichment = NormalPage(ContactJson("c1", businessPhones: ["555-0001", "555-0002"]));
         var connector = CreateConnector(
-            (DeltaRequest(), DeltaPage("delta1", contact)),
-            (FilteredRequest(), enrichment));
+            (DeltaPage("delta1", contact)),
+            (enrichment));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -123,8 +123,8 @@ public sealed class MicrosoftContactsConnectorTests
         string contact = ContactJson("c1", homePhones: ["555-1001"]);
         string enrichment = NormalPage(ContactJson("c1", homePhones: ["555-1001"]));
         var connector = CreateConnector(
-            (DeltaRequest(), DeltaPage("delta1", contact)),
-            (FilteredRequest(), enrichment));
+            (DeltaPage("delta1", contact)),
+            (enrichment));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -140,8 +140,8 @@ public sealed class MicrosoftContactsConnectorTests
         string contact = ContactJson("c1", mobile: "555-2001");
         string enrichment = NormalPage(ContactJson("c1", mobile: "555-2001"));
         var connector = CreateConnector(
-            (DeltaRequest(), DeltaPage("delta1", contact)),
-            (FilteredRequest(), enrichment));
+            (DeltaPage("delta1", contact)),
+            (enrichment));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -159,8 +159,8 @@ public sealed class MicrosoftContactsConnectorTests
         string deltaContact = ContactJson("c1");
         string enriched = ContactJson("c1", extendedProps: [("String 0x3A1F", "555-9001")]);
         var connector = CreateConnector(
-            (DeltaRequest(), DeltaPage("delta1", deltaContact)),
-            (FilteredRequest(), NormalPage(enriched)));
+            (DeltaPage("delta1", deltaContact)),
+            (NormalPage(enriched)));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -183,8 +183,8 @@ public sealed class MicrosoftContactsConnectorTests
             ("String 0x3A57", "555-main"),
         ]);
         var connector = CreateConnector(
-            (DeltaRequest(), DeltaPage("delta1", deltaContact)),
-            (FilteredRequest(), NormalPage(enriched)));
+            (DeltaPage("delta1", deltaContact)),
+            (NormalPage(enriched)));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -208,8 +208,8 @@ public sealed class MicrosoftContactsConnectorTests
             ("String 0x3A1D", "555-radio"),
         ]);
         var connector = CreateConnector(
-            (DeltaRequest(), DeltaPage("delta1", deltaContact)),
-            (FilteredRequest(), NormalPage(enriched)));
+            (DeltaPage("delta1", deltaContact)),
+            (NormalPage(enriched)));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -225,8 +225,8 @@ public sealed class MicrosoftContactsConnectorTests
         // No singleValueExtendedProperties at all
         string enriched = ContactJson("c1");
         var connector = CreateConnector(
-            (DeltaRequest(), DeltaPage("delta1", deltaContact)),
-            (FilteredRequest(), NormalPage(enriched)));
+            (DeltaPage("delta1", deltaContact)),
+            (NormalPage(enriched)));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -244,8 +244,8 @@ public sealed class MicrosoftContactsConnectorTests
         string enrichedExtra = ContactJson("c-extra", extendedProps: [("String 0x3A1F", "555-extra")]);
 
         var connector = CreateConnector(
-            (DeltaRequest(), DeltaPage("delta1", deltaContact)),
-            (FilteredRequest(), NormalPage(enrichedC1, enrichedExtra)));
+            (DeltaPage("delta1", deltaContact)),
+            (NormalPage(enrichedC1, enrichedExtra)));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -263,8 +263,8 @@ public sealed class MicrosoftContactsConnectorTests
         string deltaPage = $"{{\"value\":[{deleted},{ContactJson("c1")}],\"@odata.deltaLink\":\"delta1\"}}";
 
         var connector = CreateConnector(
-            (DeltaRequest(), deltaPage),
-            (FilteredRequest(), NormalPage(nonDeleted)));
+            (deltaPage),
+            (NormalPage(nonDeleted)));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -390,15 +390,9 @@ public sealed class MicrosoftContactsConnectorTests
 
     // ── HTTP stubs ────────────────────────────────────────────────────────
 
-    private static HttpRequestMessage DeltaRequest() =>
-        new(HttpMethod.Get, (string?)null);   // matched by position
-
-    private static HttpRequestMessage FilteredRequest() =>
-        new(HttpMethod.Get, (string?)null);   // matched by position
-
-    private sealed class FakeHttpHandler(IEnumerable<(HttpRequestMessage, string)> responses) : HttpMessageHandler
+    private sealed class FakeHttpHandler(params string[] responseJsons) : HttpMessageHandler
     {
-        private readonly Queue<string> responses = new Queue<string>(responses.Select(r => r.Item2));
+        private readonly Queue<string> responses = new Queue<string>(responseJsons);
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
