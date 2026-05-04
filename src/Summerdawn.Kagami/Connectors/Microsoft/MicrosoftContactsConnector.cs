@@ -17,6 +17,23 @@ internal sealed class MicrosoftContactsConnector : IConnector
     private const string MicrosoftScope = "https://graph.microsoft.com/.default";
     private const string ContactSelectFields = "id,displayName,givenName,middleName,surname,emailAddresses,businessPhones,homePhones,mobilePhone,companyName,jobTitle,personalNotes,birthday,categories,homeAddress,businessAddress,otherAddress,lastModifiedDateTime";
 
+    // Additional Microsoft phone fields not available on the standard contact resource.
+    // We intentionally only map phone-number labels that are supported on Microsoft for this connector.
+    // Fax numbers are excluded. business2/home2 are excluded because the native arrays already handle multiple work/home numbers.
+    private static readonly (string Label, string GraphId)[] ExtendedPhoneProperties =
+    [
+        ("other",     "String 0x3A1F"),
+        ("pager",     "String 0x3A21"),
+        ("radio",     "String 0x3A1D"),
+        ("assistant", "String 0x3A2E"),
+        ("main",      "String 0x3A57"),
+    ];
+
+    private static readonly string ExtendedPropertiesExpand =
+        "$expand=singleValueExtendedProperties($filter=" +
+        string.Join(" or ", ExtendedPhoneProperties.Select(p => $"id eq '{p.GraphId}'")) +
+        ")";
+
     private readonly HttpClient httpClient;
     private readonly TokenCredential credential;
     private readonly string collectionPath;
@@ -62,11 +79,13 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
     public async Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
-        using var request = await CreateRequestAsync(HttpMethod.Get, $"{collectionPath}/{Uri.EscapeDataString(id)}?$select={Uri.EscapeDataString(ContactSelectFields)}", cancellationToken);
+        string uri = $"{collectionPath}/{Uri.EscapeDataString(id)}?$select={Uri.EscapeDataString(ContactSelectFields)}&{ExtendedPropertiesExpand}";
+        using var request = await CreateRequestAsync(HttpMethod.Get, uri, cancellationToken);
         using var document = await SendForJsonAsync(request, cancellationToken);
         var item = ConvertContact(document.RootElement);
         if (item is not null && !item.IsDeleted)
         {
+            ApplyExtendedPhoneProperties(item, document.RootElement);
             await PopulatePhotoAsync(item, id, cancellationToken);
         }
 
@@ -130,6 +149,11 @@ internal sealed class MicrosoftContactsConnector : IConnector
             }
         }
 
+        // Enrich delta page items with extended phone properties.
+        // The delta endpoint does not support $expand=singleValueExtendedProperties, so we
+        // make a second call to the regular (non-delta) endpoint filtered by lastModifiedDateTime.
+        await EnrichWithExtendedPhonePropertiesAsync(items, cancellationToken);
+
         string? nextLink = document.RootElement.TryGetProperty("@odata.nextLink", out var nextLinkElement)
             ? nextLinkElement.GetString()
             : null;
@@ -143,6 +167,65 @@ internal sealed class MicrosoftContactsConnector : IConnector
             HasMore = nextLink is not null,
             NextCursor = nextLink ?? deltaLink,
         };
+    }
+
+    // The delta endpoint does not support extended property expansion, so after loading a delta
+    // page we enrich the non-deleted items by querying the regular contacts endpoint filtered
+    // by the minimum lastModifiedDateTime seen in the page.
+    private async Task EnrichWithExtendedPhonePropertiesAsync(List<CanonicalItem> items, CancellationToken cancellationToken)
+    {
+        // Collect non-deleted items that have payloads.
+        var nonDeleted = items
+            .Where(i => !i.IsDeleted && i.Payload is CanonicalContact { LastModified: not null })
+            .ToList();
+        if (nonDeleted.Count == 0)
+        {
+            return;
+        }
+
+        // Find the minimum lastModifiedDateTime.
+        var minModified = nonDeleted
+            .Select(i => ((CanonicalContact)i.Payload!).LastModified!.Value)
+            .Min();
+
+        // Query the regular contacts endpoint with a filter and extended-property expansion.
+        // This returns all contacts modified at or after the minimum, which should cover the delta page items.
+        string filter = Uri.EscapeDataString($"lastModifiedDateTime ge {minModified:O}");
+        string enrichUri = $"{collectionPath}?$select={Uri.EscapeDataString(ContactSelectFields)}&$filter={filter}&{ExtendedPropertiesExpand}";
+
+        // Build lookup of enriched data by contact id.
+        Dictionary<string, JsonElement> enriched = [];
+        string? nextLink = enrichUri;
+        while (nextLink is not null)
+        {
+            using var enrichRequest = await CreateRequestAsync(HttpMethod.Get, nextLink, cancellationToken);
+            using var enrichDoc = await SendForJsonAsync(enrichRequest, cancellationToken);
+            if (enrichDoc.RootElement.TryGetProperty("value", out var enrichValues))
+            {
+                foreach (var element in enrichValues.EnumerateArray())
+                {
+                    string? eid = element.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(eid))
+                    {
+                        enriched[eid] = element.Clone();
+                    }
+                }
+            }
+
+            nextLink = enrichDoc.RootElement.TryGetProperty("@odata.nextLink", out var nextLinkEl)
+                ? nextLinkEl.GetString()
+                : null;
+        }
+
+        // Apply extended phone properties only to items that were in the delta page.
+        // Ignore any extra contacts returned by the enrichment query.
+        foreach (var item in nonDeleted)
+        {
+            if (enriched.TryGetValue(item.SourceId, out var enrichedElement))
+            {
+                ApplyExtendedPhoneProperties(item, enrichedElement);
+            }
+        }
     }
 
     private async Task<HttpRequestMessage> CreateRequestAsync(HttpMethod method, string requestUri, CancellationToken cancellationToken)
@@ -199,7 +282,27 @@ internal sealed class MicrosoftContactsConnector : IConnector
             ["homeAddress"] = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "home", StringComparison.OrdinalIgnoreCase))),
             ["businessAddress"] = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "work", StringComparison.OrdinalIgnoreCase))),
             ["otherAddress"] = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "other", StringComparison.OrdinalIgnoreCase))),
+            // Always include the full extended-property set so absent values explicitly clear the Outlook property.
+            ["singleValueExtendedProperties"] = BuildExtendedPhoneProperties(contact),
         };
+    }
+
+    private static JsonArray BuildExtendedPhoneProperties(CanonicalContact contact)
+    {
+        JsonArray array = [];
+        foreach (var (label, graphId) in ExtendedPhoneProperties)
+        {
+            string? value = contact.Phones
+                .FirstOrDefault(p => string.Equals(p.Label, label, StringComparison.OrdinalIgnoreCase))
+                ?.Number;
+            array.Add((JsonNode?)new JsonObject
+            {
+                ["id"] = graphId,
+                ["value"] = value,
+            });
+        }
+
+        return array;
     }
 
     private static JsonObject? ToMicrosoftAddress(ContactAddress? address)
@@ -388,6 +491,41 @@ internal sealed class MicrosoftContactsConnector : IConnector
             {
                 phones.Add(new ContactPhone { Number = value, Label = label });
             }
+        }
+    }
+
+    private static void ApplyExtendedPhoneProperties(CanonicalItem item, JsonElement element)
+    {
+        if (item.Payload is not CanonicalContact contact)
+        {
+            return;
+        }
+
+        if (!element.TryGetProperty("singleValueExtendedProperties", out var extProps)
+            || extProps.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        // Build a lookup of extended property values by their Graph id.
+        Dictionary<string, string?> valueById = [];
+        foreach (var prop in extProps.EnumerateArray())
+        {
+            string? propId = ReadString(prop, "id");
+            if (!string.IsNullOrWhiteSpace(propId))
+            {
+                valueById[propId] = ReadString(prop, "value");
+            }
+        }
+
+        foreach (var (label, graphId) in ExtendedPhoneProperties)
+        {
+            if (!valueById.TryGetValue(graphId, out string? value) || string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            contact.Phones.Add(new ContactPhone { Number = value, Label = label });
         }
     }
 

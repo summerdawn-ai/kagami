@@ -57,7 +57,10 @@ public sealed class ContactEmail
 /// <summary>Phone number entry.</summary>
 public sealed class ContactPhone
 {
-    /// <summary>Phone type label (e.g., "mobile", "work", "home").</summary>
+    /// <summary>
+    /// Phone type label. Standard labels: <c>home</c>, <c>work</c>, <c>mobile</c>,
+    /// <c>other</c>, <c>pager</c>, <c>radio</c>, <c>assistant</c>, <c>main</c>.
+    /// </summary>
     public string? Label { get; set; }
     /// <summary>Phone number.</summary>
     public string Number { get; set; } = string.Empty;
