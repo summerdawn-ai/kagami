@@ -1,4 +1,3 @@
-
 using System.Text.RegularExpressions;
 
 using Summerdawn.Kagami.Models;

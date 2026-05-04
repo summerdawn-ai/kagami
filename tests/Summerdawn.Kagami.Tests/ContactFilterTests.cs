@@ -1,4 +1,3 @@
-
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 

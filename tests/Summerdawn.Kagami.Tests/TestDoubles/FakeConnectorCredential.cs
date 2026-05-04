@@ -1,4 +1,3 @@
-
 using Summerdawn.Kagami.Authentication;
 
 namespace Summerdawn.Kagami.Tests.TestDoubles;

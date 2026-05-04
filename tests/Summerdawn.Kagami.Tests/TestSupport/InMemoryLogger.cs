@@ -1,4 +1,3 @@
-
 using Microsoft.Extensions.Logging;
 
 namespace Summerdawn.Kagami.Tests.TestSupport;
