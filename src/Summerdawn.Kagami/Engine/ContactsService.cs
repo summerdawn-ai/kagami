@@ -181,6 +181,8 @@ public sealed class ContactsService(
     /// <param name="mode">Sync direction.</param>
     /// <param name="whatIf">When <c>true</c>, logs actions without writing any changes.</param>
     /// <param name="filter">Optional in-memory filter; only matching contacts are touched.</param>
+    /// <param name="full">When <c>true</c>, re-enumerates both sides in full regardless of cursor state.</param>
+    /// <param name="force">When <c>true</c>, unconditionally writes all in-scope items, bypassing sameness checks.</param>
     /// <param name="deletePolicy">Delete handling policy.</param>
     /// <param name="conflictPolicy">Conflict resolution policy.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

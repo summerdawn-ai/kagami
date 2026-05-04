@@ -243,7 +243,7 @@ public sealed class Planner(ILogger<Planner> logger)
         if (!jobOptions.Force && (sourceChanged || destinationChanged)
             && CanonicalItemSerializer.HaveIdenticalContent(currentSourceItem!, currentDestinationItem!))
         {
-            SyncSide skipTargetSide = jobOptions.SyncMode == SyncMode.Reverse ? SyncSide.Source : SyncSide.Destination;
+            var skipTargetSide = jobOptions.SyncMode == SyncMode.Reverse ? SyncSide.Source : SyncSide.Destination;
             return new SyncAction
             {
                 Kind = SyncActionKind.Skip,
