@@ -8,10 +8,12 @@ using Summerdawn.Kagami.Serialization;
 namespace Summerdawn.Kagami.Models;
 
 /// <summary>
-/// Computes and compares SHA-256 content hashes for canonical items.
+/// Provides SHA-256 content hashing for canonical items.
+/// </summary>
+/// <remarks>
 /// Hashes are derived from the serialized canonical payload, excluding provenance fields,
 /// so that two items with the same content but different provider IDs hash identically.
-/// </summary>
+/// </remarks>
 internal static class ContentHashHelper
 {
     /// <summary>
@@ -38,8 +40,8 @@ internal static class ContentHashHelper
     }
 
     /// <summary>
-    /// Sets <see cref="ItemProvenance.ContentHash"/> on <paramref name="item"/> if it is not
-    /// already populated, then returns <paramref name="item"/>.
+    /// Ensures <see cref="ItemProvenance.ContentHash"/> is populated on <paramref name="item"/>,
+    /// computing it if absent, then returns <paramref name="item"/>.
     /// </summary>
     public static TItem WithComputedHash<TItem>(TItem item) where TItem : CanonicalItem
     {
@@ -48,8 +50,8 @@ internal static class ContentHashHelper
     }
 
     /// <summary>
-    /// Returns <c>true</c> if <paramref name="a"/> and <paramref name="b"/> carry the same canonical
-    /// payload (photo is excluded from this comparison).
+    /// Determines whether <paramref name="a"/> and <paramref name="b"/> carry identical canonical
+    /// content (photo data is excluded from this comparison).
     /// </summary>
     public static bool HaveIdenticalContent<TItem>(TItem a, TItem b) where TItem : CanonicalItem
     {

@@ -11,8 +11,7 @@ using static Summerdawn.Kagami.Engine.SyncDirection;
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
-/// Derives sync actions from current job config, observed remote state, and link state.
-/// Does not store or depend on mutable job policy per item row.
+/// Derives sync actions from current job configuration, observed remote state, and persisted link state.
 /// </summary>
 public sealed class Planner(ILogger<Planner> logger)
 {
@@ -36,10 +35,7 @@ public sealed class Planner(ILogger<Planner> logger)
     /// treats it identically to a normal run.
     /// </para>
     /// </remarks>
-    /// <param name="jobOptions">The job configuration.</param>
-    /// <param name="sourceItems">Current items observed on source.</param>
-    /// <param name="destinationItems">Current items observed on destination.</param>
-    /// <param name="existingLinks">Current link state rows for this job.</param>
+
     public IReadOnlyList<SyncAction<TItem>> PlanActions<TItem>(
         JobOptions jobOptions,
         IReadOnlyList<TItem> sourceItems,
@@ -317,19 +313,6 @@ public sealed class Planner(ILogger<Planner> logger)
     /// <summary>
     /// Plans actions for unlinked source items against the eligible pool of target items.
     /// </summary>
-    /// <param name="jobOptions">Job configuration.</param>
-    /// <param name="sourceItems">All items on the source side.</param>
-    /// <param name="targetItems">All items on the target side.</param>
-    /// <param name="direction">Which side is the target.</param>
-    /// <param name="linkedSourceIds">Source-side ids that are already part of an existing link.</param>
-    /// <param name="linkedTargetIds">Target-side ids that are already part of an existing link.</param>
-    /// <param name="reservedSourceIds">
-    /// Source ids already claimed by a planned action; updated in place as new actions are added.
-    /// </param>
-    /// <param name="reservedTargetIds">
-    /// Target ids already claimed by a planned action; updated in place as new actions are added.
-    /// </param>
-    /// <param name="actions">Accumulator list for planned actions.</param>
     private void PlanUnlinkedItems<TItem>(
         JobOptions jobOptions,
         IReadOnlyList<TItem> sourceItems,
@@ -467,8 +450,7 @@ public sealed class Planner(ILogger<Planner> logger)
     }
 
     /// <summary>
-    /// Returns <c>true</c> when <paramref name="item"/> has a newer version or hash than the
-    /// value recorded in <paramref name="link"/> for the given <paramref name="direction"/>.
+    /// Determines whether <paramref name="item"/> has changed relative to the version or hash recorded in <paramref name="link"/>.
     /// </summary>
     /// <remarks>
     /// Version is checked first; content hash is used as a fallback when version is unavailable.
@@ -507,8 +489,7 @@ public sealed class Planner(ILogger<Planner> logger)
     }
 
     /// <summary>
-    /// Resolves a conflict between source and destination using the configured
-    /// <see cref="JobOptions.ConflictPolicy"/>.
+    /// Resolves a conflict using the configured <see cref="JobOptions.ConflictPolicy"/>.
     /// </summary>
     /// <remarks>
     /// <see cref="ConflictPolicy.LastWriteWins"/> is the default fallback and delegates to
@@ -563,8 +544,7 @@ public sealed class Planner(ILogger<Planner> logger)
         };
 
     /// <summary>
-    /// Resolves a conflict using the last-write-wins heuristic: the item with the newer
-    /// <see cref="ItemProvenance.LastModified"/> timestamp wins.
+    /// Resolves a conflict using last-write-wins: the item with the more recent <see cref="ItemProvenance.LastModified"/> timestamp wins.
     /// </summary>
     /// <remarks>
     /// Tie-breaking rules when timestamps are equal or unavailable:

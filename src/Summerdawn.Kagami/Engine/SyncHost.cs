@@ -8,7 +8,7 @@ using Summerdawn.Kagami.Persistence;
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
-/// Orchestrates multiple sync jobs: builds connectors, manages concurrency, and dispatches to JobExecutor.
+/// Orchestrates multiple sync jobs, managing concurrency and dispatching each job to <see cref="JobExecutor"/>.
 /// </summary>
 public sealed class SyncHost(
     KagamiOptions options,
@@ -18,7 +18,7 @@ public sealed class SyncHost(
     ILogger<SyncHost> logger)
 {
     /// <summary>
-    /// Runs the enabled jobs once and returns, optionally filtered to a single job.
+    /// Runs the enabled jobs once and returns.
     /// </summary>
     public async Task RunOnceAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
     {
@@ -66,8 +66,7 @@ public sealed class SyncHost(
     }
 
     /// <summary>
-    /// Dispatches each job to <see cref="JobExecutor"/> concurrently, bounded by
-    /// <see cref="KagamiHostOptions.MaxConcurrentJobs"/>.
+    /// Dispatches each job to <see cref="JobExecutor"/> concurrently, bounded by <see cref="KagamiHostOptions.MaxConcurrentJobs"/>.
     /// </summary>
     private async Task ExecuteJobsAsync(
         IReadOnlyList<KeyValuePair<string, JobOptions>> jobs,
@@ -91,7 +90,7 @@ public sealed class SyncHost(
     }
 
     /// <summary>
-    /// Force-releases all job leases. Returns the number of locks cleared.
+    /// Force-releases all job leases and returns the number cleared.
     /// </summary>
     public async Task<int> UnlockAllJobsAsync(CancellationToken cancellationToken = default)
     {
@@ -103,7 +102,7 @@ public sealed class SyncHost(
     }
 
     /// <summary>
-    /// Resets the sync state for the given job key.
+    /// Resets the sync state for the specified job, clearing its link rows and saved cursors.
     /// </summary>
     public async Task ResetJobAsync(string jobKey, CancellationToken cancellationToken = default)
     {
@@ -122,8 +121,7 @@ public sealed class SyncHost(
     }
 
     /// <summary>
-    /// Resolves the correct generic overload of <see cref="ExecuteJobAsync{TItem}"/> based on
-    /// <see cref="JobOptions.EntityType"/> and dispatches the job.
+    /// Dispatches the job to the correct typed <see cref="ExecuteJobAsync{TItem}"/> overload based on <see cref="JobOptions.EntityType"/>.
     /// </summary>
     private Task ExecuteJobAsync(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken)
     {
@@ -145,8 +143,7 @@ public sealed class SyncHost(
     }
 
     /// <summary>
-    /// Resolves the source and destination connectors for a typed job and delegates to
-    /// <see cref="JobExecutor.ExecuteAsync{TItem}"/>.
+    /// Resolves the connectors for a typed job and delegates execution to <see cref="JobExecutor.ExecuteAsync{TItem}"/>.
     /// </summary>
     private async Task ExecuteJobAsync<TItem>(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
@@ -167,7 +164,7 @@ public sealed class SyncHost(
     }
 
     /// <summary>
-    /// Returns all enabled jobs matching the optional key filter.
+    /// Returns the enabled jobs, optionally filtered to a single job key.
     /// </summary>
     private List<KeyValuePair<string, JobOptions>> GetEnabledJobs(string? jobKeyFilter) =>
         options.Jobs

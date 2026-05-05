@@ -8,10 +8,7 @@ public sealed class LeaseRepository(StateDatabase db)
     /// <summary>
     /// Attempts to acquire a lease for the given job.
     /// </summary>
-    /// <returns>
-    /// <c>true</c> when the lease was acquired; <c>false</c> when another holder's unexpired
-    /// lease prevents acquisition.
-    /// </returns>
+    /// <returns><c>true</c> when the lease was acquired; <c>false</c> when another holder's unexpired lease prevents acquisition.</returns>
     public async Task<bool> TryAcquireAsync(string jobKey, string holderId, TimeSpan leaseDuration, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -71,7 +68,7 @@ public sealed class LeaseRepository(StateDatabase db)
     }
 
     /// <summary>
-    /// Checks whether a valid (unexpired) lease exists for a job.
+    /// Determines whether a valid, unexpired lease exists for the given job.
     /// </summary>
     public async Task<bool> IsLockedAsync(string jobKey, CancellationToken cancellationToken = default)
     {

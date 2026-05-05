@@ -7,15 +7,14 @@ namespace Summerdawn.Kagami.Connectors;
 /// <summary>
 /// Manages lazy-loaded contact photos. Connectors attach a loader delegate to a contact
 /// via <see cref="Attach"/>; the executor calls <see cref="EnsureLoadedAsync"/> before write
-/// operations to guarantee the photo data is available.
+/// operations to ensure photo data is available.
 /// </summary>
 internal static class ContactPhotoLoader
 {
     private static readonly ConditionalWeakTable<CanonicalContact, LoaderState> Loaders = [];
 
     /// <summary>
-    /// Attaches a lazy photo loader to <paramref name="item"/>. Any previously attached loader
-    /// is replaced.
+    /// Attaches a lazy photo loader to <paramref name="item"/>, replacing any previously attached loader.
     /// </summary>
     public static void Attach(CanonicalContact item, Func<CancellationToken, Task> loader)
     {
@@ -27,8 +26,8 @@ internal static class ContactPhotoLoader
     }
 
     /// <summary>
-    /// Ensures the photo for <paramref name="item"/> has been loaded. If no loader is attached
-    /// (e.g. the connector does not support photos), the call is a no-op.
+    /// Ensures the photo for <paramref name="item"/> has been loaded. When no loader is attached,
+    /// the call is a no-op.
     /// </summary>
     public static async Task EnsureLoadedAsync(CanonicalContact item, CancellationToken cancellationToken = default)
     {
@@ -54,9 +53,9 @@ internal static class ContactPhotoLoader
         private bool loaded;
 
         /// <summary>
-        /// Ensures the loader has run exactly once. Concurrent callers share the same
-        /// underlying task; the loader is called with <see cref="CancellationToken.None"/> so
-        /// that a cancellation from one caller does not abort the shared load for others.
+        /// Ensures the loader has run exactly once. Concurrent callers share the same underlying
+        /// task; the loader is called with <see cref="CancellationToken.None"/> so that a
+        /// cancellation from one caller does not abort the shared load for others.
         /// </summary>
         public async Task EnsureLoadedAsync(CancellationToken cancellationToken)
         {

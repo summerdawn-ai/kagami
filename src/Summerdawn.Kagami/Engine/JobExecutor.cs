@@ -9,7 +9,7 @@ namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
 /// Executes a single sync job: acquires a lease, reads both sides, plans actions,
-/// and applies them — or logs what would be done when <c>whatIf</c> is true.
+/// and applies them.
 /// </summary>
 public sealed class JobExecutor(
     Planner planner,
@@ -29,9 +29,7 @@ public sealed class JobExecutor(
     /// job is skipped and <see cref="JobExecutionResult.Skipped"/> is set to <c>true</c>.
     /// The lease is always released in a <c>finally</c> block.
     /// </remarks>
-    /// <param name="job">The job to execute.</param>
-    /// <param name="whatIf">When <c>true</c>, no writes are performed; planned actions are logged.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
+
     public async Task<JobExecutionResult> ExecuteAsync<TItem>(Job<TItem> job, bool whatIf = false, CancellationToken cancellationToken = default) where TItem : CanonicalItem
     {
         string holderId = Guid.NewGuid().ToString("N");
@@ -360,10 +358,7 @@ public sealed class JobExecutor(
     /// Reads all incremental pages for an endpoint, starting from <paramref name="cursor"/> when
     /// available, or from the initial page when cursor is absent or <paramref name="force"/> is set.
     /// </summary>
-    /// <returns>
-    /// A <see cref="PageSet{TItem}"/> containing all items across all pages and the final cursor
-    /// to persist for the next incremental run.
-    /// </returns>
+
     private async Task<PageSet<TItem>> ReadAllPagesAsync<TItem>(
         IConnector<TItem> connector,
         string endpointName,
@@ -491,8 +486,7 @@ public sealed class JobExecutor(
     }
 
     /// <summary>
-    /// Returns a human-readable description of the item targeted by <paramref name="action"/>,
-    /// used for log messages.
+    /// Returns a human-readable log description of the target item in <paramref name="action"/>.
     /// </summary>
     private static string DescribeActionTarget<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem
     {
@@ -516,12 +510,8 @@ public sealed class JobExecutor(
     }
 
     /// <summary>
-    /// Finds the link row associated with <paramref name="providerId"/> for an update action.
+    /// Finds the persisted link row for an update action, or returns <c>null</c> on the first run when no link yet exists.
     /// </summary>
-    /// <returns>
-    /// The matching <see cref="LinkStateRow"/>, or <c>null</c> when no persisted link exists
-    /// (first-run matched update case).
-    /// </returns>
     private static LinkStateRow? FindLinkForUpdate(
         IReadOnlyList<LinkStateRow> existingLinks,
         SyncDirection direction,
@@ -646,7 +636,7 @@ public sealed class JobExecutor(
     }
 
     /// <summary>
-    /// Holds all items collected across pages together with the final cursor to persist.
+    /// Represents a collected set of paged items and the final cursor to persist for the next run.
     /// </summary>
     private sealed record PageSet<TItem>(IReadOnlyList<TItem> Items, string? Cursor) where TItem : CanonicalItem;
 }

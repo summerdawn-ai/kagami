@@ -10,7 +10,7 @@ using Summerdawn.Kagami.Serialization;
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
-/// High-level service for interactive operations: list, export, sync, and import.
+/// Provides high-level interactive operations: list, export, sync, and import.
 /// </summary>
 public sealed class SyncService<TItem>(
     Func<string, IConnector<TItem>> connectorResolver,
@@ -22,11 +22,8 @@ public sealed class SyncService<TItem>(
     private static readonly string[] ExportPhotoExtensions = [".png", ".jpg", ".gif", ".bmp", ".webp", ".bin"];
 
     /// <summary>
-    /// Fetches all contacts from the named endpoint and returns them in order.
+    /// Fetches all items from the named endpoint and returns them in order.
     /// </summary>
-    /// <param name="endpointName">The endpoint key in <c>appsettings.json</c> (e.g. <c>Microsoft</c>).</param>
-    /// <param name="filter">Optional OData-style filter to apply in memory.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task<IReadOnlyList<TItem>> ListAsync(
         string endpointName,
         IFilter<TItem>? filter = null,
@@ -34,12 +31,8 @@ public sealed class SyncService<TItem>(
         await ListAsync(endpointName, filter, null, cancellationToken);
 
     /// <summary>
-    /// Fetches contacts from the named endpoint and returns them in order.
+    /// Fetches items from the named endpoint and returns them in order, optionally applying a filter and item limit.
     /// </summary>
-    /// <param name="endpointName">The endpoint key in <c>appsettings.json</c> (e.g. <c>Microsoft</c>).</param>
-    /// <param name="filter">Optional OData-style filter to apply in memory.</param>
-    /// <param name="maxItems">Optional maximum number of matching items to return.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task<IReadOnlyList<TItem>> ListAsync(
         string endpointName,
         IFilter<TItem>? filter,
@@ -93,15 +86,12 @@ public sealed class SyncService<TItem>(
     }
 
     /// <summary>
-    /// Exports contacts from the named endpoint to a local directory.
-    /// One JSON file is written per contact, using the effective contact name when available.
-    /// Any existing <c>*.json</c> files and exported photo files in
-    /// <paramref name="outputDirectory"/> are deleted before writing.
+    /// Exports items from the named endpoint to a local directory as JSON files.
     /// </summary>
-    /// <param name="endpointName">The endpoint key in <c>appsettings.json</c>.</param>
-    /// <param name="outputDirectory">The destination directory path.</param>
-    /// <param name="filter">Optional OData-style filter.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <remarks>
+    /// One JSON file is written per item, using the contact name as the filename when available.
+    /// Any existing <c>*.json</c> and photo files in <paramref name="outputDirectory"/> are deleted before writing.
+    /// </remarks>
     public async Task ExportAsync(
         string endpointName,
         string outputDirectory,
@@ -181,16 +171,7 @@ public sealed class SyncService<TItem>(
     /// <summary>
     /// Synchronizes contacts between two configured endpoints.
     /// </summary>
-    /// <param name="fromEndpoint">Name of the source endpoint.</param>
-    /// <param name="toEndpoint">Name of the destination endpoint.</param>
-    /// <param name="mode">Sync direction.</param>
-    /// <param name="whatIf">When <c>true</c>, logs actions without writing any changes.</param>
-    /// <param name="filter">Optional in-memory filter; only matching contacts are touched.</param>
-    /// <param name="full">When <c>true</c>, re-enumerates both sides in full regardless of cursor state.</param>
-    /// <param name="force">When <c>true</c>, unconditionally writes all in-scope items, bypassing sameness checks.</param>
-    /// <param name="deletePolicy">Delete handling policy.</param>
-    /// <param name="conflictPolicy">Conflict resolution policy.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
+
     public async Task<JobExecutionResult> SyncAsync(
         string fromEndpoint,
         string toEndpoint,
@@ -231,20 +212,13 @@ public sealed class SyncService<TItem>(
     }
 
     /// <summary>
-    /// Imports contacts from a local directory of JSON files into the named endpoint.
-    /// Each JSON file is deserialized as a <see cref="CanonicalContact"/>.
-    /// If a same-name image file exists alongside the JSON, it is attached as the contact photo;
-    /// if no image file is found, the photo is explicitly cleared.
-    /// Contacts are upserted using the same matching logic as the sync engine.
+    /// Imports items from a directory of JSON files into the named endpoint.
     /// </summary>
-    /// <param name="sourceDirectory">Path to the local directory containing JSON files.</param>
-    /// <param name="toEndpoint">Name of the destination endpoint.</param>
-    /// <param name="prune">
-    /// When <c>true</c>, deletes any contact on the destination that did not appear in the import set.
-    /// </param>
-    /// <param name="filter">Optional OData-style filter applied to the JSON files before importing.</param>
-    /// <param name="whatIf">When <c>true</c>, logs actions without writing any changes.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <remarks>
+    /// Each JSON file is deserialized as the canonical item type. Same-name image files are attached
+    /// as the contact photo; if no image file is found the photo is explicitly cleared. Items are
+    /// upserted using the same matching logic as the sync engine.
+    /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "KagamiJsonContext supports all possible types of TItem")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "KagamiJsonContext supports all possible types of TItem")]
     public async Task<ImportResult> ImportAsync(
@@ -437,13 +411,12 @@ public sealed class SyncService<TItem>(
     }
 
     /// <summary>
-    /// Builds a connector for the named endpoint using the registered connector resolver.
+    /// Resolves and returns a connector for the named endpoint.
     /// </summary>
     private IConnector<TItem> BuildConnector(string endpointName) => connectorResolver(endpointName);
 
     /// <summary>
-    /// Returns the base filename for an exported item, derived from the contact display name or
-    /// provider ID when no name is available.
+    /// Derives the base filename for an exported item.
     /// </summary>
     private static string BuildExportBaseName(CanonicalItem item) => item switch
     {
@@ -452,7 +425,7 @@ public sealed class SyncService<TItem>(
     };
 
     /// <summary>
-    /// Serializes <paramref name="item"/> to JSON using the import/export serializer options.
+    /// Serializes an item to JSON using the import/export serializer options.
     /// </summary>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "KagamiJsonContext supports all possible types of item")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "KagamiJsonContext supports all possible types of item")]

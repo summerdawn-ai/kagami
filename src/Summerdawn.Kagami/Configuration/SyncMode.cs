@@ -1,22 +1,22 @@
 namespace Summerdawn.Kagami.Configuration;
 
 /// <summary>
-/// Sync direction and mode policy for a job.
+/// Specifies the direction and mode in which items are synchronized.
 /// </summary>
 public enum SyncMode
 {
     /// <summary>
-    /// Changes flow in both directions: source→destination and destination→source.
+    /// Specifies that changes flow in both directions.
     /// </summary>
     Bidirectional,
 
     /// <summary>
-    /// Changes flow from source to destination only.
+    /// Specifies that changes flow from source to destination only.
     /// </summary>
     Forward,
 
     /// <summary>
-    /// Changes flow from destination to source only.
+    /// Specifies that changes flow from destination to source only.
     /// Kept for config-file compatibility; prefer swapping <c>--from</c>/<c>--to</c> instead.
     /// </summary>
     Reverse,

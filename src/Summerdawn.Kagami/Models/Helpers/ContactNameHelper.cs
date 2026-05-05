@@ -4,7 +4,7 @@ using System.Text;
 namespace Summerdawn.Kagami.Models;
 
 /// <summary>
-/// Utility methods for deriving display-friendly names and safe filenames from a
+/// Provides utility methods for deriving display-friendly names and export filenames from a
 /// <see cref="CanonicalContact"/>.
 /// </summary>
 public static class ContactNameHelper
@@ -31,10 +31,12 @@ public static class ContactNameHelper
 
     /// <summary>
     /// Builds a safe base filename for an exported contact JSON file.
+    /// </summary>
+    /// <remarks>
     /// The name is derived from the contact's effective name, sanitized to ASCII lowercase with
     /// underscores replacing non-letter characters. Falls back to a sanitized provider ID when
     /// the name produces an empty result.
-    /// </summary>
+    /// </remarks>
     public static string BuildExportBaseName(CanonicalContact contact)
     {
         string name = GetName(contact);
@@ -51,8 +53,8 @@ public static class ContactNameHelper
     }
 
     /// <summary>
-    /// Converts a display name to a lowercase ASCII identifier by replacing non-letter characters
-    /// with underscores. Leading and trailing underscores are trimmed.
+    /// Converts a display name to a lowercase ASCII identifier, replacing non-letter characters
+    /// with underscores and trimming leading and trailing underscores.
     /// </summary>
     private static string SanitizeName(string value)
     {
@@ -73,9 +75,8 @@ public static class ContactNameHelper
     }
 
     /// <summary>
-    /// Converts a provider ID string to a safe lowercase filename by keeping alphanumeric
-    /// characters and converting spaces, hyphens, dots and apostrophes to underscores.
-    /// Consecutive underscores are collapsed; returns <c>"unknown"</c> for an empty result.
+    /// Converts a provider ID string to a safe lowercase filename, keeping alphanumeric characters
+    /// and collapsing separator characters to underscores. Returns <c>"unknown"</c> for an empty result.
     /// </summary>
     private static string SanitizeId(string value)
     {

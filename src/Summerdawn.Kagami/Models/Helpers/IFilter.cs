@@ -1,7 +1,7 @@
 namespace Summerdawn.Kagami.Models;
 
 /// <summary>
-/// A predicate filter over a sequence of <typeparamref name="TItem"/> instances.
+/// Defines a predicate filter over a sequence of <typeparamref name="TItem"/> instances.
 /// </summary>
 /// <remarks>
 /// Implementors should also expose a <see cref="Scope"/> string that identifies the filter
@@ -10,12 +10,12 @@ namespace Summerdawn.Kagami.Models;
 public interface IFilter<TItem> where TItem : CanonicalItem
 {
     /// <summary>
-    /// Returns <c>true</c> when <paramref name="item"/> matches the filter.
+    /// Determines whether <paramref name="item"/> matches the filter.
     /// </summary>
     public bool Matches(TItem item);
 
     /// <summary>
-    /// Gets the raw filter expression string that uniquely identifies this filter's scope.
+    /// Gets the raw filter expression that uniquely identifies this filter's scope.
     /// </summary>
     public string Scope { get; }
 

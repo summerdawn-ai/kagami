@@ -1,37 +1,37 @@
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
-/// Outcome of a <see cref="JobExecutor"/> run.
+/// Represents the outcome of a <see cref="JobExecutor"/> run.
 /// </summary>
 public sealed class JobExecutionResult
 {
     /// <summary>
-    /// Job key.
+    /// Gets or sets the job key.
     /// </summary>
     public string JobKey { get; set; } = string.Empty;
 
     /// <summary>
-    /// Whether the job ran and succeeded.
+    /// Gets or sets a value indicating whether the job ran and completed successfully.
     /// </summary>
     public bool Succeeded { get; set; }
 
     /// <summary>
-    /// Whether the job was skipped (e.g., due to a lease held by another instance).
+    /// Gets or sets a value indicating whether the job was skipped (e.g., because a lease was already held).
     /// </summary>
     public bool Skipped { get; set; }
 
     /// <summary>
-    /// Human-readable reason the job was skipped.
+    /// Gets or sets a human-readable reason the job was skipped.
     /// </summary>
     public string? SkipReason { get; set; }
 
     /// <summary>
-    /// Total number of write actions planned (excludes Skip actions).
+    /// Gets or sets the total number of write actions planned (excludes Skip actions).
     /// </summary>
     public int ActionsPlanned { get; set; }
 
     /// <summary>
-    /// Error details if the job failed.
+    /// Gets or sets the error message when the job failed.
     /// </summary>
     public string? Error { get; set; }
 }

@@ -26,7 +26,9 @@ public static class KagamiServiceCollectionExtensions
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Summerdawn.ai", "Kagami");
 
-    /// <summary>Adds Kagami core services to the DI container.</summary>
+    /// <summary>
+    /// Adds Kagami core services to the DI container.
+    /// </summary>
     public static IServiceCollection AddKagami(this IServiceCollection services, IConfiguration configuration)
     {
         var options = new KagamiOptions();
@@ -103,7 +105,7 @@ public static class KagamiServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Returns the OAuth scopes required for the given endpoint type.
+    /// Returns the OAuth scopes required for the named endpoint type.
     /// </summary>
     private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType switch
     {
@@ -113,8 +115,7 @@ public static class KagamiServiceCollectionExtensions
     };
 
     /// <summary>
-    /// Registers a named <see cref="HttpClient"/> for the given endpoint, configured with a
-    /// standard resilience pipeline that honours <c>Retry-After</c> headers on HTTP 429 responses.
+    /// Registers a named <see cref="HttpClient"/> for the endpoint, configured with a resilience pipeline that honours <c>Retry-After</c> headers.
     /// </summary>
     private static void RegisterEndpointHttpClient(IServiceCollection services, string endpointName, string endpointType)
     {

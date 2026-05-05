@@ -1,12 +1,12 @@
 namespace Summerdawn.Kagami.Persistence;
 
 /// <summary>
-/// Appends operation log entries for audit and debugging purposes.
+/// Provides append-only logging of sync operations for audit and debugging.
 /// </summary>
 public sealed class OperationLogRepository(StateDatabase db)
 {
     /// <summary>
-    /// Appends a single operation log entry.
+    /// Appends an operation log entry.
     /// </summary>
     public async Task AppendAsync(string jobKey, string entityType, string operation, string itemId, string side, string result, string? detail = null, CancellationToken cancellationToken = default)
     {

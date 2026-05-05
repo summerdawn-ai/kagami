@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 namespace Summerdawn.Kagami.Models;
 
 /// <summary>
-/// Reads and writes contact photo data stored in a <see cref="CanonicalContact"/>'s metadata bag.
+/// Manages contact photo data stored in the metadata bag of a <see cref="CanonicalContact"/>.
 /// </summary>
 /// <remarks>
 /// Photos are encoded as Base64 strings under well-known metadata keys. Three states are tracked:
@@ -43,17 +43,16 @@ internal static class ContactPhotoMetadataHelper
     }
 
     /// <summary>
-    /// Returns <c>true</c> when the contact's metadata confirms that no photo exists (absent
-    /// state). Returns <c>false</c> in both the present and unknown states.
+    /// Determines whether the contact's metadata confirms that no photo exists.
+    /// Returns <c>false</c> in both the present and unknown states.
     /// </summary>
     public static bool HasKnownAbsence(CanonicalContact contact) =>
         contact.Metadata.TryGetValue(PhotoPresenceKey, out string? presence)
         && string.Equals(presence, "absent", StringComparison.Ordinal);
 
     /// <summary>
-    /// Returns a deterministic hash of the photo on <paramref name="contact"/>.
-    /// Returns <c>null</c> when photo presence has not yet been determined (loader not yet run).
-    /// Returns a fixed sentinel string when the contact is known to have no photo.
+    /// Computes a deterministic hash of the contact's photo, or returns <c>null</c> when photo
+    /// presence is unknown, or a fixed sentinel string when the contact has no photo.
     /// </summary>
     public static string? ComputePhotoHash(CanonicalContact contact)
     {
@@ -76,8 +75,8 @@ internal static class ContactPhotoMetadataHelper
     }
 
     /// <summary>
-    /// Reads <paramref name="photoBytes"/> and <paramref name="contentType"/> from the contact's
-    /// metadata. Returns <c>false</c> when no photo is present or the stored bytes are corrupt.
+    /// Reads the photo bytes and content type from the contact's metadata.
+    /// Returns <c>false</c> when no photo is present or the stored bytes are corrupt.
     /// </summary>
     public static bool TryGetPhoto(CanonicalContact contact, out byte[] photoBytes, out string contentType)
     {
@@ -105,7 +104,9 @@ internal static class ContactPhotoMetadataHelper
         return true;
     }
 
-    /// <summary>Returns a content-type string for a given file extension.</summary>
+    /// <summary>
+    /// Returns the MIME content type for the given file extension.
+    /// </summary>
     public static string GetContentTypeFromExtension(string extension) =>
         extension.ToLowerInvariant() switch
         {
@@ -117,7 +118,9 @@ internal static class ContactPhotoMetadataHelper
             _ => "application/octet-stream",
         };
 
-    /// <summary>Explicitly clears any photo metadata from the contact.</summary>
+    /// <summary>
+    /// Clears any stored photo and marks the contact as having no photo.
+    /// </summary>
     public static void ClearPhoto(CanonicalContact contact)
     {
         contact.Metadata.Remove(PhotoBytesKey);

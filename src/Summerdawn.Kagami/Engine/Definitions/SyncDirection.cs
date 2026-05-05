@@ -1,17 +1,17 @@
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
-/// Identifies the direction of a sync action.
+/// Specifies the direction of a sync action.
 /// </summary>
 public enum SyncDirection
 {
     /// <summary>
-    /// Update the destination side from the source.
+    /// Specifies that the destination side is written from the source.
     /// </summary>
     SourceToDestination,
 
     /// <summary>
-    /// Update the source side from the destination.
+    /// Specifies that the source side is written from the destination.
     /// </summary>
     DestinationToSource,
 }

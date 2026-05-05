@@ -1,24 +1,24 @@
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
-/// Kind of sync action.
+/// Specifies the kind of operation a sync action represents.
 /// </summary>
 public enum SyncActionKind
 {
     /// <summary>
-    /// Create a new item on the target side.
+    /// Specifies that a new item should be created on the target side.
     /// </summary>
     Create,
     /// <summary>
-    /// Update an existing item on the target side.
+    /// Specifies that an existing item on the target side should be updated.
     /// </summary>
     Update,
     /// <summary>
-    /// Delete an item on the target side.
+    /// Specifies that an item on the target side should be deleted.
     /// </summary>
     Delete,
     /// <summary>
-    /// No action possible, or conflict skipped per policy.
+    /// Specifies that no write should be performed, either because nothing changed or a conflict was skipped per policy.
     /// </summary>
     Skip,
 }
