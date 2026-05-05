@@ -5,12 +5,23 @@ namespace Summerdawn.Kagami.Configuration;
 /// </summary>
 public enum ConflictPolicy
 {
-    /// <summary>Most recently modified item wins.</summary>
+    /// <summary>
+    /// The most recently modified item wins.
+    /// </summary>
     LastWriteWins,
-    /// <summary>Source side always wins.</summary>
+
+    /// <summary>
+    /// The source side always wins, regardless of modification time.
+    /// </summary>
     SourceWins,
-    /// <summary>Destination side always wins.</summary>
+
+    /// <summary>
+    /// The destination side always wins, regardless of modification time.
+    /// </summary>
     DestinationWins,
-    /// <summary>Flag the conflict and skip the update.</summary>
+
+    /// <summary>
+    /// Flag the conflict and skip the update without writing either side.
+    /// </summary>
     Skip,
 }

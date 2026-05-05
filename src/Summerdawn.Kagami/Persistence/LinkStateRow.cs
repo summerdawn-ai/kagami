@@ -6,54 +6,88 @@ namespace Summerdawn.Kagami.Persistence;
 /// </summary>
 public sealed class LinkStateRow
 {
-    /// <summary>Auto-increment primary key.</summary>
+    /// <summary>
+    /// Auto-increment primary key.
+    /// </summary>
     public long Id { get; set; }
 
-    /// <summary>Stable configured job key (partition key).</summary>
+    /// <summary>
+    /// Stable configured job key (partition key).
+    /// </summary>
     public string JobKey { get; set; } = string.Empty;
 
-    /// <summary>Entity type (e.g., "calendar-event", "contact").</summary>
+    /// <summary>
+    /// Entity type (e.g., "calendar-event", "contact").
+    /// </summary>
     public string EntityType { get; set; } = string.Empty;
 
-    /// <summary>Provider ID on the source side.</summary>
+    /// <summary>
+    /// Provider ID on the source side.
+    /// </summary>
     public string SourceId { get; set; } = string.Empty;
 
-    /// <summary>Provider ID on the destination side (null before first successful sync).</summary>
+    /// <summary>
+    /// Provider ID on the destination side. Null before the first successful sync.
+    /// </summary>
     public string? DestinationId { get; set; }
 
-    /// <summary>Version/etag on the source side.</summary>
+    /// <summary>
+    /// Version/ETag on the source side at the time of the last sync.
+    /// </summary>
     public string? SourceVersion { get; set; }
 
-    /// <summary>Version/etag on the destination side.</summary>
+    /// <summary>
+    /// Version/ETag on the destination side at the time of the last sync.
+    /// </summary>
     public string? DestinationVersion { get; set; }
 
-    /// <summary>Content hash on the source side.</summary>
+    /// <summary>
+    /// Content hash on the source side at the time of the last sync.
+    /// </summary>
     public string? SourceHash { get; set; }
 
-    /// <summary>Content hash on the destination side.</summary>
+    /// <summary>
+    /// Content hash on the destination side at the time of the last sync.
+    /// </summary>
     public string? DestinationHash { get; set; }
 
-    /// <summary>Whether the source side has deleted this item.</summary>
+    /// <summary>
+    /// Whether the source side has deleted this item.
+    /// </summary>
     public bool SourceDeleted { get; set; }
 
-    /// <summary>Whether the destination side has deleted this item.</summary>
+    /// <summary>
+    /// Whether the destination side has deleted this item.
+    /// </summary>
     public bool DestinationDeleted { get; set; }
 
-    /// <summary>Last time the source side was observed.</summary>
+    /// <summary>
+    /// When the source side was last observed.
+    /// </summary>
     public DateTimeOffset? SourceLastSeen { get; set; }
 
-    /// <summary>Last time the destination side was observed.</summary>
+    /// <summary>
+    /// When the destination side was last observed.
+    /// </summary>
     public DateTimeOffset? DestinationLastSeen { get; set; }
 
-    /// <summary>Which side originally created the item ("Source" or "Destination").</summary>
+    /// <summary>
+    /// Which side originally created the item (<c>"Source"</c> or <c>"Destination"</c>).
+    /// </summary>
     public string? OriginSide { get; set; }
 
-    /// <summary>When the item was last successfully synchronized.</summary>
+    /// <summary>
+    /// When the item was last successfully synchronized.
+    /// </summary>
     public DateTimeOffset? LastSyncedAt { get; set; }
 
-    /// <summary>Result of the last sync operation.</summary>
+    /// <summary>
+    /// Result of the last sync operation (e.g. <c>"created"</c>, <c>"updated"</c>, <c>"unchanged"</c>).
+    /// </summary>
     public string? LastSyncResult { get; set; }
 
-    /// <summary>Current conflict state, if any.</summary>
+    /// <summary>
+    /// Current conflict state, if any.
+    /// </summary>
     public string? ConflictState { get; set; }
 }

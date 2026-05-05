@@ -5,9 +5,13 @@ namespace Summerdawn.Kagami.Engine;
 /// </summary>
 public enum SyncDirection
 {
-    /// <summary>Update Destination side from Source.</summary>
+    /// <summary>
+    /// Update the destination side from the source.
+    /// </summary>
     SourceToDestination,
 
-    /// <summary>Update Source side from Destination.</summary>
+    /// <summary>
+    /// Update the source side from the destination.
+    /// </summary>
     DestinationToSource,
 }

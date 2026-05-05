@@ -7,11 +7,13 @@ namespace Summerdawn.Kagami.Connectors;
 /// </summary>
 public interface IConnector<TItem> where TItem : CanonicalItem
 {
-    /// <summary>Gets the connector's capability declaration.</summary>
+    /// <summary>
+    /// Gets the connector's capability declaration.
+    /// </summary>
     public ConnectorCapabilities Capabilities { get; }
 
     /// <summary>
-    /// Performs any required authentication / initialization.
+    /// Performs any required authentication or initialization.
     /// </summary>
     public Task AuthenticateAsync(CancellationToken cancellationToken = default);
 
@@ -28,7 +30,7 @@ public interface IConnector<TItem> where TItem : CanonicalItem
     public Task<IncrementalPage<TItem>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reads a single item by its provider ID.
+    /// Reads a single item by its provider ID. Returns <c>null</c> when the item does not exist.
     /// </summary>
     public Task<TItem?> GetItemAsync(string id, CancellationToken cancellationToken = default);
 
@@ -38,7 +40,7 @@ public interface IConnector<TItem> where TItem : CanonicalItem
     public Task<TItem> CreateItemAsync(TItem item, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Updates an existing item.
+    /// Updates an existing item and returns the updated item.
     /// </summary>
     public Task<TItem> UpdateItemAsync(TItem item, CancellationToken cancellationToken = default);
 

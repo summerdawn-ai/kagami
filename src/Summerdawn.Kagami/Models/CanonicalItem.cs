@@ -7,6 +7,9 @@ namespace Summerdawn.Kagami.Models;
 /// </summary>
 public abstract record CanonicalItem
 {
+    /// <summary>
+    /// Provider-assigned identity and change-tracking metadata for this item.
+    /// </summary>
     public ItemProvenance Provenance { get; set; } = new();
 
     /// <summary>

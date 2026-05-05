@@ -7,9 +7,21 @@ using Summerdawn.Kagami.Serialization;
 
 namespace Summerdawn.Kagami.Models;
 
+/// <summary>
+/// Computes and compares SHA-256 content hashes for canonical items.
+/// Hashes are derived from the serialized canonical payload, excluding provenance fields,
+/// so that two items with the same content but different provider IDs hash identically.
+/// </summary>
 internal static class ContentHashHelper
 {
-
+    /// <summary>
+    /// Computes a hex-encoded SHA-256 hash of <paramref name="item"/>'s canonical payload.
+    /// </summary>
+    /// <remarks>
+    /// The hash is computed from a JSON serialization that uses the hash-specific serializer
+    /// context, which excludes provenance data and other non-canonical fields so the hash is
+    /// stable across providers.
+    /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "KagamiJsonContext supports all possible types of item")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "KagamiJsonContext supports all possible types of item")]
     public static string ComputeContentHash(CanonicalItem item)
@@ -25,6 +37,10 @@ internal static class ContentHashHelper
         return Convert.ToHexString(hash);
     }
 
+    /// <summary>
+    /// Sets <see cref="ItemProvenance.ContentHash"/> on <paramref name="item"/> if it is not
+    /// already populated, then returns <paramref name="item"/>.
+    /// </summary>
     public static TItem WithComputedHash<TItem>(TItem item) where TItem : CanonicalItem
     {
         item.Provenance.ContentHash ??= ComputeContentHash(item);

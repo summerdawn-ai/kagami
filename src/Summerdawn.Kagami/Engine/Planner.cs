@@ -29,17 +29,17 @@ public sealed class Planner(ILogger<Planner> logger)
     /// </list>
     /// The returned list never contains two actions that share the same source item or the same
     /// target item.
+    /// <para>
+    /// <see cref="JobOptions.Force"/> bypasses both HasChanged and the content-sameness check,
+    /// causing every in-scope item to be written unconditionally.
+    /// <see cref="JobOptions.Full"/> only affects cursor behavior in the executor; the planner
+    /// treats it identically to a normal run.
+    /// </para>
     /// </remarks>
     /// <param name="jobOptions">The job configuration.</param>
     /// <param name="sourceItems">Current items observed on source.</param>
     /// <param name="destinationItems">Current items observed on destination.</param>
     /// <param name="existingLinks">Current link state rows for this job.</param>
-    /// <remarks>
-    /// <see cref="JobOptions.Force"/> bypasses both HasChanged and the content-sameness check,
-    /// causing every in-scope item to be written unconditionally.
-    /// <see cref="JobOptions.Full"/> only affects cursor behavior in the executor; the planner
-    /// treats it identically to a normal run.
-    /// </remarks>
     public IReadOnlyList<SyncAction<TItem>> PlanActions<TItem>(
         JobOptions jobOptions,
         IReadOnlyList<TItem> sourceItems,
@@ -466,6 +466,15 @@ public sealed class Planner(ILogger<Planner> logger)
         }
     }
 
+    /// <summary>
+    /// Returns <c>true</c> when <paramref name="item"/> has a newer version or hash than the
+    /// value recorded in <paramref name="link"/> for the given <paramref name="direction"/>.
+    /// </summary>
+    /// <remarks>
+    /// Version is checked first; content hash is used as a fallback when version is unavailable.
+    /// When neither is present for either the item or the link, the method conservatively
+    /// returns <c>true</c> (assume changed) to avoid silently dropping updates.
+    /// </remarks>
     private static bool HasChanged(CanonicalItem item, LinkStateRow link, SyncDirection direction)
     {
         if (direction == DestinationToSource)
@@ -497,6 +506,15 @@ public sealed class Planner(ILogger<Planner> logger)
         return true;
     }
 
+    /// <summary>
+    /// Resolves a conflict between source and destination using the configured
+    /// <see cref="JobOptions.ConflictPolicy"/>.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ConflictPolicy.LastWriteWins"/> is the default fallback and delegates to
+    /// <see cref="ResolveLastWriteWinsConflict{TItem}"/>. All other policies are handled inline
+    /// via a switch expression and never call that helper.
+    /// </remarks>
     private static SyncAction<TItem> ResolveConflict<TItem>(
         TItem? sourceItem,
         TItem? destinationItem,
@@ -544,6 +562,19 @@ public sealed class Planner(ILogger<Planner> logger)
             _ => ResolveLastWriteWinsConflict(sourceItem, destinationItem, direction),
         };
 
+    /// <summary>
+    /// Resolves a conflict using the last-write-wins heuristic: the item with the newer
+    /// <see cref="ItemProvenance.LastModified"/> timestamp wins.
+    /// </summary>
+    /// <remarks>
+    /// Tie-breaking rules when timestamps are equal or unavailable:
+    /// <list type="bullet">
+    ///   <item>Equal timestamps favour the natural <paramref name="direction"/> (source).</item>
+    ///   <item>When only the source has a timestamp, source wins.</item>
+    ///   <item>When destination wins but the sync mode does not allow a reverse write, a Skip is
+    ///   emitted instead.</item>
+    /// </list>
+    /// </remarks>
     private static SyncAction<TItem> ResolveLastWriteWinsConflict<TItem>(
         TItem? sourceItem,
         TItem? destinationItem,

@@ -5,10 +5,14 @@ namespace Summerdawn.Kagami.Configuration;
 /// </summary>
 public sealed class CredentialOptions
 {
-    /// <summary>Credential type value for Google OAuth 2.0.</summary>
+    /// <summary>
+    /// Credential type value for Google OAuth 2.0.
+    /// </summary>
     public const string GoogleOAuthCredential = "GoogleOAuthCredential";
 
-    /// <summary>Credential type value for Microsoft client credentials (confidential client / app-only auth).</summary>
+    /// <summary>
+    /// Credential type value for Microsoft client credentials (confidential client / app-only auth).
+    /// </summary>
     public const string MicrosoftClientCredential = "MicrosoftClientCredential";
 
     /// <summary>
@@ -18,20 +22,30 @@ public sealed class CredentialOptions
 
     // ── GoogleOAuthCredential ─────────────────────────────────────────────
 
-    /// <summary>Google OAuth client ID / Microsoft app registration client ID.</summary>
+    /// <summary>
+    /// Google OAuth client ID / Microsoft app registration client ID.
+    /// </summary>
     public string? ClientId { get; set; }
 
-    /// <summary>Google OAuth client secret / Microsoft app registration client secret.</summary>
+    /// <summary>
+    /// Google OAuth client secret / Microsoft app registration client secret.
+    /// </summary>
     public string? ClientSecret { get; set; }
 
     // ── MicrosoftClientCredential ─────────────────────────────────────────
 
-    /// <summary>Entra tenant ID.</summary>
+    /// <summary>
+    /// Entra tenant ID.
+    /// </summary>
     public string? TenantId { get; set; }
 
-    /// <summary>Optional PFX/PKCS#12 certificate path (alternative to ClientSecret).</summary>
+    /// <summary>
+    /// Optional PFX/PKCS#12 certificate path (alternative to <see cref="ClientSecret"/>).
+    /// </summary>
     public string? CertificatePath { get; set; }
 
-    /// <summary>Optional certificate password.</summary>
+    /// <summary>
+    /// Password for the certificate at <see cref="CertificatePath"/>.
+    /// </summary>
     public string? CertificatePassword { get; set; }
 }

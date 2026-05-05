@@ -17,7 +17,9 @@ public sealed class SyncHost(
     StateDatabase stateDb,
     ILogger<SyncHost> logger)
 {
-    /// <summary>Runs the enabled jobs once and returns, optionally filtered to a single job.</summary>
+    /// <summary>
+    /// Runs the enabled jobs once and returns, optionally filtered to a single job.
+    /// </summary>
     public async Task RunOnceAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
     {
         await stateDb.InitializeAsync(cancellationToken);
@@ -26,7 +28,13 @@ public sealed class SyncHost(
         await ExecuteJobsAsync(jobs, whatIf, cancellationToken);
     }
 
-    /// <summary>Runs continuously, polling the enabled jobs on their configured schedules.</summary>
+    /// <summary>
+    /// Runs continuously, polling the enabled jobs on their configured schedules.
+    /// </summary>
+    /// <remarks>
+    /// The scheduler loop checks at most every <see cref="KagamiHostOptions.SchedulerIntervalSeconds"/>
+    /// seconds for jobs whose interval has elapsed since their last run.
+    /// </remarks>
     public async Task RunContinuousAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
     {
         await stateDb.InitializeAsync(cancellationToken);
@@ -57,6 +65,10 @@ public sealed class SyncHost(
         }
     }
 
+    /// <summary>
+    /// Dispatches each job to <see cref="JobExecutor"/> concurrently, bounded by
+    /// <see cref="KagamiHostOptions.MaxConcurrentJobs"/>.
+    /// </summary>
     private async Task ExecuteJobsAsync(
         IReadOnlyList<KeyValuePair<string, JobOptions>> jobs,
         bool whatIf,
@@ -78,7 +90,9 @@ public sealed class SyncHost(
         await Task.WhenAll(tasks);
     }
 
-    /// <summary>Force-releases all job leases. Returns the number of locks cleared.</summary>
+    /// <summary>
+    /// Force-releases all job leases. Returns the number of locks cleared.
+    /// </summary>
     public async Task<int> UnlockAllJobsAsync(CancellationToken cancellationToken = default)
     {
         await stateDb.InitializeAsync(cancellationToken);
@@ -88,7 +102,9 @@ public sealed class SyncHost(
         return cleared;
     }
 
-    /// <summary>Resets the sync state for the given job key.</summary>
+    /// <summary>
+    /// Resets the sync state for the given job key.
+    /// </summary>
     public async Task ResetJobAsync(string jobKey, CancellationToken cancellationToken = default)
     {
         await stateDb.InitializeAsync(cancellationToken);
@@ -105,6 +121,10 @@ public sealed class SyncHost(
         logger.LogInformation("Reset job {JobKey}: link state and cursors cleared", jobKey);
     }
 
+    /// <summary>
+    /// Resolves the correct generic overload of <see cref="ExecuteJobAsync{TItem}"/> based on
+    /// <see cref="JobOptions.EntityType"/> and dispatches the job.
+    /// </summary>
     private Task ExecuteJobAsync(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken)
     {
         try
@@ -124,6 +144,10 @@ public sealed class SyncHost(
         }
     }
 
+    /// <summary>
+    /// Resolves the source and destination connectors for a typed job and delegates to
+    /// <see cref="JobExecutor.ExecuteAsync{TItem}"/>.
+    /// </summary>
     private async Task ExecuteJobAsync<TItem>(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         try
@@ -142,11 +166,18 @@ public sealed class SyncHost(
         }
     }
 
+    /// <summary>
+    /// Returns all enabled jobs matching the optional key filter.
+    /// </summary>
     private List<KeyValuePair<string, JobOptions>> GetEnabledJobs(string? jobKeyFilter) =>
         options.Jobs
             .Where(kvp => kvp.Value.Enabled && (jobKeyFilter is null || kvp.Key == jobKeyFilter))
             .ToList();
 
+    /// <summary>
+    /// Parses a simplified ISO 8601 duration string (e.g. <c>PT15M</c>, <c>PT2H</c>, <c>PT30S</c>)
+    /// into a <see cref="TimeSpan"/>. Returns 15 minutes for unrecognised formats.
+    /// </summary>
     private static TimeSpan ParseInterval(string schedule)
     {
         if (schedule.StartsWith("PT", StringComparison.OrdinalIgnoreCase))

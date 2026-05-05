@@ -5,12 +5,23 @@ namespace Summerdawn.Kagami.Engine;
 /// </summary>
 public sealed class ImportResult
 {
-    /// <summary>Number of contacts created.</summary>
+    /// <summary>
+    /// Number of contacts created.
+    /// </summary>
     public int Created { get; init; }
-    /// <summary>Number of contacts updated.</summary>
+
+    /// <summary>
+    /// Number of contacts updated.
+    /// </summary>
     public int Updated { get; init; }
-    /// <summary>Number of contacts deleted (only when --prune is used).</summary>
+
+    /// <summary>
+    /// Number of contacts deleted (only populated when <c>--prune</c> is used).
+    /// </summary>
     public int Deleted { get; init; }
-    /// <summary>Total contacts processed (created + updated).</summary>
+
+    /// <summary>
+    /// Total contacts processed (created + updated).
+    /// </summary>
     public int TotalUpserted => Created + Updated;
 }

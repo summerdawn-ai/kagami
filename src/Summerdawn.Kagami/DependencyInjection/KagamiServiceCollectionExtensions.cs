@@ -102,6 +102,9 @@ public static class KagamiServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Returns the OAuth scopes required for the given endpoint type.
+    /// </summary>
     private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType switch
     {
         EndpointOptions.GoogleContacts => ["https://www.googleapis.com/auth/contacts"],
@@ -109,6 +112,10 @@ public static class KagamiServiceCollectionExtensions
         _ => []
     };
 
+    /// <summary>
+    /// Registers a named <see cref="HttpClient"/> for the given endpoint, configured with a
+    /// standard resilience pipeline that honours <c>Retry-After</c> headers on HTTP 429 responses.
+    /// </summary>
     private static void RegisterEndpointHttpClient(IServiceCollection services, string endpointName, string endpointType)
     {
         var builder = services.AddHttpClient($"kagami-{endpointName}", client =>

@@ -1,12 +1,15 @@
 using Microsoft.Data.Sqlite;
 
 namespace Summerdawn.Kagami.Persistence;
+
 /// <summary>
 /// CRUD operations for link-state rows, partitioned by job key.
 /// </summary>
 public sealed class LinkStateRepository(StateDatabase db)
 {
-    /// <summary>Returns all link rows for a given job key.</summary>
+    /// <summary>
+    /// Returns all link rows for a given job key.
+    /// </summary>
     public async Task<IReadOnlyList<LinkStateRow>> GetByJobAsync(string jobKey, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -16,7 +19,9 @@ public sealed class LinkStateRepository(StateDatabase db)
         return await ReadRowsAsync(cmd, cancellationToken);
     }
 
-    /// <summary>Returns the link row matching a source item ID within a job.</summary>
+    /// <summary>
+    /// Returns the link row matching a source item ID within a job, or <c>null</c> when not found.
+    /// </summary>
     public async Task<LinkStateRow?> GetBySourceIdAsync(string jobKey, string sourceId, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -28,7 +33,9 @@ public sealed class LinkStateRepository(StateDatabase db)
         return rows.Count > 0 ? rows[0] : null;
     }
 
-    /// <summary>Returns the link row matching a destination item ID within a job.</summary>
+    /// <summary>
+    /// Returns the link row matching a destination item ID within a job, or <c>null</c> when not found.
+    /// </summary>
     public async Task<LinkStateRow?> GetByDestinationIdAsync(string jobKey, string destinationId, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -40,7 +47,9 @@ public sealed class LinkStateRepository(StateDatabase db)
         return rows.Count > 0 ? rows[0] : null;
     }
 
-    /// <summary>Upserts a link-state row.</summary>
+    /// <summary>
+    /// Upserts a link-state row, inserting or replacing by <c>(job_key, source_id)</c>.
+    /// </summary>
     public async Task UpsertAsync(LinkStateRow row, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -95,7 +104,9 @@ public sealed class LinkStateRepository(StateDatabase db)
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    /// <summary>Deletes all link rows for a job (reset).</summary>
+    /// <summary>
+    /// Deletes all link rows for a job (full reset).
+    /// </summary>
     public async Task DeleteByJobAsync(string jobKey, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -105,6 +116,9 @@ public sealed class LinkStateRepository(StateDatabase db)
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Reads all result rows from <paramref name="cmd"/> into a list of <see cref="LinkStateRow"/>.
+    /// </summary>
     private static async Task<IReadOnlyList<LinkStateRow>> ReadRowsAsync(SqliteCommand cmd, CancellationToken cancellationToken)
     {
         var rows = new List<LinkStateRow>();

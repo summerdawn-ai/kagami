@@ -5,10 +5,14 @@ namespace Summerdawn.Kagami.Configuration;
 /// </summary>
 public sealed class EndpointOptions
 {
-    /// <summary>Connector type value for Google Contacts (People API).</summary>
+    /// <summary>
+    /// Connector type value for Google Contacts (People API).
+    /// </summary>
     public const string GoogleContacts = "GoogleContacts";
 
-    /// <summary>Connector type value for Microsoft Contacts (Exchange Online / Microsoft 365).</summary>
+    /// <summary>
+    /// Connector type value for Microsoft Contacts (Exchange Online / Microsoft 365).
+    /// </summary>
     public const string MicrosoftContacts = "MicrosoftContacts";
 
     /// <summary>

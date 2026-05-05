@@ -36,6 +36,34 @@
   // ...
   ```
 
+## Code Comments
+
+### XML documentation comments
+
+- DO add XML documentation to all public types and public members.
+- DO use multi-line XML doc tags with the opening and closing tags on their own lines:
+  ```csharp
+  /// <summary>
+  /// Summary text.
+  /// </summary>
+  ```
+- DO NOT use single-line summary tags (`/// <summary>Text.</summary>`).
+- DO add `<param>` and `<returns>` tags when they add meaningful context, especially on public API methods.
+- DO add `<remarks>` when a summary alone is insufficient to describe important behavior, constraints, or multi-step protocols.
+- DO document private methods in key orchestration and planning classes (e.g. `JobExecutor`, `Planner`) where the logic is non-trivial.
+
+### Inline comments
+
+- DO use inline comments inside method bodies to explain *intent*, *rationale*, invariants, and non-obvious protocol decisions — not to restate what the code already says clearly.
+- DO add inline comments in larger methods to delineate logical phases or steps (e.g. `// --- Phase 1: read snapshots ---`).
+- DO NOT add comments that simply repeat the method name or the type of statement being executed.
+
+### General
+
+- DO keep all comments accurate, concise, and non-redundant.
+- DO update comments whenever the behavior they describe changes.
+- DO NOT leave comments describing old behavior after a refactor.
+
 ## Agentic working
 
 - When you get a task, DO be diligent about it and do a build, run tests, get a code review etc. if appropriate.

@@ -5,7 +5,9 @@ namespace Summerdawn.Kagami.Persistence;
 /// </summary>
 public sealed class EndpointCursorRepository(StateDatabase db)
 {
-    /// <summary>Retrieves the cursor state for a named endpoint in a job, or null if none exists.</summary>
+    /// <summary>
+    /// Retrieves the cursor state for a named endpoint in a job, or <c>null</c> if none exists.
+    /// </summary>
     public async Task<EndpointCursorState?> GetCursorAsync(string jobKey, string endpointName, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -28,7 +30,9 @@ public sealed class EndpointCursorRepository(StateDatabase db)
             reader.GetString(reader.GetOrdinal("scope")));
     }
 
-    /// <summary>Upserts the cursor for a named endpoint in a job.</summary>
+    /// <summary>
+    /// Upserts the cursor for a named endpoint in a job.
+    /// </summary>
     public async Task SetCursorAsync(string jobKey, string endpointName, string scope, string cursor, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -48,7 +52,9 @@ public sealed class EndpointCursorRepository(StateDatabase db)
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    /// <summary>Deletes the cursor for a named endpoint in a job.</summary>
+    /// <summary>
+    /// Deletes the cursor for a named endpoint in a job.
+    /// </summary>
     public async Task DeleteCursorAsync(string jobKey, string endpointName, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();

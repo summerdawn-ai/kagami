@@ -436,14 +436,24 @@ public sealed class SyncService<TItem>(
         return new ImportResult { Created = created, Updated = updated, Deleted = deleted };
     }
 
+    /// <summary>
+    /// Builds a connector for the named endpoint using the registered connector resolver.
+    /// </summary>
     private IConnector<TItem> BuildConnector(string endpointName) => connectorResolver(endpointName);
 
+    /// <summary>
+    /// Returns the base filename for an exported item, derived from the contact display name or
+    /// provider ID when no name is available.
+    /// </summary>
     private static string BuildExportBaseName(CanonicalItem item) => item switch
     {
         CanonicalContact contact => ContactNameHelper.BuildExportBaseName(contact),
         _ => throw new ArgumentException("Item type not supported.")
     };
 
+    /// <summary>
+    /// Serializes <paramref name="item"/> to JSON using the import/export serializer options.
+    /// </summary>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "KagamiJsonContext supports all possible types of item")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "KagamiJsonContext supports all possible types of item")]
     private static string SerializeExportItem(CanonicalItem item) =>
