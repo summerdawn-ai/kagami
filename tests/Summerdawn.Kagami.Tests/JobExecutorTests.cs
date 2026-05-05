@@ -158,8 +158,11 @@ public sealed class JobExecutorTests : IDisposable
         Assert.False(result.Succeeded);
         // Remaining items (Bob) were still processed
         Assert.Contains(destinationConnector.Items, i => i.DisplayName == "Bob" && !i.IsDeleted);
-        // An error was logged for the failing item
-        Assert.Contains(syncLogger.Entries, e => e.Contains("a1", StringComparison.Ordinal) && e.Contains("failed", StringComparison.Ordinal));
+        // An error was logged for the failing item (permanent failure → "continuing", not "aborting run")
+        Assert.Contains(syncLogger.Entries, e =>
+            e.Contains("a1", StringComparison.Ordinal) &&
+            e.Contains("failed", StringComparison.Ordinal) &&
+            e.Contains("continuing", StringComparison.Ordinal));
         // Cursor must NOT have advanced
         var cursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None);
         Assert.Equal("old-cursor", cursor?.Cursor);
