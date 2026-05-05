@@ -69,6 +69,30 @@ public sealed class ForceSyncTests : IDisposable
     }
 
     [Fact]
+    public async Task SecondRunWithCursorAtEnd_ProducesZeroActionsAndNoSkips()
+    {
+        // Seed one contact and run a first sync to establish cursors and link state.
+        sourceConnector.Seed(CreateContact("a1", "Alice"));
+        var firstResult = await executor.ExecuteAsync(CreateJob("job-1"));
+        Assert.True(firstResult.Succeeded);
+        Assert.Equal(1, firstResult.ActionsPlanned);
+
+        // Record how many times GetInitialPageAsync was called during the first run.
+        int initialPageCallsAfterFirstRun = sourceConnector.GetInitialPageCallCount;
+
+        // Second run with no changes: the cursor is at the end of all items so the
+        // incremental read returns an empty delta. The planner sees no items and produces
+        // zero actions — including zero Skip actions.
+        var secondResult = await executor.ExecuteAsync(CreateJob("job-1"));
+        Assert.True(secondResult.Succeeded);
+        Assert.Equal(0, secondResult.ActionsPlanned);
+
+        // The source connector's initial-page endpoint must not have been called again;
+        // only the incremental (delta) endpoint should be used on this run.
+        Assert.Equal(initialPageCallsAfterFirstRun, sourceConnector.GetInitialPageCallCount);
+    }
+
+    [Fact]
     public async Task Force_WhatIf_LogsActionsWithoutWriting()
     {
         sourceConnector.Seed(CreateContact("a1", "Alice"));
@@ -177,6 +201,91 @@ public sealed class ForceSyncTests : IDisposable
         var whatIfResult = await executor.ExecuteAsync(CreateJob("job-1", full: true), whatIf: true);
         Assert.True(whatIfResult.Succeeded);
         Assert.Equal(0, whatIfResult.ActionsPlanned);
+    }
+
+    /// <summary>
+    /// When only the remote version changes (same canonical content), a normal sync produces no
+    /// write actions — the item is recognised as content-unchanged and a Skip is emitted.
+    /// The link state is refreshed with the new version so the next run does not re-evaluate.
+    /// </summary>
+    [Fact]
+    public async Task VersionBumpWithSameContent_WithoutForce_ProducesNoActions()
+    {
+        // Establish link state for "Alice" via an initial sync.
+        sourceConnector.Seed(CreateContact("a1", "Alice"));
+        await executor.ExecuteAsync(CreateJob("job-1"));
+
+        var linksAfterFirst = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        Assert.Single(linksAfterFirst);
+
+        // Bump the source version without changing any canonical content fields.
+        await sourceConnector.UpdateItemAsync(CreateContact("a1", "Alice"));
+
+        // A normal sync should detect the version change but conclude the content is
+        // identical and emit no write actions.
+        var result = await executor.ExecuteAsync(CreateJob("job-1"));
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, result.ActionsPlanned);
+
+        // Link state must be refreshed with the new source version.
+        var linksAfterSecond = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        Assert.Single(linksAfterSecond);
+        Assert.NotEqual(linksAfterFirst[0].SourceVersion, linksAfterSecond[0].SourceVersion);
+    }
+
+    /// <summary>
+    /// With <c>--force</c>, even a version-only change (identical canonical content) produces
+    /// an unconditional Update action — the content-sameness check is bypassed.
+    /// </summary>
+    [Fact]
+    public async Task VersionBumpWithSameContent_WithForce_ProducesUpdate()
+    {
+        // Establish link state for "Alice" via an initial sync.
+        sourceConnector.Seed(CreateContact("a1", "Alice"));
+        await executor.ExecuteAsync(CreateJob("job-1"));
+
+        // Bump the source version without changing any canonical content fields.
+        await sourceConnector.UpdateItemAsync(CreateContact("a1", "Alice"));
+
+        // A forced sync must produce at least one write action even though content is identical.
+        var forceResult = await executor.ExecuteAsync(CreateJob("job-1", force: true));
+        Assert.True(forceResult.Succeeded);
+        Assert.True(forceResult.ActionsPlanned > 0, "--force should produce at least one update action");
+    }
+
+    /// <summary>
+    /// An inferred link (matched by name, no prior link row) whose content is already identical
+    /// on both sides produces no write actions on a normal sync.
+    /// </summary>
+    [Fact]
+    public async Task InferredLink_IdenticalContent_WithoutForce_ProducesNoActions()
+    {
+        // Seed the same contact on both sides with identical content but different provider IDs.
+        sourceConnector.Seed(CreateContact("a1", "Alice"));
+        destinationConnector.Seed(CreateContact("b1", "Alice"));
+
+        // No link state exists — the planner will infer a link by name matching.
+        var result = await executor.ExecuteAsync(CreateJob("job-1"));
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, result.ActionsPlanned);
+    }
+
+    /// <summary>
+    /// With <c>--force</c>, an inferred link whose content is already identical on both sides
+    /// still produces an Update action — the content-sameness guard is bypassed.
+    /// </summary>
+    [Fact]
+    public async Task InferredLink_IdenticalContent_WithForce_ProducesUpdate()
+    {
+        // Seed the same contact on both sides with identical content but different provider IDs.
+        sourceConnector.Seed(CreateContact("a1", "Alice"));
+        destinationConnector.Seed(CreateContact("b1", "Alice"));
+
+        // No link state exists. With --force the content-equality guard must be bypassed
+        // and an unconditional write action must be planned.
+        var forceResult = await executor.ExecuteAsync(CreateJob("job-1", force: true));
+        Assert.True(forceResult.Succeeded);
+        Assert.True(forceResult.ActionsPlanned > 0, "--force on an inferred link should produce at least one update action");
     }
 
     private Job<CanonicalContact> CreateJob(string jobKey, bool force = false, bool full = false, string? filter = null) =>

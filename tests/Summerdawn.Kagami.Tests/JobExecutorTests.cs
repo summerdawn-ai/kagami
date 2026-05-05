@@ -145,10 +145,6 @@ public sealed class JobExecutorTests : IDisposable
         sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
         sourceConnector.Seed(CreateContactItem("a2", "v1", "Bob", email: "bob@example.com"));
 
-        // Pre-seed a cursor so we can verify it does not advance.
-        // Use "-1" so FakeConnector parses it as generation -1 and returns all gen-0 seeded items.
-        await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, "-1", CancellationToken.None);
-
         InMemoryLogger<SyncActionExecutor> syncLogger = new();
         var executor = CreateExecutor(syncLogger: syncLogger);
 
@@ -163,9 +159,9 @@ public sealed class JobExecutorTests : IDisposable
             e.Contains("a1", StringComparison.Ordinal) &&
             e.Contains("failed", StringComparison.Ordinal) &&
             e.Contains("continuing", StringComparison.Ordinal));
-        // Cursor must NOT have advanced
+        // Cursor must NOT have been written (faulted run must not advance cursors)
         var cursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None);
-        Assert.Equal("-1", cursor?.Cursor);
+        Assert.Null(cursor);
     }
 
     [Theory]
@@ -179,10 +175,6 @@ public sealed class JobExecutorTests : IDisposable
         sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
         sourceConnector.Seed(CreateContactItem("a2", "v1", "Bob", email: "bob@example.com"));
 
-        // Pre-seed a cursor so we can verify it does not advance.
-        // Use "-1" so FakeConnector parses it as generation -1 and returns all gen-0 seeded items.
-        await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, "-1", CancellationToken.None);
-
         var executor = CreateExecutor();
 
         var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
@@ -191,9 +183,9 @@ public sealed class JobExecutorTests : IDisposable
         Assert.False(result.Succeeded);
         // Second item must NOT have been processed (run aborted on transient failure)
         Assert.DoesNotContain(destinationConnector.Items, i => i.DisplayName == "Bob" && !i.IsDeleted);
-        // Cursor must NOT have advanced
+        // Cursor must NOT have been written (faulted run must not advance cursors)
         var cursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None);
-        Assert.Equal("-1", cursor?.Cursor);
+        Assert.Null(cursor);
     }
 
     [Fact]

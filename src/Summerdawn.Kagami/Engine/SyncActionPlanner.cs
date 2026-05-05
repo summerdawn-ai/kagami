@@ -36,10 +36,12 @@ namespace Summerdawn.Kagami.Engine;
 ///   </item>
 /// </list>
 /// <para>
-/// <see cref="JobOptions.Force"/> bypasses per-item change detection for persisted links,
-/// causing every in-scope item to be written unconditionally.
-/// For newly inferred pairs the content-sameness check is still applied even in Force mode:
-/// when both sides already carry identical content the link is registered without re-writing.
+/// <see cref="JobOptions.Force"/> bypasses per-item change detection for both persisted and
+/// inferred links, causing every in-scope item to be written unconditionally regardless of
+/// whether the content appears identical on both sides. Use <c>--force</c> only when normal
+/// change detection via version or content hash is known to be unreliable (for example, when
+/// destination data has drifted in ways Kagami cannot detect). For routine syncs, the default
+/// change-detection path is sufficient.
 /// </para>
 /// </remarks>
 public sealed class SyncActionPlanner(LinkCreator linkCreator)
@@ -319,9 +321,11 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     /// Plans an action for a link inferred by similarity matching; no persisted state exists.
     /// </summary>
     /// <remarks>
-    /// The content-sameness check is always applied for inferred links — even when
-    /// <see cref="JobOptions.Force"/> is set — so that first-time pairs with identical content are
-    /// simply registered without an unnecessary round-trip write.
+    /// When <see cref="JobOptions.Force"/> is set, the content-sameness check is bypassed and
+    /// an unconditional write is issued — consistent with how persisted links are handled under
+    /// <c>--force</c>. Without <c>--force</c>, identical content on both sides produces a
+    /// <see cref="SyncActionKind.Skip"/> so that already-in-sync pairs are registered without a
+    /// redundant round-trip write.
     /// </remarks>
     private static SyncAction<TItem>? PlanInferredLink<TItem>(ExaminedLink<TItem> examined, JobOptions jobOptions)
         where TItem : CanonicalItem
@@ -333,9 +337,9 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
         var source = link.SourceItem!;
         var dest = link.DestinationItem!;
 
-        // Always check content equality for new pairs — even under --force — to avoid
-        // re-writing data that is already in sync.
-        if (ContentHashHelper.HaveIdenticalContent(source, dest))
+        // Without --force: skip the write when both sides already carry identical content.
+        // Under --force: bypass this guard so the pair is written unconditionally.
+        if (!jobOptions.Force && ContentHashHelper.HaveIdenticalContent(source, dest))
         {
             var skipDirection = jobOptions.SyncMode == Reverse ? DestinationToSource : SourceToDestination;
             return new SyncAction<TItem>
