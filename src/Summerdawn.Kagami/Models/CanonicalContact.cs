@@ -40,6 +40,12 @@ public sealed record CanonicalContact : CanonicalItem
 
     /// <summary>Birthday.</summary>
     public DateOnly? Birthday { get; set; }
+
+    /// <summary>
+    /// Returns a record-style string representation of this contact.
+    /// </summary>
+    public override string ToString() =>
+        $"Contact {{ DisplayName={DisplayName}, Id={Provenance.ProviderId} }}";
 }
 
 /// <summary>Email address entry.</summary>

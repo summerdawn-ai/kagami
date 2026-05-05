@@ -13,7 +13,7 @@ namespace Summerdawn.Kagami.Tests;
 
 public sealed class PlannerTests
 {
-    private readonly Planner planner = new(NullLogger<Planner>.Instance);
+    private readonly SyncActionPlanner planner = new(new LinkCreator(NullLogger<LinkCreator>.Instance));
 
     // -------------------------------------------------------------------------
     // Directional mode / basic create behavior

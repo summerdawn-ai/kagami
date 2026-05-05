@@ -98,6 +98,8 @@ public static class KagamiServiceCollectionExtensions
         services.AddSingleton<LeaseRepository>();
         services.AddSingleton<OperationLogRepository>();
         services.AddSingleton<Planner>();
+        services.AddSingleton<LinkCreator>();
+        services.AddSingleton<SyncActionPlanner>();
         services.AddSingleton<SyncActionExecutor>();
         services.AddSingleton<JobExecutor>();
         services.AddSingleton<SyncHost>();

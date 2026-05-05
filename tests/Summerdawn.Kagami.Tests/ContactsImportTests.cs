@@ -41,7 +41,7 @@ public sealed class ContactsImportTests : IDisposable
         };
 
         var executor = new JobExecutor(
-            new Planner(NullLogger<Planner>.Instance),
+            new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
             new LinkStateRepository(db),
             new EndpointCursorRepository(db),
             new LeaseRepository(db),
@@ -184,7 +184,7 @@ public sealed class ContactsImportTests : IDisposable
     private SyncService<CanonicalContact> CreateServiceWith(IConnector<CanonicalContact> destinationConnector)
     {
         var executor = new JobExecutor(
-            new Planner(NullLogger<Planner>.Instance),
+            new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
             new LinkStateRepository(db),
             new EndpointCursorRepository(db),
             new LeaseRepository(db),
