@@ -239,7 +239,10 @@ public sealed class JobExecutor(
 
         if (typeof(TItem) == typeof(CanonicalContact))
         {
-            return (IFilter<TItem>)(object)ContactFilter.Parse(filterScope)!;
+            var filter = ContactFilter.Parse(filterScope)
+                ?? throw new ArgumentException("Filter scope cannot be null, empty, or whitespace.", nameof(filterScope));
+
+            return (IFilter<TItem>)(object)filter;
         }
 
         throw new NotSupportedException($"Filters are not supported for item type '{typeof(TItem).Name}'.");
