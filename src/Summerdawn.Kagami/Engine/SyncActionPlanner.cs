@@ -382,7 +382,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 Kind = Create,
                 Direction = DestinationToSource,
                 Item = link.DestinationItem,
-                Reason = "New item on source side",
+                Reason = "New item on destination side",
             };
         }
 
