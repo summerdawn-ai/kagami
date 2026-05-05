@@ -33,8 +33,8 @@ public sealed class FakeSyncIntegrationTests : IDisposable
             new Planner(NullLogger<Planner>.Instance),
             linkStateRepository,
             endpointCursorRepository,
-            operationLogRepository,
             leaseRepository,
+            new SyncActionExecutor(linkStateRepository, operationLogRepository, NullLogger<SyncActionExecutor>.Instance),
             NullLogger<JobExecutor>.Instance);
     }
 
