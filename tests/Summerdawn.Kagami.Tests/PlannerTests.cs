@@ -198,6 +198,62 @@ public sealed class PlannerTests
     }
 
     [Fact]
+    public void PlanActions_ReturnsSkip_WhenBothChangedAndLastWriteWinsPrefersSourceInReverseMode()
+    {
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
+        var sourceItem = CreateItem("a1", version: "v3", lastModified: DateTimeOffset.Parse("2026-01-02T00:00:00Z")) with { Notes = "source" };
+        var destinationItem = CreateItem("b1", version: "v2", lastModified: DateTimeOffset.Parse("2026-01-01T00:00:00Z")) with { Notes = "destination" };
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Reverse),
+            [sourceItem],
+            [destinationItem],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(Skip, actions[0].Kind);
+        Assert.Equal(DestinationToSource, actions[0].Direction);
+    }
+
+    [Fact]
+    public void PlanActions_UpdatesSource_WhenBothChangedAndLastWriteWinsPrefersDestinationInReverseMode()
+    {
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
+        var sourceItem = CreateItem("a1", version: "v2", lastModified: DateTimeOffset.Parse("2026-01-01T00:00:00Z")) with { Notes = "source" };
+        var destinationItem = CreateItem("b1", version: "v3", lastModified: DateTimeOffset.Parse("2026-01-02T00:00:00Z")) with { Notes = "destination" };
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Reverse),
+            [sourceItem],
+            [destinationItem],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(Update, actions[0].Kind);
+        Assert.Equal(DestinationToSource, actions[0].Direction);
+        Assert.Equal("b1", actions[0].Item!.Provenance.ProviderId);
+        Assert.Equal("a1", actions[0].MatchedTargetItem!.Provenance.ProviderId);
+    }
+
+    [Fact]
+    public void PlanActions_ReturnsSkip_WhenBothChangedAndLastWriteWinsPrefersDestinationInForwardMode()
+    {
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
+        var sourceItem = CreateItem("a1", version: "v2", lastModified: DateTimeOffset.Parse("2026-01-01T00:00:00Z")) with { Notes = "source" };
+        var destinationItem = CreateItem("b1", version: "v3", lastModified: DateTimeOffset.Parse("2026-01-02T00:00:00Z")) with { Notes = "destination" };
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Forward),
+            [sourceItem],
+            [destinationItem],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(Skip, actions[0].Kind);
+        Assert.Equal(SourceToDestination, actions[0].Direction);
+    }
+
+    [Fact]
     public void PlanActions_RespectsForwardDirectionForLinkedPair()
     {
         var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");

@@ -270,7 +270,7 @@ public static class Program
 
                 string email = contact.Emails.Count > 0 ? contact.Emails[0].Address : string.Empty;
                 string phone = contact.Phones.Count > 0 ? contact.Phones[0].Number : string.Empty;
-                Console.WriteLine($"{ContactNameHelper.GetName(item),-35} {email,-35} {phone}");
+                Console.WriteLine($"{ContactNameHelper.GetNameOrId(item),-35} {email,-35} {phone}");
             }
 
             Console.WriteLine();

@@ -10,6 +10,12 @@ public static class ContactNameHelper
             ? contact.DisplayName
             : contact.Organization ?? string.Empty;
 
+    public static string GetNameOrId(CanonicalContact item)
+    {
+        string name = GetName(item);
+        return string.IsNullOrWhiteSpace(name) ? item.Provenance.ProviderId : name;
+    }
+
     public static string BuildExportBaseName(CanonicalContact contact)
     {
         string name = GetName(contact);

@@ -2,6 +2,7 @@ using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
+using static Summerdawn.Kagami.Configuration.ConflictPolicy;
 using static Summerdawn.Kagami.Configuration.DeletePolicy;
 using static Summerdawn.Kagami.Configuration.SyncMode;
 using static Summerdawn.Kagami.Engine.SyncActionKind;
@@ -186,7 +187,7 @@ public sealed class Planner(ILogger<Planner> logger)
 
             return new SyncAction<TItem>
             {
-                Kind = Skip,
+                Kind = SyncActionKind.Skip,
                 Direction = SourceToDestination,
                 Item = currentDestinationItem,
                 Reason = sourceSkipReason,
@@ -229,7 +230,7 @@ public sealed class Planner(ILogger<Planner> logger)
 
             return new SyncAction<TItem>
             {
-                Kind = Skip,
+                Kind = SyncActionKind.Skip,
                 Direction = DestinationToSource,
                 Item = currentSourceItem,
                 Reason = destinationSkipReason,
@@ -248,7 +249,7 @@ public sealed class Planner(ILogger<Planner> logger)
             var skipDirection = jobOptions.SyncMode == Reverse ? DestinationToSource : SourceToDestination;
             return new SyncAction<TItem>
             {
-                Kind = Skip,
+                Kind = SyncActionKind.Skip,
                 Direction = skipDirection,
                 Item = currentSourceItem,
                 MatchedTargetItem = currentDestinationItem,
@@ -259,7 +260,7 @@ public sealed class Planner(ILogger<Planner> logger)
         return jobOptions.SyncMode switch
         {
             Forward when !sourceChanged => null,
-            Forward when destinationChanged => ResolveConflict(currentSourceItem!, currentDestinationItem, SourceToDestination, jobOptions),
+            Forward when destinationChanged => ResolveConflict(currentSourceItem, currentDestinationItem, SourceToDestination, jobOptions),
             Forward => new SyncAction<TItem>
             {
                 Kind = Update,
@@ -270,7 +271,7 @@ public sealed class Planner(ILogger<Planner> logger)
             },
 
             Reverse when !destinationChanged => null,
-            Reverse when sourceChanged => ResolveConflict(currentSourceItem!, currentDestinationItem, DestinationToSource, jobOptions),
+            Reverse when sourceChanged => ResolveConflict(currentSourceItem, currentDestinationItem, DestinationToSource, jobOptions),
             Reverse => new SyncAction<TItem>
             {
                 Kind = Update,
@@ -301,7 +302,7 @@ public sealed class Planner(ILogger<Planner> logger)
             // Both changed: resolve using conflict policy. Prefer the A-originating direction
             // as the primary so that SourceWins and LastWriteWins work naturally; DestinationWins is
             // handled by checking the policy explicitly.
-            _ when jobOptions.ConflictPolicy == ConflictPolicy.DestinationWins && currentDestinationItem != null => new SyncAction<TItem>
+            _ when jobOptions.ConflictPolicy == DestinationWins && currentDestinationItem != null => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = DestinationToSource,
@@ -392,7 +393,7 @@ public sealed class Planner(ILogger<Planner> logger)
 
                 actions.Add(new SyncAction<TItem>
                 {
-                    Kind = Skip,
+                    Kind = SyncActionKind.Skip,
                     Direction = direction,
                     Item = item,
                     Reason = "Multiple matching contacts on target side",
@@ -429,7 +430,7 @@ public sealed class Planner(ILogger<Planner> logger)
 
                 actions.Add(new SyncAction<TItem>
                 {
-                    Kind = Skip,
+                    Kind = SyncActionKind.Skip,
                     Direction = direction,
                     Item = item,
                     Reason = "Target contact matches multiple source contacts",
@@ -442,7 +443,7 @@ public sealed class Planner(ILogger<Planner> logger)
             {
                 actions.Add(new SyncAction<TItem>
                 {
-                    Kind = Skip,
+                    Kind = SyncActionKind.Skip,
                     Direction = direction,
                     Item = item,
                     MatchedTargetItem = target,
@@ -503,7 +504,7 @@ public sealed class Planner(ILogger<Planner> logger)
         JobOptions jobOptions) where TItem : CanonicalItem =>
         jobOptions.ConflictPolicy switch
         {
-            ConflictPolicy.SourceWins when direction == SourceToDestination => new SyncAction<TItem>
+            SourceWins when direction == SourceToDestination => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = SourceToDestination,
@@ -511,14 +512,14 @@ public sealed class Planner(ILogger<Planner> logger)
                 MatchedTargetItem = destinationItem,
                 Reason = "Conflict: source wins per policy",
             },
-            ConflictPolicy.SourceWins => new SyncAction<TItem>
+            SourceWins => new SyncAction<TItem>
             {
-                Kind = Skip,
+                Kind = SyncActionKind.Skip,
                 Direction = DestinationToSource,
                 Item = destinationItem,
                 Reason = "Conflict: source wins per policy",
             },
-            ConflictPolicy.DestinationWins when direction == DestinationToSource => new SyncAction<TItem>
+            DestinationWins when direction == DestinationToSource => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = DestinationToSource,
@@ -526,16 +527,16 @@ public sealed class Planner(ILogger<Planner> logger)
                 MatchedTargetItem = sourceItem,
                 Reason = "Conflict: destination wins per policy",
             },
-            ConflictPolicy.DestinationWins => new SyncAction<TItem>
+            DestinationWins => new SyncAction<TItem>
             {
-                Kind = Skip,
+                Kind = SyncActionKind.Skip,
                 Direction = SourceToDestination,
                 Item = sourceItem,
                 Reason = "Conflict: destination wins per policy",
             },
             ConflictPolicy.Skip => new SyncAction<TItem>
             {
-                Kind = Skip,
+                Kind = SyncActionKind.Skip,
                 Direction = direction,
                 Item = direction == SourceToDestination ? sourceItem : destinationItem,
                 Reason = "Conflict: skipped per policy",
@@ -552,24 +553,41 @@ public sealed class Planner(ILogger<Planner> logger)
         var destinationLastModified = destinationItem?.Provenance.LastModified;
 
         bool sourceWins = sourceLastModified > destinationLastModified
-            || (sourceLastModified == destinationLastModified && direction == SourceToDestination)
-            || (sourceLastModified is not null && destinationLastModified is null);
+                          || (sourceLastModified == destinationLastModified && direction == SourceToDestination)
+                          || (sourceLastModified is not null && destinationLastModified is null);
 
-        return sourceWins
-            ? new SyncAction<TItem>
+        return sourceWins switch
+        {
+            true when direction == SourceToDestination => new SyncAction<TItem>
             {
                 Kind = Update,
-                Direction = direction,
-                Item = direction == SourceToDestination ? sourceItem : destinationItem,
-                MatchedTargetItem = direction == SourceToDestination ? destinationItem : sourceItem,
+                Direction = SourceToDestination,
+                Item = sourceItem,
+                MatchedTargetItem = destinationItem,
+                Reason = "Conflict: last write wins per policy",
+            },
+            true => new SyncAction<TItem>
+            {
+                Kind = SyncActionKind.Skip,
+                Direction = DestinationToSource,
+                Item = destinationItem,
+                Reason = "Conflict: source wins per last-write-wins policy",
+            },
+            false when direction == SourceToDestination => new SyncAction<TItem>
+            {
+                Kind = SyncActionKind.Skip,
+                Direction = SourceToDestination,
+                Item = sourceItem,
+                Reason = "Conflict: destination wins but sync mode does not permit reverse write",
+            },
+            false => new SyncAction<TItem>
+            {
+                Kind = Update,
+                Direction = DestinationToSource,
+                Item = destinationItem,
+                MatchedTargetItem = sourceItem,
                 Reason = "Conflict: last write wins per policy",
             }
-            : new SyncAction<TItem>
-            {
-                Kind = Skip,
-                Direction = direction,
-                Item = direction == DestinationToSource ? sourceItem : destinationItem,
-                Reason = "Conflict: target side wins per last-write-wins policy",
-            };
+        };
     }
 }
