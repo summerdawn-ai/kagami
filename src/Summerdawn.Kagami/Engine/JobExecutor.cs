@@ -131,11 +131,14 @@ public sealed class JobExecutor(
         bool isDeltaRun = !job.Options.Full && !job.Options.Force
             && sourceCursor != null && destinationCursor != null;
 
-        // Build effective job options that communicate the run mode to the planner/examiner.
         // When this is not a delta run (first sync, scope changed, or explicit Full/Force), set
-        // Full=true so the examiner treats absent items as deleted/out-of-scope rather than
-        // implicitly unchanged.
-        var planningOptions = isDeltaRun ? job.Options : AsFullRun(job.Options);
+        // Full=true on the job options so the examiner treats absent items as
+        // deleted/out-of-scope rather than implicitly unchanged.
+        bool shouldRestoreFullFlag = !job.Options.Full && !isDeltaRun;
+        if (shouldRestoreFullFlag)
+        {
+            job.Options.Full = true;
+        }
 
         // --- Single read pass per connector (planning + cursor advancement) ---
         var sourcePageSet = await ReadAllPagesAsync(sourceConnector, job.Options.Source, sourceCursor, job.Options.Full || job.Options.Force, cancellationToken);
@@ -143,7 +146,18 @@ public sealed class JobExecutor(
 
         // --- Plan actions using raw (unfiltered) items + filter ---
         // The filter is forwarded to LinkExaminer so it can detect items that moved out of scope.
-        var actions = planner.PlanActions(planningOptions, sourcePageSet.Items, destinationPageSet.Items, existingLinks, filter: filter);
+        IReadOnlyList<SyncAction<TItem>> actions;
+        try
+        {
+            actions = planner.PlanActions(job.Options, sourcePageSet.Items, destinationPageSet.Items, existingLinks, filter: filter);
+        }
+        finally
+        {
+            if (shouldRestoreFullFlag)
+            {
+                job.Options.Full = false;
+            }
+        }
 
         var actionsSkip = actions.Where(a => a.Kind == Skip).ToList();
         var actionsToDestination = actions.Where(a => a.Direction == SourceToDestination).Except(actionsSkip).ToList();
@@ -210,35 +224,6 @@ public sealed class JobExecutor(
         logger.LogInformation("Job {job.Key} completed (whatIf={WhatIf}, actionsPlanned={Count})", job.Key, whatIf, result.ActionsPlanned);
         return result;
     }
-
-    /// <summary>
-    /// Returns a copy of <paramref name="options"/> with <see cref="JobOptions.Full"/> set to
-    /// <c>true</c>.  Used when the executor determines the current run should use full-scan
-    /// semantics even though the user did not explicitly request a full run (e.g. no cursor is
-    /// available or the filter scope changed).
-    /// </summary>
-    /// <remarks>
-    /// This method must be kept in sync with <see cref="JobOptions"/> — any new property added
-    /// to <see cref="JobOptions"/> must also be copied here.
-    /// </remarks>
-    private static JobOptions AsFullRun(JobOptions options) =>
-        options.Full
-            ? options
-            : new JobOptions
-            {
-                Enabled = options.Enabled,
-                EntityType = options.EntityType,
-                Source = options.Source,
-                Destination = options.Destination,
-                SyncMode = options.SyncMode,
-                DeletePolicy = options.DeletePolicy,
-                ConflictPolicy = options.ConflictPolicy,
-                Schedule = options.Schedule,
-                Full = true,
-                Force = options.Force,
-                Filter = options.Filter,
-            };
-
 
     /// <summary>
     /// Reads all incremental pages for an endpoint, starting from <paramref name="cursor"/> when
