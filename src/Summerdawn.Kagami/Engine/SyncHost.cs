@@ -112,8 +112,9 @@ public sealed class SyncHost(
             throw new InvalidOperationException($"Job '{jobKey}' not found in configuration.");
         }
 
+        string partitionKey = $"{job.EntityType}:{job.Source}:{job.Destination}";
         var linkRepo = new LinkStateRepository(stateDb);
-        await linkRepo.DeleteByJobAsync(jobKey, cancellationToken);
+        await linkRepo.DeleteByPartitionAsync(partitionKey, cancellationToken);
         var cursorRepo = new EndpointCursorRepository(stateDb);
         await cursorRepo.DeleteCursorAsync(jobKey, job.Source, cancellationToken);
         await cursorRepo.DeleteCursorAsync(jobKey, job.Destination, cancellationToken);

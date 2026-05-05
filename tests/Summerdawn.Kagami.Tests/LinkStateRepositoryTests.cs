@@ -21,28 +21,28 @@ public sealed class LinkStateRepositoryTests : IDisposable
     public void Dispose() => databasePath.Dispose();
 
     [Fact]
-    public async Task LinkState_IsPartitionedByJobKey()
+    public async Task LinkState_IsPartitionedByPartitionKey()
     {
-        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-1", EntityType = "contact", SourceId = "a1" });
-        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-2", EntityType = "contact", SourceId = "a1" });
+        await repo.UpsertAsync(new LinkStateRow { PartitionKey = "contact:endpointA:endpointB", SourceId = "a1" });
+        await repo.UpsertAsync(new LinkStateRow { PartitionKey = "contact:endpointC:endpointD", SourceId = "a1" });
 
-        var job1Rows = await repo.GetByJobAsync("job-1");
-        var job2Rows = await repo.GetByJobAsync("job-2");
+        var partition1Rows = await repo.GetByPartitionAsync("contact:endpointA:endpointB");
+        var partition2Rows = await repo.GetByPartitionAsync("contact:endpointC:endpointD");
 
-        Assert.Single(job1Rows);
-        Assert.Single(job2Rows);
+        Assert.Single(partition1Rows);
+        Assert.Single(partition2Rows);
     }
 
     [Fact]
-    public async Task DeleteByJob_RemovesOnlyTargetRows()
+    public async Task DeleteByPartition_RemovesOnlyTargetRows()
     {
-        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-1", EntityType = "contact", SourceId = "a1" });
-        await repo.UpsertAsync(new LinkStateRow { JobKey = "job-2", EntityType = "contact", SourceId = "a2" });
+        await repo.UpsertAsync(new LinkStateRow { PartitionKey = "contact:endpointA:endpointB", SourceId = "a1" });
+        await repo.UpsertAsync(new LinkStateRow { PartitionKey = "contact:endpointC:endpointD", SourceId = "a2" });
 
-        await repo.DeleteByJobAsync("job-1");
+        await repo.DeleteByPartitionAsync("contact:endpointA:endpointB");
 
-        Assert.Empty(await repo.GetByJobAsync("job-1"));
-        Assert.Single(await repo.GetByJobAsync("job-2"));
+        Assert.Empty(await repo.GetByPartitionAsync("contact:endpointA:endpointB"));
+        Assert.Single(await repo.GetByPartitionAsync("contact:endpointC:endpointD"));
     }
 
     [Fact]
@@ -50,8 +50,7 @@ public sealed class LinkStateRepositoryTests : IDisposable
     {
         await repo.UpsertAsync(new LinkStateRow
         {
-            JobKey = "job-1",
-            EntityType = "calendar-event",
+            PartitionKey = "contact:endpointA:endpointB",
             SourceId = "a1",
             DestinationId = "b1",
             SourceVersion = "v1",
@@ -59,10 +58,25 @@ public sealed class LinkStateRepositoryTests : IDisposable
             OriginSide = "Source",
         });
 
-        var row = await repo.GetBySourceIdAsync("job-1", "a1");
+        var row = await repo.GetBySourceIdAsync("contact:endpointA:endpointB", "a1");
 
         Assert.NotNull(row);
         Assert.Equal("v1", row.SourceVersion);
         Assert.Equal("v1", row.DestinationVersion);
+    }
+
+    [Fact]
+    public async Task LinkState_CliAndConfiguredJobSharePartition_ForSameEndpointPair()
+    {
+        // Simulates a configured job writing a link row under the shared partition key.
+        const string partitionKey = "contact:google:microsoft";
+        await repo.UpsertAsync(new LinkStateRow { PartitionKey = partitionKey, SourceId = "a1", DestinationId = "b1" });
+
+        // A CLI sync run for the same endpoint pair should see the same row.
+        var rows = await repo.GetByPartitionAsync(partitionKey);
+
+        Assert.Single(rows);
+        Assert.Equal("a1", rows[0].SourceId);
+        Assert.Equal("b1", rows[0].DestinationId);
     }
 }

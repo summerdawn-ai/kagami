@@ -56,8 +56,7 @@ public sealed class StateDatabase(string databasePath, ILogger<StateDatabase> lo
 
         CREATE TABLE IF NOT EXISTS link_state (
             id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-            job_key              TEXT NOT NULL,
-            entity_type          TEXT NOT NULL,
+            partition_key        TEXT NOT NULL,
             source_id            TEXT NOT NULL,
             destination_id       TEXT,
             source_version       TEXT,
@@ -72,11 +71,11 @@ public sealed class StateDatabase(string databasePath, ILogger<StateDatabase> lo
             last_synced_at       TEXT,
             last_sync_result     TEXT,
             conflict_state       TEXT,
-            UNIQUE (job_key, source_id)
+            UNIQUE (partition_key, source_id)
         );
 
-        CREATE INDEX IF NOT EXISTS idx_link_state_job_key ON link_state (job_key);
-        CREATE INDEX IF NOT EXISTS idx_link_state_destination_id ON link_state (job_key, destination_id);
+        CREATE INDEX IF NOT EXISTS idx_link_state_partition_key ON link_state (partition_key);
+        CREATE INDEX IF NOT EXISTS idx_link_state_destination_id ON link_state (partition_key, destination_id);
 
         CREATE TABLE IF NOT EXISTS operation_log (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,

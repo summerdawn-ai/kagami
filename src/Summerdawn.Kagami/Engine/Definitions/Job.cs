@@ -7,5 +7,13 @@ namespace Summerdawn.Kagami.Engine;
 /// <summary>
 /// Represents a sync job between a source and destination connector.
 /// </summary>
-
-public record Job<TItem>(string Key, JobOptions Options, IConnector<TItem> SourceConnector, IConnector<TItem> DestinationConnector, IFilter<TItem>? Filter = null) where TItem : CanonicalItem;
+public record Job<TItem>(string Key, JobOptions Options, IConnector<TItem> SourceConnector, IConnector<TItem> DestinationConnector, IFilter<TItem>? Filter = null) where TItem : CanonicalItem
+{
+    /// <summary>
+    /// Gets the partition key used to group link-state rows for this endpoint pair.
+    /// Derived from <see cref="JobOptions.EntityType"/>, <see cref="JobOptions.Source"/>, and
+    /// <see cref="JobOptions.Destination"/> so that scheduled jobs and equivalent CLI sync runs
+    /// targeting the same endpoints share the same link-state partition.
+    /// </summary>
+    public string PartitionKey => $"{Options.EntityType}:{Options.Source}:{Options.Destination}";
+}

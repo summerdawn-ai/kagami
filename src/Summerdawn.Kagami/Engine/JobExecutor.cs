@@ -98,7 +98,7 @@ public sealed class JobExecutor(
         await sourceConnector.AuthenticateAsync(cancellationToken);
         await destinationConnector.AuthenticateAsync(cancellationToken);
 
-        var existingLinks = await linkStateRepo.GetByJobAsync(job.Key, cancellationToken);
+        var existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
         JobExecutionResult result = new() { JobKey = job.Key };
         string filterScope = filter?.Scope ?? string.Empty;
 
@@ -144,7 +144,7 @@ public sealed class JobExecutor(
 
             // Refresh link state so that IDs created in the previous pass are visible when
             // applying destination→source actions.
-            existingLinks = await linkStateRepo.GetByJobAsync(job.Key, cancellationToken);
+            existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
 
             // --- Apply destination→source ---
             await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job: job, existingLinks: existingLinks, cancellationToken: cancellationToken);
@@ -155,14 +155,14 @@ public sealed class JobExecutor(
             var skipsWithMatches = actionsSkip.Where(a => a.Item is not null && a.MatchedTargetItem is not null).ToList();
             if (skipsWithMatches.Count > 0)
             {
-                existingLinks = await linkStateRepo.GetByJobAsync(job.Key, cancellationToken);
+                existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
 
                 var destinationSkipsWithMatches = skipsWithMatches
                     .Where(a => a.Direction == SourceToDestination)
                     .ToList();
                 if (destinationSkipsWithMatches.Count > 0)
                 {
-                    await RecordUnchangedLinksAsync(job.Key, job.Options.EntityType, destinationSkipsWithMatches, existingLinks, SourceToDestination, cancellationToken);
+                    await RecordUnchangedLinksAsync(job.PartitionKey, destinationSkipsWithMatches, existingLinks, SourceToDestination, cancellationToken);
                 }
 
                 var sourceSkipsWithMatches = skipsWithMatches
@@ -170,7 +170,7 @@ public sealed class JobExecutor(
                     .ToList();
                 if (sourceSkipsWithMatches.Count > 0)
                 {
-                    await RecordUnchangedLinksAsync(job.Key, job.Options.EntityType, sourceSkipsWithMatches, existingLinks, DestinationToSource, cancellationToken);
+                    await RecordUnchangedLinksAsync(job.PartitionKey, sourceSkipsWithMatches, existingLinks, DestinationToSource, cancellationToken);
                 }
             }
 
@@ -325,8 +325,7 @@ public sealed class JobExecutor(
     /// nothing changed, so subsequent runs can short-circuit correctly via <c>HasChanged</c>.
     /// </remarks>
     private async Task RecordUnchangedLinksAsync<TItem>(
-        string jobKey,
-        string entityType,
+        string partitionKey,
         IReadOnlyList<SyncAction<TItem>> unchangedActions,
         IReadOnlyList<LinkStateRow> existingLinks,
         SyncDirection direction,
@@ -342,8 +341,7 @@ public sealed class JobExecutor(
             var link = FindLinkForUpdate(existingLinks, direction, action.Item.Provenance.ProviderId)
                 ?? new LinkStateRow
                 {
-                    JobKey = jobKey,
-                    EntityType = entityType,
+                    PartitionKey = partitionKey,
                     OriginSide = direction == SourceToDestination ? "Source" : "Destination",
                 };
 

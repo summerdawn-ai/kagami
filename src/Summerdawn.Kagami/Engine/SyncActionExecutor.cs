@@ -143,8 +143,7 @@ public sealed class SyncActionExecutor(
 
                         var link = new LinkStateRow
                         {
-                            JobKey = job.Key,
-                            EntityType = entityType,
+                            PartitionKey = job.PartitionKey,
                             SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : created.Provenance.ProviderId,
                             DestinationId = direction == SourceToDestination ? created.Provenance.ProviderId : action.Item.Provenance.ProviderId,
                             SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : created.Provenance.Version,
@@ -179,8 +178,7 @@ public sealed class SyncActionExecutor(
 
                             var matchedLink = new LinkStateRow
                             {
-                                JobKey = job.Key,
-                                EntityType = entityType,
+                                PartitionKey = job.PartitionKey,
                                 SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : matchedUpdate.Provenance.ProviderId,
                                 DestinationId = direction == SourceToDestination ? matchedUpdate.Provenance.ProviderId : action.Item.Provenance.ProviderId,
                                 SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : matchedUpdate.Provenance.Version,

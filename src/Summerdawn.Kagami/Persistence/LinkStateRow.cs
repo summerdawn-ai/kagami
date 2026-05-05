@@ -12,14 +12,9 @@ public sealed class LinkStateRow
     public long Id { get; set; }
 
     /// <summary>
-    /// Gets or sets the job key that partitions this record.
+    /// Gets or sets the partition key that groups link rows sharing the same endpoint pair.
     /// </summary>
-    public string JobKey { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the entity type (e.g., <c>"calendar-event"</c>, <c>"contact"</c>).
-    /// </summary>
-    public string EntityType { get; set; } = string.Empty;
+    public string PartitionKey { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the provider-assigned ID of the source item.
