@@ -94,7 +94,7 @@ public sealed class ForceSyncTests : IDisposable
         sourceConnector.Seed(CreateContact("a2", "Bob"));
 
         var filter = ContactFilter.Parse("startswith(name,'A')")!;
-        var result = await executor.ExecuteAsync(CreateJob("job-1") with { Filter = filter });
+        var result = await executor.ExecuteAsync(CreateJob("job-1", filter: filter.Scope));
 
         Assert.True(result.Succeeded);
 
@@ -117,7 +117,7 @@ public sealed class ForceSyncTests : IDisposable
         sourceConnector.Seed(CreateContact("a2", "Bob"));
 
         var filter = ContactFilter.Parse("startswith(name,'A')")!;
-        await executor.ExecuteAsync(CreateJob("job-1") with { Filter = filter });
+        await executor.ExecuteAsync(CreateJob("job-1", filter: filter.Scope));
 
         // Bob was on B before the sync; he must still be there
         Assert.Contains(destinationConnector.Items, i => i.Provenance.ProviderId == "b-bob" && !i.IsDeleted);
@@ -130,7 +130,7 @@ public sealed class ForceSyncTests : IDisposable
         sourceConnector.Seed(CreateContact("a2", "Bob"));
 
         var filteredScope = ContactFilter.Parse("startswith(name,'A')")!;
-        var filteredResult = await executor.ExecuteAsync(CreateJob("job-1") with { Filter = filteredScope });
+        var filteredResult = await executor.ExecuteAsync(CreateJob("job-1", filter: filteredScope.Scope));
         var filteredCursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA");
 
         var unfilteredResult = await executor.ExecuteAsync(CreateJob("job-1"));
@@ -179,10 +179,10 @@ public sealed class ForceSyncTests : IDisposable
         Assert.Equal(0, whatIfResult.ActionsPlanned);
     }
 
-    private Job<CanonicalContact> CreateJob(string jobKey, bool force = false, bool full = false) =>
-        new(jobKey, CreateJobOptions(force, full), sourceConnector, destinationConnector);
+    private Job<CanonicalContact> CreateJob(string jobKey, bool force = false, bool full = false, string? filter = null) =>
+        new(jobKey, CreateJobOptions(force, full, filter), sourceConnector, destinationConnector);
 
-    private static JobOptions CreateJobOptions(bool force = false, bool full = false) => new()
+    private static JobOptions CreateJobOptions(bool force = false, bool full = false, string? filter = null) => new()
     {
         Enabled = true,
         EntityType = EntityType.Contact,
@@ -193,6 +193,7 @@ public sealed class ForceSyncTests : IDisposable
         ConflictPolicy = ConflictPolicy.LastWriteWins,
         Force = force,
         Full = full,
+        Filter = filter,
     };
 
     private static CanonicalContact CreateContact(string id, string displayName) => new()

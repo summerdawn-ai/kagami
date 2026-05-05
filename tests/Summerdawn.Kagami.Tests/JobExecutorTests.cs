@@ -9,8 +9,6 @@ using Summerdawn.Kagami.Persistence;
 using Summerdawn.Kagami.Tests.TestDoubles;
 using Summerdawn.Kagami.Tests.TestSupport;
 
-using static Summerdawn.Kagami.Configuration.DeletePolicy;
-
 namespace Summerdawn.Kagami.Tests;
 
 public sealed class JobExecutorTests : IDisposable
@@ -249,7 +247,7 @@ public sealed class JobExecutorTests : IDisposable
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
         var executor = CreateExecutor();
-        var result = await executor.ExecuteAsync(CreateFilteredJob("job-1", sourceConnector, destinationConnector, filter));
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
 
         Assert.True(result.Succeeded);
 
@@ -299,7 +297,7 @@ public sealed class JobExecutorTests : IDisposable
         // Switch to filtered sync (scope change invalidates old cursor; new cursor = none → full run)
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
         var executor = CreateExecutor();
-        var result = await executor.ExecuteAsync(CreateFilteredJob("job-1", sourceConnector, destinationConnector, filter));
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
 
         Assert.True(result.Succeeded);
 
@@ -367,7 +365,7 @@ public sealed class JobExecutorTests : IDisposable
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
         var executor = CreateExecutor();
-        var result = await executor.ExecuteAsync(CreateFilteredJob("job-1", sourceConnector, destinationConnector, filter));
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
 
         Assert.True(result.Succeeded);
         Assert.Equal(0, result.ActionsPlanned);
@@ -400,7 +398,7 @@ public sealed class JobExecutorTests : IDisposable
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
         var executor = CreateExecutor();
-        var result = await executor.ExecuteAsync(CreateFilteredJob("job-1", sourceConnector, destinationConnector, filter));
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
 
         Assert.True(result.Succeeded);
 
@@ -422,36 +420,31 @@ public sealed class JobExecutorTests : IDisposable
             new SyncActionExecutor(linkStateRepository, operationLogRepository, syncLogger ?? NullLogger<SyncActionExecutor>.Instance),
             logger ?? NullLogger<JobExecutor>.Instance);
 
-    private static Job<CanonicalContact> CreateJob(string jobKey, IConnector<CanonicalContact> sourceConnector, IConnector<CanonicalContact> destinationConnector, ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins)
+    private static Job<CanonicalContact> CreateJob(
+        string jobKey,
+        IConnector<CanonicalContact> sourceConnector,
+        IConnector<CanonicalContact> destinationConnector,
+        ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
+        string? filter = null,
+        SyncMode syncMode = SyncMode.Bidirectional)
     {
-        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy), sourceConnector, destinationConnector);
+        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy, filter, syncMode), sourceConnector, destinationConnector);
     }
 
-    private static Job<CanonicalContact> CreateFilteredJob(string jobKey, IConnector<CanonicalContact> sourceConnector, IConnector<CanonicalContact> destinationConnector, ContactFilter filter)
-    {
-        var options = new JobOptions
-        {
-            Enabled = true,
-            EntityType = EntityType.Contact,
-            Source = "endpointA",
-            Destination = "endpointB",
-            SyncMode = SyncMode.Forward,
-            DeletePolicy = Mirror,
-            ConflictPolicy = ConflictPolicy.LastWriteWins,
-            Filter = filter.Scope,
-        };
-        return new Job<CanonicalContact>(jobKey, options, sourceConnector, destinationConnector, filter);
-    }
-    private static JobOptions CreateJobOptions(ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins) =>
+    private static JobOptions CreateJobOptions(
+        ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
+        string? filter = null,
+        SyncMode syncMode = SyncMode.Bidirectional) =>
         new()
         {
             Enabled = true,
             EntityType = EntityType.Contact,
             Source = "endpointA",
             Destination = "endpointB",
-            SyncMode = SyncMode.Bidirectional,
+            SyncMode = syncMode,
             DeletePolicy = DeletePolicy.Mirror,
             ConflictPolicy = conflictPolicy,
+            Filter = filter,
         };
 
     private static CanonicalContact CreateContactItem(string id, string version, string displayName, string? organization = null, string? email = null) => new()

@@ -106,7 +106,7 @@ public sealed class JobExecutor(
         var sourceConnector = job.SourceConnector;
         var destinationConnector = job.DestinationConnector;
 
-        var filter = job.Filter;
+        var filter = CreateFilter<TItem>(job.Options.Filter);
 
         await sourceConnector.AuthenticateAsync(cancellationToken);
         await destinationConnector.AuthenticateAsync(cancellationToken);
@@ -114,9 +114,7 @@ public sealed class JobExecutor(
         var existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
         JobExecutionResult result = new() { JobKey = job.Key };
 
-        // Use the filter expression from options when available; fall back to the materialized
-        // filter's scope string so callers that set only Job.Filter are still handled correctly.
-        string filterScope = job.Options.Filter ?? filter?.Scope ?? string.Empty;
+        string filterScope = job.Options.Filter ?? string.Empty;
 
         // --- Determine cursors and effective run mode ---
         var sourceCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Source, cancellationToken);
@@ -223,6 +221,21 @@ public sealed class JobExecutor(
         result.Succeeded = true;
         logger.LogInformation("Job {job.Key} completed (whatIf={WhatIf}, actionsPlanned={Count})", job.Key, whatIf, result.ActionsPlanned);
         return result;
+    }
+
+    private static IFilter<TItem>? CreateFilter<TItem>(string? filterScope) where TItem : CanonicalItem
+    {
+        if (string.IsNullOrWhiteSpace(filterScope))
+        {
+            return null;
+        }
+
+        if (typeof(TItem) == typeof(CanonicalContact))
+        {
+            return (IFilter<TItem>?)(object?)ContactFilter.Parse(filterScope);
+        }
+
+        throw new NotSupportedException($"Filters are not supported for item type '{typeof(TItem).Name}'.");
     }
 
     /// <summary>
