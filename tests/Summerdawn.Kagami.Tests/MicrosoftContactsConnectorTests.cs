@@ -406,7 +406,7 @@ public sealed class MicrosoftContactsConnectorTests
 
     private sealed class FakeHttpHandler(params string[] responseJsons) : HttpMessageHandler
     {
-        private readonly Queue<string> responses = new Queue<string>(responseJsons);
+        private readonly Queue<string> responses = new(responseJsons);
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {

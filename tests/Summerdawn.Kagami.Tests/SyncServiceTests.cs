@@ -402,7 +402,7 @@ public sealed class SyncServiceTests : IDisposable
         var links = await new LinkStateRepository(db).GetByJobAsync("contacts:Microsoft:Google");
 
         Assert.True(result.Succeeded);
-        Assert.True(result.ActionsPlanned == 0);
+        Assert.Equal(0, result.ActionsPlanned);
         Assert.Equal(2, destinationConnector.Items.Count(item => !item.IsDeleted));
         Assert.Empty(links);
     }

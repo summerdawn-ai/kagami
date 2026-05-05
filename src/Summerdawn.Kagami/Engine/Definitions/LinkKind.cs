@@ -1,3 +1,5 @@
+using Summerdawn.Kagami.Persistence;
+
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
@@ -6,7 +8,7 @@ namespace Summerdawn.Kagami.Engine;
 public enum LinkKind
 {
     /// <summary>
-    /// Indicates the link is backed by a persisted <see cref="Summerdawn.Kagami.Persistence.LinkStateRow"/>.
+    /// Indicates the link is backed by a persisted <see cref="LinkStateRow"/>.
     /// </summary>
     Persisted,
 

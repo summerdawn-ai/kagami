@@ -54,7 +54,7 @@ public static class KagamiServiceCollectionExtensions
         services.AddHttpClient();
         foreach (var (endpointName, endpoint) in options.Endpoints)
         {
-            RegisterEndpointHttpClient(services, endpointName, endpoint.Type);
+            RegisterEndpointHttpClient(services, endpointName);
 
             string capturedEndpointName = endpointName;
             var capturedEndpoint = endpoint;
@@ -119,7 +119,7 @@ public static class KagamiServiceCollectionExtensions
     /// <summary>
     /// Registers a named <see cref="HttpClient"/> for the endpoint, configured with a resilience pipeline that honours <c>Retry-After</c> headers.
     /// </summary>
-    private static void RegisterEndpointHttpClient(IServiceCollection services, string endpointName, string endpointType)
+    private static void RegisterEndpointHttpClient(IServiceCollection services, string endpointName)
     {
         var builder = services.AddHttpClient($"kagami-{endpointName}", client =>
         {

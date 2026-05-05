@@ -473,7 +473,7 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         await EnsureSuccessAsync(deleteResponse, cancellationToken);
     }
 
-    private static void AddPhones(ICollection<ContactPhone> phones, JsonElement element, string propertyName, string label)
+    private static void AddPhones(List<ContactPhone> phones, JsonElement element, string propertyName, string label)
     {
         if (!element.TryGetProperty(propertyName, out var values))
         {
@@ -520,7 +520,7 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         }
     }
 
-    private static void AddAddress(ICollection<ContactAddress> addresses, JsonElement element, string propertyName, string label)
+    private static void AddAddress(List<ContactAddress> addresses, JsonElement element, string propertyName, string label)
     {
         if (!element.TryGetProperty(propertyName, out var addressElement) || addressElement.ValueKind != JsonValueKind.Object)
         {

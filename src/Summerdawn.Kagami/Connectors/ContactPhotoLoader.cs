@@ -47,8 +47,7 @@ internal static class ContactPhotoLoader
     /// </summary>
     private sealed class LoaderState(Func<CancellationToken, Task> loader)
     {
-        private readonly object gate = new();
-        private readonly Func<CancellationToken, Task> loader = loader;
+        private readonly Lock gate = new();
         private Task? loadingTask;
         private bool loaded;
 
