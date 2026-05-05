@@ -11,6 +11,11 @@ public sealed class ItemProvenance
     public string ProviderId { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the name of the endpoint that owns this item, used for logging.
+    /// </summary>
+    public string? EndpointName { get; set; }
+
+    /// <summary>
     /// Gets or sets the provider-assigned version or ETag, used for optimistic change detection.
     /// </summary>
     public string? Version { get; set; }

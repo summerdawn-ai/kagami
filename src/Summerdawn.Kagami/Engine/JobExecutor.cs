@@ -18,7 +18,7 @@ namespace Summerdawn.Kagami.Engine;
 /// committing cursors only on a clean (non-faulted) run.
 /// </remarks>
 public sealed class JobExecutor(
-    Planner planner,
+    SyncActionPlanner planner,
     LinkStateRepository linkStateRepo,
     EndpointCursorRepository cursorRepo,
     LeaseRepository leaseRepo,

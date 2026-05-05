@@ -29,7 +29,7 @@ public sealed class SyncServiceTests : IDisposable
         };
 
         var executor = new JobExecutor(
-            new Planner(NullLogger<Planner>.Instance),
+            new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
             new LinkStateRepository(db),
             new EndpointCursorRepository(db),
             new LeaseRepository(db),
@@ -402,7 +402,7 @@ public sealed class SyncServiceTests : IDisposable
         var links = await new LinkStateRepository(db).GetByJobAsync("contacts:Microsoft:Google");
 
         Assert.True(result.Succeeded);
-        Assert.True(result.ActionsPlanned == 0);
+        Assert.Equal(0, result.ActionsPlanned);
         Assert.Equal(2, destinationConnector.Items.Count(item => !item.IsDeleted));
         Assert.Empty(links);
     }
@@ -539,7 +539,7 @@ public sealed class SyncServiceTests : IDisposable
         };
 
         var executor = new JobExecutor(
-            new Planner(NullLogger<Planner>.Instance),
+            new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
             new LinkStateRepository(db),
             new EndpointCursorRepository(db),
             new LeaseRepository(db),

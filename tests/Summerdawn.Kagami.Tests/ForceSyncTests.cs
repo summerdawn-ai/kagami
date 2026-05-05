@@ -32,7 +32,7 @@ public sealed class ForceSyncTests : IDisposable
         leaseRepository = new LeaseRepository(db);
         operationLogRepository = new OperationLogRepository(db);
         executor = new JobExecutor(
-            new Planner(NullLogger<Planner>.Instance),
+            new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
             linkStateRepository,
             endpointCursorRepository,
             leaseRepository,

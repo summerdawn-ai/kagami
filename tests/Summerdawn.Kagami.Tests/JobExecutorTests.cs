@@ -216,7 +216,7 @@ public sealed class JobExecutorTests : IDisposable
 
     private JobExecutor CreateExecutor(ILogger<JobExecutor>? logger = null, ILogger<SyncActionExecutor>? syncLogger = null) =>
         new(
-            new Planner(NullLogger<Planner>.Instance),
+            new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
             linkStateRepository,
             endpointCursorRepository,
             leaseRepository,

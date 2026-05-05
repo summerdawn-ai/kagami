@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Summerdawn.Kagami.Connectors;
@@ -24,6 +26,12 @@ public sealed class ContactsImportTests : IDisposable
         0x44, 0xAE, 0x42, 0x60, 0x82,
     ];
 
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
     private readonly TestDatabasePath databasePath = new();
     private readonly StateDatabase db;
     private readonly FakeConnector connectorDest = new();
@@ -41,7 +49,7 @@ public sealed class ContactsImportTests : IDisposable
         };
 
         var executor = new JobExecutor(
-            new Planner(NullLogger<Planner>.Instance),
+            new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
             new LinkStateRepository(db),
             new EndpointCursorRepository(db),
             new LeaseRepository(db),
@@ -184,7 +192,7 @@ public sealed class ContactsImportTests : IDisposable
     private SyncService<CanonicalContact> CreateServiceWith(IConnector<CanonicalContact> destinationConnector)
     {
         var executor = new JobExecutor(
-            new Planner(NullLogger<Planner>.Instance),
+            new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
             new LinkStateRepository(db),
             new EndpointCursorRepository(db),
             new LeaseRepository(db),
@@ -200,11 +208,7 @@ public sealed class ContactsImportTests : IDisposable
 
     private async Task WriteContactJsonAsync(string baseName, object contact)
     {
-        string json = System.Text.Json.JsonSerializer.Serialize(contact, new System.Text.Json.JsonSerializerOptions
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
-        });
+        string json = JsonSerializer.Serialize(contact, JsonOptions);
         await File.WriteAllTextAsync(Path.Combine(importDir, $"{baseName}.json"), json);
     }
 

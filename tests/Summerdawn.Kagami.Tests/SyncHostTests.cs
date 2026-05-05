@@ -152,7 +152,7 @@ public sealed class SyncHostTests : IDisposable
         };
 
         JobExecutor executor = new(
-            new Planner(NullLogger<Planner>.Instance),
+            new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
             new LinkStateRepository(db),
             new EndpointCursorRepository(db),
             new LeaseRepository(db),
