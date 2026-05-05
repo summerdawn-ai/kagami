@@ -1,3 +1,4 @@
+using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
@@ -69,22 +70,34 @@ public sealed class JobExecutor(
     /// Authenticates both connectors, reads current state, plans actions, and applies them.
     /// </summary>
     /// <remarks>
-    /// The method makes two distinct read passes per connector:
+    /// <para>
+    /// The method makes a single read pass per connector:
+    /// </para>
     /// <list type="number">
     ///   <item>
-    ///     <term>Full current snapshot</term>
-    ///     <description>Always fetched from the initial page (no cursor). Used by the planner to
-    ///     reason about all live items, independent of what changed since the last run.</description>
+    ///     <term>Delta (cursor-based) pass</term>
+    ///     <description>When a cursor is available and the filter scope has not changed, only
+    ///     items that changed since the last cursor advance are fetched.  The planner treats
+    ///     absence as "implicitly unchanged" rather than "deleted".</description>
     ///   </item>
     ///   <item>
-    ///     <term>Incremental page</term>
-    ///     <description>Fetched with a stored cursor when available, or as a full re-fetch when
-    ///     <c>Full</c> or <c>Force</c> is set. The resulting cursor is persisted after a successful
-    ///     write pass so the next run can fetch only new changes.</description>
+    ///     <term>Full pass</term>
+    ///     <description>Used on the first run (no cursor), when the filter scope changed, or when
+    ///     <c>Full</c> or <c>Force</c> is set.  Fetches all current items; absence means the item
+    ///     is no longer present.  The effective <see cref="JobOptions.Full"/> flag is set to
+    ///     <c>true</c> when this mode is used so the planner applies full-scan semantics.</description>
     ///   </item>
     /// </list>
+    /// <para>
+    /// Raw (unfiltered) items are passed directly to the planner so that
+    /// <see cref="LinkExaminer"/> can detect items that moved out of the filter scope and
+    /// classify them as <see cref="SideActivity.MovedOutOfScope"/> rather than silently
+    /// dropping them.
+    /// </para>
+    /// <para>
     /// Actions are applied source→destination first; link state is refreshed before the
     /// destination→source pass so that newly created destination IDs are visible.
+    /// </para>
     /// </remarks>
     private async Task<JobExecutionResult> RunJobAsync<TItem>(Job<TItem> job, bool whatIf, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
@@ -100,30 +113,37 @@ public sealed class JobExecutor(
 
         var existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
         JobExecutionResult result = new() { JobKey = job.Key };
-        string filterScope = filter?.Scope ?? string.Empty;
 
-        // --- Read current snapshots from both sides ---
-        // Full initial-page reads (ignoring cursors) give the planner a complete picture of
-        // what items actually exist right now, not just what changed since the last run.
-        var currentSourcePageSet = await ReadCurrentPagesAsync(sourceConnector, job.Options.Source, cancellationToken);
-        var currentSourceItems = filter is not null ? filter.Apply(currentSourcePageSet.Items) : currentSourcePageSet.Items;
+        // Use the filter expression from options when available; fall back to the materialized
+        // filter's scope string so callers that set only Job.Filter are still handled correctly.
+        string filterScope = job.Options.Filter ?? filter?.Scope ?? string.Empty;
 
-        var currentDestinationPageSet = await ReadCurrentPagesAsync(destinationConnector, job.Options.Destination, cancellationToken);
-        var currentDestinationItems = filter is not null ? filter.Apply(currentDestinationPageSet.Items) : currentDestinationPageSet.Items;
-
-        // --- Poll incremental changes (for cursor advancement only) ---
-        // These reads are solely for advancing the per-endpoint cursor so that the next run
-        // only sees new deltas. The resulting items are NOT passed to the planner.
+        // --- Determine cursors and effective run mode ---
         var sourceCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Source, cancellationToken);
         string? sourceCursor = GetApplicableCursor(job.Key, job.Options.Source, sourceCursorState, filterScope);
-        var sourcePageSet = await ReadAllPagesAsync(sourceConnector, job.Options.Source, sourceCursor, job.Options.Full || job.Options.Force, cancellationToken);
 
         var destinationCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Destination, cancellationToken);
         string? destinationCursor = GetApplicableCursor(job.Key, job.Options.Destination, destinationCursorState, filterScope);
+
+        // A run is a delta run only when usable cursors are available for both sides and neither
+        // Full nor Force is set.  Any other combination is treated as a full scan so the planner
+        // can use authoritative absence semantics.
+        bool isDeltaRun = !job.Options.Full && !job.Options.Force
+            && sourceCursor != null && destinationCursor != null;
+
+        // Build effective job options that communicate the run mode to the planner/examiner.
+        // When this is not a delta run (first sync, scope changed, or explicit Full/Force), set
+        // Full=true so the examiner treats absent items as deleted/out-of-scope rather than
+        // implicitly unchanged.
+        var planningOptions = isDeltaRun ? job.Options : AsFullRun(job.Options);
+
+        // --- Single read pass per connector (planning + cursor advancement) ---
+        var sourcePageSet = await ReadAllPagesAsync(sourceConnector, job.Options.Source, sourceCursor, job.Options.Full || job.Options.Force, cancellationToken);
         var destinationPageSet = await ReadAllPagesAsync(destinationConnector, job.Options.Destination, destinationCursor, job.Options.Full || job.Options.Force, cancellationToken);
 
-        // --- Plan actions (single pass over full current state from both sides) ---
-        var actions = planner.PlanActions(job.Options, currentSourceItems, currentDestinationItems, existingLinks);
+        // --- Plan actions using raw (unfiltered) items + filter ---
+        // The filter is forwarded to LinkExaminer so it can detect items that moved out of scope.
+        var actions = planner.PlanActions(planningOptions, sourcePageSet.Items, destinationPageSet.Items, existingLinks, filter: filter);
 
         var actionsSkip = actions.Where(a => a.Kind == Skip).ToList();
         var actionsToDestination = actions.Where(a => a.Direction == SourceToDestination).Except(actionsSkip).ToList();
@@ -190,6 +210,30 @@ public sealed class JobExecutor(
         logger.LogInformation("Job {job.Key} completed (whatIf={WhatIf}, actionsPlanned={Count})", job.Key, whatIf, result.ActionsPlanned);
         return result;
     }
+
+    /// <summary>
+    /// Returns a copy of <paramref name="options"/> with <see cref="JobOptions.Full"/> set to
+    /// <c>true</c>.  Used when the executor determines the current run should use full-scan
+    /// semantics even though the user did not explicitly request a full run (e.g. no cursor is
+    /// available or the filter scope changed).
+    /// </summary>
+    private static JobOptions AsFullRun(JobOptions options) =>
+        options.Full
+            ? options
+            : new JobOptions
+            {
+                Enabled = options.Enabled,
+                EntityType = options.EntityType,
+                Source = options.Source,
+                Destination = options.Destination,
+                SyncMode = options.SyncMode,
+                DeletePolicy = options.DeletePolicy,
+                ConflictPolicy = options.ConflictPolicy,
+                Schedule = options.Schedule,
+                Full = true,
+                Force = options.Force,
+                Filter = options.Filter,
+            };
 
 
     /// <summary>
@@ -275,48 +319,6 @@ public sealed class JobExecutor(
     }
 
     /// <summary>
-    /// Reads all pages of a full current snapshot from the connector using the initial-page call.
-    /// Unlike <see cref="ReadAllPagesAsync{TItem}"/>, this always starts from scratch and is used
-    /// to give the planner a complete, cursor-independent view of what currently exists.
-    /// </summary>
-    private async Task<PageSet<TItem>> ReadCurrentPagesAsync<TItem>(
-        IConnector<TItem> connector,
-        string endpointName,
-        CancellationToken cancellationToken) where TItem : CanonicalItem
-    {
-        var page = await connector.GetInitialPageAsync(cancellationToken);
-        List<TItem> items = [.. page.Items];
-        string? finalCursor = page.NextCursor;
-
-        while (page.HasMore)
-        {
-            if (page.NextCursor is null)
-            {
-                throw new InvalidOperationException($"Connector returned HasMore=true without a cursor for endpoint '{endpointName}'.");
-            }
-
-            page = await connector.GetIncrementalPageAsync(page.NextCursor, cancellationToken);
-            items.AddRange(page.Items);
-            finalCursor = page.NextCursor;
-        }
-
-        return new PageSet<TItem>(items, finalCursor);
-    }
-
-    /// <summary>
-    /// Finds the persisted link row for an update action, or returns <c>null</c> on the first run when no link yet exists.
-    /// </summary>
-    private static LinkStateRow? FindLinkForUpdate(
-        IReadOnlyList<LinkStateRow> existingLinks,
-        SyncDirection direction,
-        string providerId)
-    {
-        return direction == SourceToDestination
-            ? existingLinks.FirstOrDefault(link => link.SourceId == providerId)
-            : existingLinks.FirstOrDefault(link => link.DestinationId == providerId);
-    }
-
-    /// <summary>
     /// Records or updates link rows for Skip actions where both matched items were already
     /// content-identical, so no write action was emitted by the planner.
     /// </summary>
@@ -338,7 +340,7 @@ public sealed class JobExecutor(
                 continue;
             }
 
-            var link = FindLinkForUpdate(existingLinks, direction, action.Item.Provenance.ProviderId)
+            var link = FindLinkForUnchangedRecord(existingLinks, direction, action.Item.Provenance.ProviderId)
                 ?? new LinkStateRow
                 {
                     PartitionKey = partitionKey,
@@ -355,6 +357,20 @@ public sealed class JobExecutor(
             link.LastSyncResult = "unchanged";
             await linkStateRepo.UpsertAsync(link, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Finds the persisted link row for a skip/unchanged action, or returns <c>null</c> when no
+    /// link yet exists.
+    /// </summary>
+    private static LinkStateRow? FindLinkForUnchangedRecord(
+        IReadOnlyList<LinkStateRow> existingLinks,
+        SyncDirection direction,
+        string providerId)
+    {
+        return direction == SourceToDestination
+            ? existingLinks.FirstOrDefault(link => link.SourceId == providerId)
+            : existingLinks.FirstOrDefault(link => link.DestinationId == providerId);
     }
 
     /// <summary>
