@@ -7,6 +7,12 @@ public sealed class FakeConnector : IConnector<CanonicalContact>
 {
     private readonly List<CanonicalContact> items = [];
     private int generation;
+    private int getInitialPageCallCount;
+
+    /// <summary>
+    /// Gets the number of times <see cref="GetInitialPageAsync"/> has been called.
+    /// </summary>
+    public int GetInitialPageCallCount => getInitialPageCallCount;
 
     public ConnectorCapabilities Capabilities { get; } = new()
     {
@@ -40,13 +46,16 @@ public sealed class FakeConnector : IConnector<CanonicalContact>
 
     public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-    public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult(new IncrementalPage<CanonicalContact>
+    public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default)
+    {
+        getInitialPageCallCount++;
+        return Task.FromResult(new IncrementalPage<CanonicalContact>
         {
             Items = [.. items],
             NextCursor = generation.ToString(),
             HasMore = false,
         });
+    }
 
     public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default)
     {

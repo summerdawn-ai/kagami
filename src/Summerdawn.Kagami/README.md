@@ -17,7 +17,7 @@ At the moment, the built-in provider connectors are focused on **contacts**. Cal
   - Google contact-group memberships / labels
 - Interactive CLI commands to list, export, import, and sync contacts
 - OData-style in-memory contact filters for list, export, and sync operations
-- `--force` mode to re-evaluate all in-scope contacts even when no versions changed
+- `--force` mode to unconditionally rewrite all in-scope contacts, bypassing version and content checks — for edge cases only, not normal runs
 - `--what-if` mode that logs planned create / update / delete operations without writing changes
 - Cached Google OAuth tokens for repeat runs after the initial interactive sign-in
 
@@ -204,7 +204,7 @@ kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')
 - `--prune`: delete destination contacts that no longer exist on the source
 - `--on-conflict`: `last-write-wins` (default), `source-wins`, `dest-wins`, or `skip`
 - `--full`: ignore saved cursors and fetch all rows from both sides, but still skip contacts whose payload and photo are already identical on both sides
-- `--force`: fetch all rows, bypass all change and sameness checks, and write every in-scope contact unconditionally — use to clobber destination data that may have drifted outside the canonical model
+- `--force`: fetch all rows, bypass all change and sameness checks for every in-scope contact, and write unconditionally — use only when normal change detection via version/hash is known to be unreliable (e.g. destination data drifted outside the canonical model). Do not use for normal runs.
 - `--filter`: apply an OData-style filter in memory before planning or writing changes
 
 ### Sync flags: `--full` and `--force`
@@ -217,9 +217,15 @@ Use `--full` when you know some contacts changed but your cursor state is stale 
 
 #### `--force` — unconditional writes
 
-`--force` includes everything `--full` does, and additionally bypasses both the `HasChanged` short-circuit and the cross-side content-sameness check. Every in-scope contact is written to the destination regardless of whether it looks identical. Conflict policies still apply.
+`--force` includes everything `--full` does, and additionally bypasses both the `HasChanged` short-circuit and the cross-side content-sameness check for **all** in-scope contacts — including newly inferred pairs. Every in-scope contact is written to the destination regardless of whether it looks identical. Conflict policies still apply.
 
-Use `--force` to clobber destination data that may have drifted outside the canonical model (fields added directly on destination that Kagami does not manage will be overwritten).
+**Use `--force` only in edge cases where normal change detection is unreliable.** For example:
+
+- Destination data has been modified directly outside Kagami in ways Kagami cannot detect via its version or content-hash comparison (e.g. fields that Kagami manages were edited by another application).
+- Contact photos were updated on the source but were not reflected in any detectable version change.
+- You suspect a version or hash drift that is preventing changes from being picked up.
+
+**Do not use `--force` for normal runs.** A regular sync already compares content via version number and content hash; there is no benefit to forcing a rewrite when nothing has actually changed, and it produces unnecessary writes on the destination side.
 
 | Flag | Ignores cursors | Skips identical contacts | Respects conflict policy |
 |---|---|---|---|
