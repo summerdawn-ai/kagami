@@ -8,6 +8,8 @@ using Summerdawn.Kagami.DependencyInjection;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 
+using ContactFilter = Summerdawn.Kagami.Models.ContactFilter;
+
 namespace Summerdawn.Kagami;
 
 /// <summary>
@@ -247,7 +249,7 @@ public static class Program
             var contactFilter = ContactFilter.Parse(filter);
             var items = await svc.ListAsync(from, contactFilter, all ? null : 100, CancellationToken.None);
             items = items
-                .OrderBy(ContactName.GetNameOrId, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(ContactNameHelper.GetName, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
             if (items.Count == 0)
@@ -260,15 +262,15 @@ public static class Program
             Console.WriteLine(new string('-', 95));
             foreach (var item in items)
             {
-                if (item.Payload is not CanonicalContact contact)
+                if (item is not CanonicalContact contact)
                 {
-                    Console.WriteLine($"  (non-contact item: {item.SourceId})");
+                    Console.WriteLine($"  (non-contact item: {item.Provenance.ProviderId})");
                     continue;
                 }
 
                 string email = contact.Emails.Count > 0 ? contact.Emails[0].Address : string.Empty;
                 string phone = contact.Phones.Count > 0 ? contact.Phones[0].Number : string.Empty;
-                Console.WriteLine($"{ContactName.GetNameOrId(item),-35} {email,-35} {phone}");
+                Console.WriteLine($"{ContactNameHelper.GetNameOrId(item),-35} {email,-35} {phone}");
             }
 
             Console.WriteLine();
@@ -413,8 +415,8 @@ public static class Program
     private static SyncHost BuildSyncHost(string[] settingsFiles) =>
         BuildServiceProvider(settingsFiles).GetRequiredService<SyncHost>();
 
-    private static ContactsService BuildContactsService(string[] settingsFiles) =>
-        BuildServiceProvider(settingsFiles).GetRequiredService<ContactsService>();
+    private static SyncService<CanonicalContact> BuildContactsService(string[] settingsFiles) =>
+        BuildServiceProvider(settingsFiles).GetRequiredService<SyncService<CanonicalContact>>();
 
     private static KagamiOptions BuildKagamiOptions(string[] settingsFiles) =>
         BuildServiceProvider(settingsFiles).GetRequiredService<KagamiOptions>();

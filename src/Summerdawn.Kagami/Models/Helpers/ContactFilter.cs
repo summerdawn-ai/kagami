@@ -1,28 +1,26 @@
 using System.Text.RegularExpressions;
 
-using Summerdawn.Kagami.Models;
+namespace Summerdawn.Kagami.Models;
 
-namespace Summerdawn.Kagami.Engine;
 /// <summary>
-/// Evaluates a simple OData-style filter expression against a <see cref="CanonicalItem"/>.
+/// Evaluates a simple OData-style filter expression against a <see cref="CanonicalContact"/>.
 /// </summary>
 /// <remarks>
 /// Supported syntax (case-insensitive):
 /// <list type="bullet">
-///   <item><c>startswith(name,'value')</c></item>
-///   <item><c>endswith(name,'value')</c></item>
-///   <item><c>contains(name,'value')</c></item>
-///   <item><c>name eq 'value'</c></item>
+///   <contact><c>startswith(name,'value')</c></contact>
+///   <contact><c>endswith(name,'value')</c></contact>
+///   <contact><c>contains(name,'value')</c></contact>
+///   <contact><c>name eq 'value'</c></contact>
 /// </list>
 /// The identifier <c>name</c> maps to the effective contact name: <see cref="CanonicalContact.DisplayName"/>
 /// when present, otherwise <see cref="CanonicalContact.Organization"/>.
-/// Items that are not contacts always pass through (the filter is a no-op for non-contacts).
 /// </remarks>
-public sealed partial class ContactFilter
+public sealed partial class ContactFilter : IFilter<CanonicalContact>
 {
-    private readonly Func<CanonicalItem, bool> predicate;
+    private readonly Func<CanonicalContact, bool> predicate;
 
-    private ContactFilter(Func<CanonicalItem, bool> predicate, string scope)
+    private ContactFilter(Func<CanonicalContact, bool> predicate, string scope)
     {
         this.predicate = predicate;
         Scope = scope;
@@ -54,7 +52,7 @@ public sealed partial class ContactFilter
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(item => MatchesName(item, name => name.StartsWith(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
+            return new ContactFilter(contact => MatchesName(contact, name => name.StartsWith(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
         }
 
         // endswith(name,'value')
@@ -62,7 +60,7 @@ public sealed partial class ContactFilter
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(item => MatchesName(item, name => name.EndsWith(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
+            return new ContactFilter(contact => MatchesName(contact, name => name.EndsWith(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
         }
 
         // contains(name,'value')
@@ -70,7 +68,7 @@ public sealed partial class ContactFilter
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(item => MatchesName(item, name => name.Contains(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
+            return new ContactFilter(contact => MatchesName(contact, name => name.Contains(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
         }
 
         // name eq 'value'
@@ -78,30 +76,22 @@ public sealed partial class ContactFilter
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(item => MatchesName(item, name => name.Equals(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
+            return new ContactFilter(contact => MatchesName(contact, name => name.Equals(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
         }
 
         throw new ArgumentException($"Unrecognized filter expression: '{filterExpression}'. " +
             "Supported forms: startswith(name,'x'), endswith(name,'x'), contains(name,'x'), name eq 'x'");
     }
 
-    /// <summary>Returns true if this item matches the filter.</summary>
-    public bool Matches(CanonicalItem item) => predicate(item);
+    /// <summary>Returns true if this contact matches the filter.</summary>
+    public bool Matches(CanonicalContact contact) => predicate(contact);
 
-    /// <summary>Returns only those items matching the filter.</summary>
-    public IReadOnlyList<CanonicalItem> Apply(IReadOnlyList<CanonicalItem> items) =>
-        items.Where(predicate).ToList();
+    /// <summary>Returns only those contacts matching the filter.</summary>
+    public IReadOnlyList<CanonicalContact> Apply(IReadOnlyList<CanonicalContact> contacts) =>
+        contacts.Where(predicate).ToList();
 
-    private static bool MatchesName(CanonicalItem item, Func<string, bool> check)
-    {
-        if (item.Payload is CanonicalContact contact)
-        {
-            return check(ContactName.GetName(contact));
-        }
-
-        // Non-contact items pass through
-        return true;
-    }
+    private static bool MatchesName(CanonicalContact contact, Func<string, bool> check) =>
+        check(ContactNameHelper.GetName(contact));
 
     private static string UnescapeODataString(string value) =>
         value.Replace("''", "'", StringComparison.Ordinal);

@@ -1,9 +1,12 @@
-using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
+using static Summerdawn.Kagami.Engine.SyncActionKind;
+using static Summerdawn.Kagami.Engine.SyncDirection;
+
 namespace Summerdawn.Kagami.Engine;
+
 /// <summary>
 /// Executes a single sync job using two connectors and the planner.
 /// </summary>
@@ -20,150 +23,133 @@ public sealed class JobExecutor(
     /// <summary>
     /// Executes a sync job. If <paramref name="whatIf"/> is true, no writes are performed.
     /// </summary>
-    /// <param name="jobKey">The job key used for lease and state tracking.</param>
-    /// <param name="jobOptions">The job configuration.</param>
-    /// <param name="sourceConnector">Connector for source side.</param>
-    /// <param name="destinationConnector">Connector for destination side.</param>
+    /// <param name="job">The job to execute.</param>
     /// <param name="whatIf">When <c>true</c>, no writes are performed; planned actions are logged.</param>
-    /// <param name="filter">
-    /// Optional in-memory contact filter. Only items matching the filter are included in planning;
-    /// items not matching the filter are left completely untouched on both sides.
-    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task<JobExecutionResult> ExecuteAsync(
-        string jobKey,
-        JobOptions jobOptions,
-        IConnector sourceConnector,
-        IConnector destinationConnector,
-        bool whatIf = false,
-        ContactFilter? filter = null,
-        CancellationToken cancellationToken = default)
+    public async Task<JobExecutionResult> ExecuteAsync<TItem>(Job<TItem> job, bool whatIf = false, CancellationToken cancellationToken = default) where TItem : CanonicalItem
     {
         string holderId = Guid.NewGuid().ToString("N");
-        bool leaseAcquired = await leaseRepo.TryAcquireAsync(jobKey, holderId, LeaseDuration, cancellationToken);
+        bool leaseAcquired = await leaseRepo.TryAcquireAsync(job.Key, holderId, LeaseDuration, cancellationToken);
         if (!leaseAcquired)
         {
-            logger.LogWarning("Job {JobKey} is already running; skipping", jobKey);
-            return new JobExecutionResult { JobKey = jobKey, Skipped = true, SkipReason = "Lease already held" };
+            logger.LogWarning("Job {JobKey} is already running; skipping", job.Key);
+            return new JobExecutionResult { JobKey = job.Key, Skipped = true, SkipReason = "Lease already held" };
         }
 
         try
         {
-            return await RunJobAsync(jobKey, jobOptions, sourceConnector, destinationConnector, whatIf, filter, cancellationToken);
+            return await RunJobAsync(job, whatIf, cancellationToken);
         }
         finally
         {
-            await leaseRepo.ReleaseAsync(jobKey, holderId, cancellationToken);
+            await leaseRepo.ReleaseAsync(job.Key, holderId, cancellationToken);
         }
     }
 
-    private async Task<JobExecutionResult> RunJobAsync(
-        string jobKey,
-        JobOptions jobOptions,
-        IConnector sourceConnector,
-        IConnector destinationConnector,
-        bool whatIf,
-        ContactFilter? filter,
-        CancellationToken cancellationToken)
+    private async Task<JobExecutionResult> RunJobAsync<TItem>(Job<TItem> job, bool whatIf, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
-        logger.LogInformation("Starting job {JobKey} (whatIf={WhatIf}, force={Force})", jobKey, whatIf, jobOptions.Force);
+        logger.LogInformation("Starting job {job.Key} (whatIf={WhatIf}, force={Force})", job.Key, whatIf, job.Options.Force);
+
+        var sourceConnector = job.SourceConnector;
+        var destinationConnector = job.DestinationConnector;
+
+        var filter = job.Filter;
 
         await sourceConnector.AuthenticateAsync(cancellationToken);
         await destinationConnector.AuthenticateAsync(cancellationToken);
 
-        var existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
-        JobExecutionResult result = new() { JobKey = jobKey };
+        var existingLinks = await linkStateRepo.GetByJobAsync(job.Key, cancellationToken);
+        JobExecutionResult result = new() { JobKey = job.Key };
         string filterScope = filter?.Scope ?? string.Empty;
 
         // --- Read current snapshots from both sides ---
-        var currentSourcePageSet = await ReadCurrentPagesAsync(sourceConnector, jobOptions.Source, cancellationToken);
+        var currentSourcePageSet = await ReadCurrentPagesAsync(sourceConnector, job.Options.Source, cancellationToken);
         var currentSourceItems = filter is not null ? filter.Apply(currentSourcePageSet.Items) : currentSourcePageSet.Items;
 
-        var currentDestinationPageSet = await ReadCurrentPagesAsync(destinationConnector, jobOptions.Destination, cancellationToken);
+        var currentDestinationPageSet = await ReadCurrentPagesAsync(destinationConnector, job.Options.Destination, cancellationToken);
         var currentDestinationItems = filter is not null ? filter.Apply(currentDestinationPageSet.Items) : currentDestinationPageSet.Items;
 
         // --- Poll incremental changes (for cursor tracking) ---
-        var sourceCursorState = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Source, cancellationToken);
-        string? sourceCursor = GetApplicableCursor(jobKey, jobOptions.Source, sourceCursorState, filterScope);
-        var sourcePageSet = await ReadAllPagesAsync(sourceConnector, jobOptions.Source, sourceCursor, jobOptions.Full || jobOptions.Force, cancellationToken);
+        var sourceCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Source, cancellationToken);
+        string? sourceCursor = GetApplicableCursor(job.Key, job.Options.Source, sourceCursorState, filterScope);
+        var sourcePageSet = await ReadAllPagesAsync(sourceConnector, job.Options.Source, sourceCursor, job.Options.Full || job.Options.Force, cancellationToken);
 
-        var destinationCursorState = await cursorRepo.GetCursorAsync(jobKey, jobOptions.Destination, cancellationToken);
-        string? destinationCursor = GetApplicableCursor(jobKey, jobOptions.Destination, destinationCursorState, filterScope);
-        var destinationPageSet = await ReadAllPagesAsync(destinationConnector, jobOptions.Destination, destinationCursor, jobOptions.Full || jobOptions.Force, cancellationToken);
+        var destinationCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Destination, cancellationToken);
+        string? destinationCursor = GetApplicableCursor(job.Key, job.Options.Destination, destinationCursorState, filterScope);
+        var destinationPageSet = await ReadAllPagesAsync(destinationConnector, job.Options.Destination, destinationCursor, job.Options.Full || job.Options.Force, cancellationToken);
 
         // --- Plan actions (single pass over full current state from both sides) ---
-        var actions = planner.PlanActions(jobOptions, currentSourceItems, currentDestinationItems, existingLinks);
+        var actions = planner.PlanActions(job.Options, currentSourceItems, currentDestinationItems, existingLinks);
 
-        var actionsSkip = actions.Where(a => a.Kind == SyncActionKind.Skip).ToList();
-        var actionsToDestination = actions.Where(a => a.TargetSide == SyncSide.Destination).Except(actionsSkip).ToList();
-        var actionsToSource = actions.Where(a => a.TargetSide == SyncSide.Source).Except(actionsSkip).ToList();
+        var actionsSkip = actions.Where(a => a.Kind == Skip).ToList();
+        var actionsToDestination = actions.Where(a => a.Direction == SourceToDestination).Except(actionsSkip).ToList();
+        var actionsToSource = actions.Where(a => a.Direction == DestinationToSource).Except(actionsSkip).ToList();
 
-        logger.LogInformation("Job {JobKey}: {CountDestination} actions targeting destination, {CountSource} targeting source, {CountSkip} skip", jobKey, actionsToDestination.Count, actionsToSource.Count, actionsSkip.Count);
+        logger.LogInformation("Job {job.Key}: {CountDestination} actions targeting destination, {CountSource} targeting source, {CountSkip} skip", job.Key, actionsToDestination.Count, actionsToSource.Count, actionsSkip.Count);
         result.ActionsPlanned += actionsToSource.Count + actionsToDestination.Count;
 
         if (whatIf)
         {
-            LogPlannedActions(jobKey, actions);
+            LogPlannedActions(job.Key, actions);
         }
 
         if (!whatIf)
         {
             await EnsureActionItemsLoadedAsync(actionsToDestination, cancellationToken);
-            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToDestination, destinationConnector, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.Destination, cancellationToken);
-            existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
+            await ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job: job, existingLinks: existingLinks, cancellationToken: cancellationToken);
+            existingLinks = await linkStateRepo.GetByJobAsync(job.Key, cancellationToken);
 
             await EnsureActionItemsLoadedAsync(actionsToSource, cancellationToken);
-            await ApplyActionsAsync(jobKey, jobOptions.EntityType, actionsToSource, sourceConnector, linkStateRepo, opLog, existingLinks, updateSide: SyncSide.Source, cancellationToken);
+            await ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job: job, existingLinks: existingLinks, cancellationToken: cancellationToken);
 
             var skipsWithMatches = actionsSkip.Where(a => a.Item is not null && a.MatchedTargetItem is not null).ToList();
             if (skipsWithMatches.Count > 0)
             {
-                existingLinks = await linkStateRepo.GetByJobAsync(jobKey, cancellationToken);
+                existingLinks = await linkStateRepo.GetByJobAsync(job.Key, cancellationToken);
 
                 var destinationSkipsWithMatches = skipsWithMatches
-                    .Where(a => a.TargetSide == SyncSide.Destination)
+                    .Where(a => a.Direction == SourceToDestination)
                     .ToList();
                 if (destinationSkipsWithMatches.Count > 0)
                 {
-                    await RecordUnchangedLinksAsync(jobKey, jobOptions.EntityType, destinationSkipsWithMatches, existingLinks, SyncSide.Destination, cancellationToken);
+                    await RecordUnchangedLinksAsync(job.Key, job.Options.EntityType, destinationSkipsWithMatches, existingLinks, SourceToDestination, cancellationToken);
                 }
 
                 var sourceSkipsWithMatches = skipsWithMatches
-                    .Where(a => a.TargetSide == SyncSide.Source)
+                    .Where(a => a.Direction == DestinationToSource)
                     .ToList();
                 if (sourceSkipsWithMatches.Count > 0)
                 {
-                    await RecordUnchangedLinksAsync(jobKey, jobOptions.EntityType, sourceSkipsWithMatches, existingLinks, SyncSide.Source, cancellationToken);
+                    await RecordUnchangedLinksAsync(job.Key, job.Options.EntityType, sourceSkipsWithMatches, existingLinks, DestinationToSource, cancellationToken);
                 }
             }
 
             if (sourcePageSet.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(jobKey, jobOptions.Source, filterScope, sourcePageSet.Cursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(job.Key, job.Options.Source, filterScope, sourcePageSet.Cursor, cancellationToken);
             }
 
             if (destinationPageSet.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(jobKey, jobOptions.Destination, filterScope, destinationPageSet.Cursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(job.Key, job.Options.Destination, filterScope, destinationPageSet.Cursor, cancellationToken);
             }
         }
 
         result.Succeeded = true;
-        logger.LogInformation("Job {JobKey} completed (whatIf={WhatIf}, actionsPlanned={Count})", jobKey, whatIf, result.ActionsPlanned);
+        logger.LogInformation("Job {job.Key} completed (whatIf={WhatIf}, actionsPlanned={Count})", job.Key, whatIf, result.ActionsPlanned);
         return result;
     }
 
-    private async Task ApplyActionsAsync(
-        string jobKey,
-        string entityType,
-        IReadOnlyList<SyncAction> actions,
-        IConnector targetConnector,
-        LinkStateRepository linkStateRepository,
-        OperationLogRepository operationLog,
+    private async Task ApplyActionsAsync<TItem>(
+        IReadOnlyList<SyncAction<TItem>> actions,
+        SyncDirection direction,
+        Job<TItem> job,
         IReadOnlyList<LinkStateRow> existingLinks,
-        SyncSide updateSide,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) where TItem : CanonicalItem
     {
+        string entityType = job.Options.EntityType;
+        var targetConnector = direction == SourceToDestination ? job.DestinationConnector : job.SourceConnector;
+
         var linksBySourceId = existingLinks.ToDictionary(l => l.SourceId);
         var linksByDestinationId = existingLinks
             .Where(l => l.DestinationId != null)
@@ -175,33 +161,33 @@ public sealed class JobExecutor(
             {
                 switch (action.Kind)
                 {
-                    case SyncActionKind.Create when action.Item is not null:
+                    case Create when action.Item is not null:
                         {
                             var created = await targetConnector.CreateItemAsync(action.Item, cancellationToken);
-                            logger.LogInformation("Job {JobKey}: created {Description} on side {Side}", jobKey, DescribeActionTarget(action), updateSide);
-                            await operationLog.AppendAsync(jobKey, entityType, "create", created.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
+                            logger.LogInformation("Job {JobKey}: created {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
+                            await opLog.AppendAsync(job.Key, entityType, "create", created.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
                             var link = new LinkStateRow
                             {
-                                JobKey = jobKey,
+                                JobKey = job.Key,
                                 EntityType = entityType,
-                                SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : created.SourceId,
-                                DestinationId = updateSide == SyncSide.Destination ? created.SourceId : action.Item.SourceId,
-                                SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : created.Version,
-                                DestinationVersion = updateSide == SyncSide.Destination ? created.Version : action.Item.Version,
-                                SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : created.ContentHash,
-                                DestinationHash = updateSide == SyncSide.Destination ? created.ContentHash : action.Item.ContentHash,
-                                OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
+                                SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : created.Provenance.ProviderId,
+                                DestinationId = direction == SourceToDestination ? created.Provenance.ProviderId : action.Item.Provenance.ProviderId,
+                                SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : created.Provenance.Version,
+                                DestinationVersion = direction == SourceToDestination ? created.Provenance.Version : action.Item.Provenance.Version,
+                                SourceHash = direction == SourceToDestination ? action.Item.Provenance.ContentHash : created.Provenance.ContentHash,
+                                DestinationHash = direction == SourceToDestination ? created.Provenance.ContentHash : action.Item.Provenance.ContentHash,
+                                OriginSide = direction == SourceToDestination ? "Source" : "Destination",
                                 LastSyncedAt = DateTimeOffset.UtcNow,
                                 LastSyncResult = "created",
                             };
-                            await linkStateRepository.UpsertAsync(link, cancellationToken);
+                            await linkStateRepo.UpsertAsync(link, cancellationToken);
                             break;
                         }
 
-                    case SyncActionKind.Update when action.Item is not null:
+                    case Update when action.Item is not null:
                         {
-                            var link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId);
+                            var link = FindLinkForUpdate(existingLinks, direction, action.Item.Provenance.ProviderId);
                             if (link is null)
                             {
                                 if (action.MatchedTargetItem is null)
@@ -209,77 +195,75 @@ public sealed class JobExecutor(
                                     continue;
                                 }
 
-                                var matchedTarget = CreateTargetItem(action.Item, null, updateSide, action.MatchedTargetItem);
-                                if (PhotoHashesMatch(action.Item, action.MatchedTargetItem))
-                                {
-                                    ContactPhotoMetadata.DetachPhoto(matchedTarget);
-                                }
+                                var matchedTarget = CreateTargetItem(action.Item, null, direction, action.MatchedTargetItem);
+
+                                DetachPhotoIfUnchanged(action, matchedTarget);
+
                                 var matchedUpdate = await targetConnector.UpdateItemAsync(matchedTarget, cancellationToken);
-                                logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", jobKey, DescribeActionTarget(action), updateSide);
-                                await operationLog.AppendAsync(jobKey, entityType, "update", matchedUpdate.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
+                                logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
+                                await opLog.AppendAsync(job.Key, entityType, "update", matchedUpdate.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
                                 var matchedLink = new LinkStateRow
                                 {
-                                    JobKey = jobKey,
+                                    JobKey = job.Key,
                                     EntityType = entityType,
-                                    SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : matchedUpdate.SourceId,
-                                    DestinationId = updateSide == SyncSide.Destination ? matchedUpdate.SourceId : action.Item.SourceId,
-                                    SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : matchedUpdate.Version,
-                                    DestinationVersion = updateSide == SyncSide.Destination ? matchedUpdate.Version : action.Item.Version,
-                                    SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : matchedUpdate.ContentHash,
-                                    DestinationHash = updateSide == SyncSide.Destination ? matchedUpdate.ContentHash : action.Item.ContentHash,
-                                    OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
+                                    SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : matchedUpdate.Provenance.ProviderId,
+                                    DestinationId = direction == SourceToDestination ? matchedUpdate.Provenance.ProviderId : action.Item.Provenance.ProviderId,
+                                    SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : matchedUpdate.Provenance.Version,
+                                    DestinationVersion = direction == SourceToDestination ? matchedUpdate.Provenance.Version : action.Item.Provenance.Version,
+                                    SourceHash = direction == SourceToDestination ? action.Item.Provenance.ContentHash : matchedUpdate.Provenance.ContentHash,
+                                    DestinationHash = direction == SourceToDestination ? matchedUpdate.Provenance.ContentHash : action.Item.Provenance.ContentHash,
+                                    OriginSide = direction == SourceToDestination ? "Source" : "Destination",
                                     LastSyncedAt = DateTimeOffset.UtcNow,
                                     LastSyncResult = "updated",
                                 };
-                                await linkStateRepository.UpsertAsync(matchedLink, cancellationToken);
+                                await linkStateRepo.UpsertAsync(matchedLink, cancellationToken);
                                 break;
                             }
 
-                            var targetItem = CreateTargetItem(action.Item, link, updateSide, action.MatchedTargetItem);
-                            if (PhotoHashesMatch(action.Item, action.MatchedTargetItem))
-                            {
-                                ContactPhotoMetadata.DetachPhoto(targetItem);
-                            }
-                            var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
-                            logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", jobKey, DescribeActionTarget(action), updateSide);
-                            await operationLog.AppendAsync(jobKey, entityType, "update", updated.SourceId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
+                            var targetItem = CreateTargetItem(action.Item, link, direction, action.MatchedTargetItem);
 
-                            if (updateSide == SyncSide.Destination)
+                            DetachPhotoIfUnchanged(action, targetItem);
+
+                            var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
+                            logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
+                            await opLog.AppendAsync(job.Key, entityType, "update", updated.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+
+                            if (direction == SourceToDestination)
                             {
-                                link.SourceVersion = action.Item.Version;
-                                link.SourceHash = action.Item.ContentHash;
-                                link.DestinationVersion = updated.Version;
-                                link.DestinationHash = updated.ContentHash;
+                                link.SourceVersion = action.Item.Provenance.Version;
+                                link.SourceHash = action.Item.Provenance.ContentHash;
+                                link.DestinationVersion = updated.Provenance.Version;
+                                link.DestinationHash = updated.Provenance.ContentHash;
                             }
                             else
                             {
-                                link.DestinationVersion = action.Item.Version;
-                                link.DestinationHash = action.Item.ContentHash;
-                                link.SourceVersion = updated.Version;
-                                link.SourceHash = updated.ContentHash;
+                                link.DestinationVersion = action.Item.Provenance.Version;
+                                link.DestinationHash = action.Item.Provenance.ContentHash;
+                                link.SourceVersion = updated.Provenance.Version;
+                                link.SourceHash = updated.Provenance.ContentHash;
                             }
 
                             link.LastSyncedAt = DateTimeOffset.UtcNow;
                             link.LastSyncResult = "updated";
-                            await linkStateRepository.UpsertAsync(link, cancellationToken);
+                            await linkStateRepo.UpsertAsync(link, cancellationToken);
 
                             break;
                         }
 
-                    case SyncActionKind.Delete when action.DeleteId is not null:
+                    case Delete when action.DeleteId is not null:
                         {
                             await targetConnector.DeleteItemAsync(action.DeleteId, cancellationToken);
-                            logger.LogInformation("Job {JobKey}: deleted item {ItemId} on side {Side}", jobKey, action.DeleteId, updateSide);
-                            await operationLog.AppendAsync(jobKey, entityType, "delete", action.DeleteId, updateSide.ToString(), "ok", cancellationToken: cancellationToken);
+                            logger.LogInformation("Job {JobKey}: deleted item {ItemId} on side {Side}", job.Key, action.DeleteId, direction);
+                            await opLog.AppendAsync(job.Key, entityType, "delete", action.DeleteId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
-                            var link = updateSide == SyncSide.Destination
+                            var link = direction == SourceToDestination
                                 ? linksByDestinationId.GetValueOrDefault(action.DeleteId)
                                 : linksBySourceId.GetValueOrDefault(action.DeleteId);
 
                             if (link is not null)
                             {
-                                if (updateSide == SyncSide.Destination)
+                                if (direction == SourceToDestination)
                                 {
                                     link.DestinationDeleted = true;
                                 }
@@ -290,7 +274,7 @@ public sealed class JobExecutor(
 
                                 link.LastSyncedAt = DateTimeOffset.UtcNow;
                                 link.LastSyncResult = "deleted";
-                                await linkStateRepository.UpsertAsync(link, cancellationToken);
+                                await linkStateRepo.UpsertAsync(link, cancellationToken);
                             }
 
                             break;
@@ -303,30 +287,30 @@ public sealed class JobExecutor(
             }
             catch (Exception ex)
             {
-                string itemId = action.Item?.SourceId ?? action.DeleteId ?? "unknown";
+                string itemId = action.Item?.Provenance.ProviderId ?? action.DeleteId ?? "unknown";
                 string operation = action.Kind switch
                 {
-                    SyncActionKind.Create => "create",
-                    SyncActionKind.Update => "update",
-                    SyncActionKind.Delete => "delete",
+                    Create => "create",
+                    Update => "update",
+                    Delete => "delete",
                     _ => action.Kind.ToString().ToLowerInvariant()
                 };
 
                 logger.LogError(ex, "Job {JobKey}: failed to apply {Kind} action for item {ItemId} on side {Side}; skipping",
-                    jobKey, action.Kind, itemId, updateSide);
-                await operationLog.AppendAsync(jobKey, entityType, operation, itemId, updateSide.ToString(), "error", cancellationToken: cancellationToken);
+                    job.Key, action.Kind, itemId, direction);
+                await opLog.AppendAsync(job.Key, entityType, operation, itemId, direction.ToString(), "error", cancellationToken: cancellationToken);
             }
         }
     }
 
-    private async Task<PageSet> ReadAllPagesAsync(
-        IConnector connector,
+    private async Task<PageSet<TItem>> ReadAllPagesAsync<TItem>(
+        IConnector<TItem> connector,
         string endpointName,
         string? cursor,
         bool force,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) where TItem : CanonicalItem
     {
-        IncrementalPage page;
+        IncrementalPage<TItem> page;
         if (cursor is null || force)
         {
             if (force && cursor is not null)
@@ -345,7 +329,7 @@ public sealed class JobExecutor(
             page = await connector.GetIncrementalPageAsync(cursor, cancellationToken);
         }
 
-        List<CanonicalItem> items = [.. page.Items];
+        List<TItem> items = [.. page.Items];
         string? finalCursor = page.NextCursor;
 
         while (page.HasMore)
@@ -360,7 +344,7 @@ public sealed class JobExecutor(
             finalCursor = page.NextCursor;
         }
 
-        return new PageSet(items, finalCursor);
+        return new PageSet<TItem>(items, finalCursor);
     }
 
     private string? GetApplicableCursor(
@@ -389,13 +373,13 @@ public sealed class JobExecutor(
         return null;
     }
 
-    private async Task<PageSet> ReadCurrentPagesAsync(
-        IConnector connector,
+    private async Task<PageSet<TItem>> ReadCurrentPagesAsync<TItem>(
+        IConnector<TItem> connector,
         string endpointName,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         var page = await connector.GetInitialPageAsync(cancellationToken);
-        List<CanonicalItem> items = [.. page.Items];
+        List<TItem> items = [.. page.Items];
         string? finalCursor = page.NextCursor;
 
         while (page.HasMore)
@@ -410,32 +394,32 @@ public sealed class JobExecutor(
             finalCursor = page.NextCursor;
         }
 
-        return new PageSet(items, finalCursor);
+        return new PageSet<TItem>(items, finalCursor);
     }
 
-    private void LogPlannedActions(string jobKey, IReadOnlyList<SyncAction> actions)
+    private void LogPlannedActions<TItem>(string jobKey, IReadOnlyList<SyncAction<TItem>> actions) where TItem : CanonicalItem
     {
         foreach (var action in actions)
         {
             string verb = action.Kind.ToString().ToLowerInvariant();
             logger.LogInformation(
-                "What-if job {JobKey}: would {Verb} {Description} on side {TargetSide} ({Reason})",
+                "What-if job {JobKey}: would {Verb} {Description} in direction {TargetSide} ({Reason})",
                 jobKey,
                 verb,
                 DescribeActionTarget(action),
-                action.TargetSide,
+                action.Direction,
                 action.Reason ?? "no reason provided");
         }
     }
 
-    private static string DescribeActionTarget(SyncAction action)
+    private static string DescribeActionTarget<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem
     {
-        if (action.Item?.Payload is CanonicalContact contact)
+        if (action.Item is CanonicalContact contact)
         {
-            string name = ContactName.GetName(contact);
+            string name = ContactNameHelper.GetName(contact);
             if (string.IsNullOrWhiteSpace(name))
             {
-                name = action.Item.SourceId;
+                name = action.Item.Provenance.ProviderId;
             }
 
             return $"contact '{name}'";
@@ -443,7 +427,7 @@ public sealed class JobExecutor(
 
         if (action.Item is not null)
         {
-            return $"item '{action.Item.SourceId}'";
+            return $"item '{action.Item.Provenance.ProviderId}'";
         }
 
         return $"item '{action.DeleteId}'";
@@ -451,73 +435,74 @@ public sealed class JobExecutor(
 
     private static LinkStateRow? FindLinkForUpdate(
         IReadOnlyList<LinkStateRow> existingLinks,
-        SyncSide updateSide,
-        string sourceId)
+        SyncDirection direction,
+        string providerId)
     {
-        return updateSide == SyncSide.Destination
-            ? existingLinks.FirstOrDefault(link => link.SourceId == sourceId)
-            : existingLinks.FirstOrDefault(link => link.DestinationId == sourceId);
+        return direction == SourceToDestination
+            ? existingLinks.FirstOrDefault(link => link.SourceId == providerId)
+            : existingLinks.FirstOrDefault(link => link.DestinationId == providerId);
     }
 
-    private static async Task EnsureActionItemsLoadedAsync(IReadOnlyList<SyncAction> actions, CancellationToken cancellationToken)
+    private static async Task EnsureActionItemsLoadedAsync<TItem>(IReadOnlyList<SyncAction<TItem>> actions, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         foreach (var action in actions)
         {
-            if (action.Kind is SyncActionKind.Create or SyncActionKind.Update && action.Item is not null)
+            if (action.Kind is Create or Update && action.Item is CanonicalContact contact)
             {
-                await ContactPhotoLoader.EnsureLoadedAsync(action.Item, cancellationToken);
+                await ContactPhotoLoader.EnsureLoadedAsync(contact, cancellationToken);
             }
 
-            if (action.Kind == SyncActionKind.Update && action.MatchedTargetItem is not null)
+            if (action.Kind == Update && action.MatchedTargetItem is CanonicalContact targetContact)
             {
-                await ContactPhotoLoader.EnsureLoadedAsync(action.MatchedTargetItem, cancellationToken);
+                await ContactPhotoLoader.EnsureLoadedAsync(targetContact, cancellationToken);
             }
         }
     }
 
-    private static CanonicalItem CreateTargetItem(
-        CanonicalItem sourceItem,
+    private static TItem CreateTargetItem<TItem>(
+        TItem sourceItem,
         LinkStateRow? link,
-        SyncSide updateSide,
-        CanonicalItem? matchedTargetItem) =>
-        new()
+        SyncDirection updateDirection,
+        CanonicalItem? matchedTargetItem) where TItem : CanonicalItem
+    {
+        var targetItem = sourceItem with
         {
-            EntityType = sourceItem.EntityType,
-            Payload = sourceItem.Payload,
-            SourceId = matchedTargetItem?.SourceId ?? (updateSide == SyncSide.Destination ? link!.DestinationId! : link!.SourceId),
-            Version = matchedTargetItem?.Version ?? (updateSide == SyncSide.Destination ? link!.DestinationVersion : link!.SourceVersion),
-            ContentHash = sourceItem.ContentHash,
-            IsDeleted = sourceItem.IsDeleted,
-            Metadata = new Dictionary<string, string>(sourceItem.Metadata),
+            Provenance = new()
+            {
+                ProviderId = matchedTargetItem?.Provenance.ProviderId ??
+                             (updateDirection == SourceToDestination ? link!.DestinationId! : link!.SourceId),
+                Version = matchedTargetItem?.Provenance.Version ??
+                          (updateDirection == SourceToDestination ? link!.DestinationVersion : link!.SourceVersion),
+            }
         };
 
-    /// <summary>
-    /// Returns <c>true</c> if both items have a known photo hash and the hashes are equal,
-    /// indicating the photo does not need to be re-uploaded during an update.
-    /// </summary>
-    private static bool PhotoHashesMatch(CanonicalItem? source, CanonicalItem? destination)
+        return targetItem;
+    }
+
+    private static void DetachPhotoIfUnchanged<TItem>(SyncAction<TItem> action, TItem matchedTarget) where TItem : CanonicalItem
     {
-        if (source is null || destination is null)
+        if (typeof(TItem) != typeof(CanonicalContact))
         {
-            return false;
+            return;
         }
 
-        string? srcHash = ContactPhotoMetadata.ComputePhotoHash(source);
-        string? dstHash = ContactPhotoMetadata.ComputePhotoHash(destination);
-        return srcHash is not null && dstHash is not null && srcHash == dstHash;
+        if (ContactPhotoMetadataHelper.PhotoHashesMatch(action.Item as CanonicalContact, action.MatchedTargetItem as CanonicalContact))
+        {
+            ContactPhotoMetadataHelper.DetachPhoto((matchedTarget as CanonicalContact)!);
+        }
     }
 
     /// <summary>
     /// Records or updates link rows for Skip actions where the content was already identical
     /// on both sides, so the planner did not emit an Update action.
     /// </summary>
-    private async Task RecordUnchangedLinksAsync(
+    private async Task RecordUnchangedLinksAsync<TItem>(
         string jobKey,
         string entityType,
-        IReadOnlyList<SyncAction> unchangedActions,
+        IReadOnlyList<SyncAction<TItem>> unchangedActions,
         IReadOnlyList<LinkStateRow> existingLinks,
-        SyncSide updateSide,
-        CancellationToken cancellationToken)
+        SyncDirection direction,
+        CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         foreach (var action in unchangedActions)
         {
@@ -526,25 +511,25 @@ public sealed class JobExecutor(
                 continue;
             }
 
-            var link = FindLinkForUpdate(existingLinks, updateSide, action.Item.SourceId)
+            var link = FindLinkForUpdate(existingLinks, direction, action.Item.Provenance.ProviderId)
                 ?? new LinkStateRow
                 {
                     JobKey = jobKey,
                     EntityType = entityType,
-                    OriginSide = updateSide == SyncSide.Destination ? "Source" : "Destination",
+                    OriginSide = direction == SourceToDestination ? "Source" : "Destination",
                 };
 
-            link.SourceId = updateSide == SyncSide.Destination ? action.Item.SourceId : action.MatchedTargetItem.SourceId;
-            link.DestinationId = updateSide == SyncSide.Destination ? action.MatchedTargetItem.SourceId : action.Item.SourceId;
-            link.SourceVersion = updateSide == SyncSide.Destination ? action.Item.Version : action.MatchedTargetItem.Version;
-            link.DestinationVersion = updateSide == SyncSide.Destination ? action.MatchedTargetItem.Version : action.Item.Version;
-            link.SourceHash = updateSide == SyncSide.Destination ? action.Item.ContentHash : action.MatchedTargetItem.ContentHash;
-            link.DestinationHash = updateSide == SyncSide.Destination ? action.MatchedTargetItem.ContentHash : action.Item.ContentHash;
+            link.SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : action.MatchedTargetItem.Provenance.ProviderId;
+            link.DestinationId = direction == SourceToDestination ? action.MatchedTargetItem.Provenance.ProviderId : action.Item.Provenance.ProviderId;
+            link.SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : action.MatchedTargetItem.Provenance.Version;
+            link.DestinationVersion = direction == SourceToDestination ? action.MatchedTargetItem.Provenance.Version : action.Item.Provenance.Version;
+            link.SourceHash = direction == SourceToDestination ? action.Item.Provenance.ContentHash : action.MatchedTargetItem.Provenance.ContentHash;
+            link.DestinationHash = direction == SourceToDestination ? action.MatchedTargetItem.Provenance.ContentHash : action.Item.Provenance.ContentHash;
             link.LastSyncedAt = DateTimeOffset.UtcNow;
             link.LastSyncResult = "unchanged";
             await linkStateRepo.UpsertAsync(link, cancellationToken);
         }
     }
 
-    private sealed record PageSet(IReadOnlyList<CanonicalItem> Items, string? Cursor);
+    private sealed record PageSet<TItem>(IReadOnlyList<TItem> Items, string? Cursor) where TItem : CanonicalItem;
 }

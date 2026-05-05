@@ -1,5 +1,6 @@
-using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
+
+using ContactFilter = Summerdawn.Kagami.Models.ContactFilter;
 
 namespace Summerdawn.Kagami.Tests;
 
@@ -100,34 +101,18 @@ public sealed class ContactFilterTests
     public void Apply_FiltersCollection()
     {
         var f = ContactFilter.Parse("startswith(name,'A')")!;
-        var items = new[]
+        var contacts = new[]
         {
             MakeContact("Alice"),
             MakeContact("Bob"),
             MakeContact("Andrew"),
         };
-        var result = f.Apply(items);
+        var result = f.Apply(contacts);
         Assert.Equal(2, result.Count);
-        Assert.All(result, item =>
+        Assert.All(result, contact =>
         {
-            var contact = (CanonicalContact)item.Payload!;
             Assert.StartsWith("A", contact.DisplayName, StringComparison.OrdinalIgnoreCase);
         });
-    }
-
-    // ── Non-contact items pass through ────────────────────────────────────
-
-    [Fact]
-    public void NonContactItems_PassThrough()
-    {
-        var f = ContactFilter.Parse("startswith(name,'A')")!;
-        var item = new CanonicalItem
-        {
-            EntityType = "calendar-event",
-            SourceId = "ev1",
-            Payload = null,
-        };
-        Assert.True(f.Matches(item));
     }
 
     // ── Escaped single quotes (OData '' → ') ─────────────────────────────
@@ -152,11 +137,14 @@ public sealed class ContactFilterTests
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private static CanonicalItem MakeContact(string displayName, string? organization = null) =>
-        new()
+    private static CanonicalContact MakeContact(string displayName, string? organization = null) => new()
+    {
+        DisplayName = displayName,
+        Organization = organization,
+
+        Provenance =
         {
-            EntityType = "contact",
-            SourceId = Guid.NewGuid().ToString("N"),
-            Payload = new CanonicalContact { DisplayName = displayName, Organization = organization },
-        };
+            ProviderId = Guid.NewGuid().ToString("N"),
+        }
+    };
 }

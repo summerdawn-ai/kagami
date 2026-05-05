@@ -27,7 +27,7 @@ public sealed class ContactsImportTests : IDisposable
     private readonly TestDatabasePath databasePath = new();
     private readonly StateDatabase db;
     private readonly FakeConnector connectorDest = new();
-    private readonly ContactsService service;
+    private readonly SyncService<CanonicalContact> service;
     private readonly string importDir;
 
     public ContactsImportTests()
@@ -35,7 +35,7 @@ public sealed class ContactsImportTests : IDisposable
         db = new StateDatabase(databasePath.Path, NullLogger<StateDatabase>.Instance);
         db.InitializeAsync().GetAwaiter().GetResult();
 
-        var connectors = new Dictionary<string, IConnector>(StringComparer.OrdinalIgnoreCase)
+        var connectors = new Dictionary<string, IConnector<CanonicalContact>>(StringComparer.OrdinalIgnoreCase)
         {
             ["Destination"] = connectorDest,
         };
@@ -48,11 +48,11 @@ public sealed class ContactsImportTests : IDisposable
             new LeaseRepository(db),
             NullLogger<JobExecutor>.Instance);
 
-        service = new ContactsService(
+        service = new SyncService<CanonicalContact>(
             name => connectors[name],
             executor,
             db,
-            NullLogger<ContactsService>.Instance);
+            NullLogger<SyncService<CanonicalContact>>.Instance);
 
         importDir = Path.Combine(Path.GetTempPath(), $"kagami-import-{Guid.NewGuid():N}");
         Directory.CreateDirectory(importDir);
@@ -78,7 +78,7 @@ public sealed class ContactsImportTests : IDisposable
 
         Assert.Equal(1, result.Created);
         var created = Assert.Single(connectorDest.Items);
-        Assert.False(ContactPhotoMetadata.TryGetPhoto(created, out _, out _),
+        Assert.False(ContactPhotoMetadataHelper.TryGetPhoto(created, out _, out _),
             "Photo should be explicitly cleared when no image file is present");
     }
 
@@ -92,7 +92,7 @@ public sealed class ContactsImportTests : IDisposable
 
         Assert.Equal(1, result.Created);
         var created = Assert.Single(connectorDest.Items);
-        Assert.True(ContactPhotoMetadata.TryGetPhoto(created, out byte[] photoBytes, out string contentType));
+        Assert.True(ContactPhotoMetadataHelper.TryGetPhoto(created, out byte[] photoBytes, out string contentType));
         Assert.Equal("image/png", contentType);
         Assert.Equal(OnePxPng.Length, photoBytes.Length);
     }
@@ -176,12 +176,12 @@ public sealed class ContactsImportTests : IDisposable
         var result = await failingService.ImportAsync(importDir, "Destination");
 
         Assert.Equal(1, result.Created);
-        Assert.Contains(failingConnector.Items, i => ((CanonicalContact)i.Payload!).DisplayName == "Bob Jones" && !i.IsDeleted);
+        Assert.Contains(failingConnector.Items, i => i is { DisplayName: "Bob Jones", IsDeleted: false });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private ContactsService CreateServiceWith(IConnector destinationConnector)
+    private SyncService<CanonicalContact> CreateServiceWith(IConnector<CanonicalContact> destinationConnector)
     {
         var executor = new JobExecutor(
             new Planner(NullLogger<Planner>.Instance),
@@ -191,11 +191,11 @@ public sealed class ContactsImportTests : IDisposable
             new LeaseRepository(db),
             NullLogger<JobExecutor>.Instance);
 
-        return new ContactsService(
+        return new SyncService<CanonicalContact>(
             _ => destinationConnector,
             executor,
             db,
-            NullLogger<ContactsService>.Instance);
+            NullLogger<SyncService<CanonicalContact>>.Instance);
     }
 
     private async Task WriteContactJsonAsync(string baseName, object contact)
@@ -208,20 +208,16 @@ public sealed class ContactsImportTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(importDir, $"{baseName}.json"), json);
     }
 
-    private static CanonicalItem MakeContact(string id, string firstName, string lastName)
+    private static CanonicalContact MakeContact(string id, string firstName, string lastName) => new()
     {
-        var contact = new CanonicalContact
+        GivenName = firstName,
+        FamilyName = lastName,
+        DisplayName = $"{firstName} {lastName}",
+
+        Provenance =
         {
-            GivenName = firstName,
-            FamilyName = lastName,
-            DisplayName = $"{firstName} {lastName}",
-        };
-        return new CanonicalItem
-        {
-            EntityType = EntityType.Contact,
-            SourceId = id,
+            ProviderId = id,
             Version = "v1",
-            Payload = contact,
-        };
-    }
+        }
+    };
 }

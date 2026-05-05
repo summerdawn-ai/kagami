@@ -43,9 +43,9 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     [Fact]
     public async Task WhatIf_PlansWithoutWritingState()
     {
-        sourceConnector.Seed(CreateEvent("a1", "Meeting"));
+        sourceConnector.Seed(CreateContact("a1", "Meeting"));
 
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
+        var result = await executor.ExecuteAsync(CreateJob("job-1"), whatIf: true);
 
         Assert.True(result.Succeeded);
         Assert.True(result.ActionsPlanned > 0);
@@ -55,9 +55,9 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     [Fact]
     public async Task InitialSync_CreatesLinkState()
     {
-        sourceConnector.Seed(CreateEvent("a1", "Meeting"));
+        sourceConnector.Seed(CreateContact("a1", "Meeting"));
 
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var result = await executor.ExecuteAsync(CreateJob("job-1"));
 
         Assert.True(result.Succeeded);
         var links = await linkStateRepository.GetByJobAsync("job-1");
@@ -71,7 +71,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     {
         await leaseRepository.TryAcquireAsync("job-1", "external-holder", TimeSpan.FromMinutes(5));
 
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var result = await executor.ExecuteAsync(CreateJob("job-1"));
 
         Assert.True(result.Skipped);
         Assert.False(result.Succeeded);
@@ -80,11 +80,11 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     [Fact]
     public async Task IncrementalRerun_DoesNotCreateDuplicateLinks()
     {
-        sourceConnector.Seed(CreateEvent("a1", "Meeting"));
-        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        sourceConnector.Seed(CreateContact("a1", "Meeting"));
+        await executor.ExecuteAsync(CreateJob("job-1"));
 
         var firstLinks = await linkStateRepository.GetByJobAsync("job-1");
-        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        await executor.ExecuteAsync(CreateJob("job-1"));
         var secondLinks = await linkStateRepository.GetByJobAsync("job-1");
 
         Assert.Equal(firstLinks.Count, secondLinks.Count);
@@ -93,57 +93,56 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     [Fact]
     public async Task ForwardUpdate_RefreshesBothVersionBaselines()
     {
-        sourceConnector.Seed(CreateEvent("a1", "Meeting"));
-        destinationConnector.Seed(CreateEvent("b1", "Meeting"));
+        sourceConnector.Seed(CreateContact("a1", "Meeting"));
+        destinationConnector.Seed(CreateContact("b1", "Meeting"));
 
         await linkStateRepository.UpsertAsync(new LinkStateRow
         {
             JobKey = "job-1",
-            EntityType = EntityType.CalendarEvent,
+            EntityType = EntityType.Contact,
             SourceId = "a1",
             DestinationId = "b1",
             SourceVersion = "0",
             DestinationVersion = "0",
         });
 
-        await sourceConnector.UpdateItemAsync(CreateEvent("a1", "Updated Meeting"));
+        await sourceConnector.UpdateItemAsync(CreateContact("a1", "Updated Meeting"));
 
-        var firstRun = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var firstRun = await executor.ExecuteAsync(CreateJob("job-1"));
         var linksAfterUpdate = await linkStateRepository.GetByJobAsync("job-1");
-        var secondRun = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var secondRun = await executor.ExecuteAsync(CreateJob("job-1"));
         var currentSource = await sourceConnector.GetItemAsync("a1");
         var currentTarget = await destinationConnector.GetItemAsync("b1");
 
         Assert.True(firstRun.Succeeded);
         Assert.Single(linksAfterUpdate);
-        Assert.Equal(currentSource!.Version, linksAfterUpdate[0].SourceVersion);
-        Assert.Equal(currentTarget!.Version, linksAfterUpdate[0].DestinationVersion);
+        Assert.Equal(currentSource!.Provenance.Version, linksAfterUpdate[0].SourceVersion);
+        Assert.Equal(currentTarget!.Provenance.Version, linksAfterUpdate[0].DestinationVersion);
         Assert.Equal(0, secondRun.ActionsPlanned);
     }
 
-    private static JobOptions CreateJob(SyncMode mode = SyncMode.Bidirectional) =>
-        new()
-        {
-            Enabled = true,
-            EntityType = EntityType.CalendarEvent,
-            Source = "endpointA",
-            Destination = "endpointB",
-            SyncMode = mode,
-            DeletePolicy = DeletePolicy.Mirror,
-            ConflictPolicy = ConflictPolicy.LastWriteWins,
-        };
+    private Job<CanonicalContact> CreateJob(string jobKey, SyncMode mode = SyncMode.Bidirectional) =>
+        new(jobKey, CreateJobOptions(mode), sourceConnector, destinationConnector);
 
-    private static CanonicalItem CreateEvent(string id, string subject) =>
-        new()
+    private static JobOptions CreateJobOptions(SyncMode mode = SyncMode.Bidirectional) => new()
+    {
+        Enabled = true,
+        EntityType = EntityType.Contact,
+        Source = "endpointA",
+        Destination = "endpointB",
+        SyncMode = mode,
+        DeletePolicy = DeletePolicy.Mirror,
+        ConflictPolicy = ConflictPolicy.LastWriteWins,
+    };
+
+    private static CanonicalContact CreateContact(string id, string displayName) => new()
+    {
+        DisplayName = displayName,
+
+        Provenance =
         {
-            EntityType = EntityType.CalendarEvent,
-            SourceId = id,
+            ProviderId = id,
             Version = "v1",
-            Payload = new CanonicalCalendarEvent
-            {
-                Subject = subject,
-                Start = DateTimeOffset.UtcNow,
-                End = DateTimeOffset.UtcNow.AddHours(1),
-            },
-        };
+        }
+    };
 }

@@ -1,17 +1,21 @@
 using Summerdawn.Kagami.Configuration;
-using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
+using static Summerdawn.Kagami.Configuration.ConflictPolicy;
+using static Summerdawn.Kagami.Configuration.DeletePolicy;
+using static Summerdawn.Kagami.Configuration.SyncMode;
+using static Summerdawn.Kagami.Engine.SyncActionKind;
+using static Summerdawn.Kagami.Engine.SyncDirection;
+
 namespace Summerdawn.Kagami.Engine;
+
 /// <summary>
 /// Derives sync actions from current job config, observed remote state, and link state.
 /// Does not store or depend on mutable job policy per item row.
 /// </summary>
 public sealed class Planner(ILogger<Planner> logger)
 {
-    private static readonly ContactMatchComparer Matcher = new();
-
     /// <summary>
     /// Computes the full set of sync actions from current snapshots of both sides and existing links.
     /// </summary>
@@ -36,16 +40,16 @@ public sealed class Planner(ILogger<Planner> logger)
     /// <see cref="JobOptions.Full"/> only affects cursor behavior in the executor; the planner
     /// treats it identically to a normal run.
     /// </remarks>
-    public IReadOnlyList<SyncAction> PlanActions(
+    public IReadOnlyList<SyncAction<TItem>> PlanActions<TItem>(
         JobOptions jobOptions,
-        IReadOnlyList<CanonicalItem> sourceItems,
-        IReadOnlyList<CanonicalItem> destinationItems,
-        IReadOnlyList<LinkStateRow> existingLinks)
+        IReadOnlyList<TItem> sourceItems,
+        IReadOnlyList<TItem> destinationItems,
+        IReadOnlyList<LinkStateRow> existingLinks) where TItem : CanonicalItem
     {
-        var actions = new List<SyncAction>();
+        var actions = new List<SyncAction<TItem>>();
 
-        var sourceItemsById = sourceItems.ToDictionary(i => i.SourceId, StringComparer.Ordinal);
-        var destinationItemsById = destinationItems.ToDictionary(i => i.SourceId, StringComparer.Ordinal);
+        var sourceItemsById = sourceItems.ToDictionary(i => i.Provenance.ProviderId, StringComparer.Ordinal);
+        var destinationItemsById = destinationItems.ToDictionary(i => i.Provenance.ProviderId, StringComparer.Ordinal);
 
         var linkedSourceIds = existingLinks
             .Select(l => l.SourceId)
@@ -89,13 +93,13 @@ public sealed class Planner(ILogger<Planner> logger)
         }
 
         // Pass 2: unlinked source items → target destination (only when sync mode allows source→destination).
-        if (jobOptions.SyncMode != SyncMode.Reverse)
+        if (jobOptions.SyncMode != Reverse)
         {
             PlanUnlinkedItems(
                 jobOptions,
                 sourceItems,
                 destinationItems,
-                SyncSide.Destination,
+                SourceToDestination,
                 linkedSourceIds,
                 linkedDestinationIds,
                 reservedSourceIds,
@@ -104,13 +108,13 @@ public sealed class Planner(ILogger<Planner> logger)
         }
 
         // Pass 3: unlinked destination items → target source (only when sync mode allows destination→source).
-        if (jobOptions.SyncMode != SyncMode.Forward)
+        if (jobOptions.SyncMode != Forward)
         {
             PlanUnlinkedItems(
                 jobOptions,
                 destinationItems,
                 sourceItems,
-                SyncSide.Source,
+                DestinationToSource,
                 linkedDestinationIds,
                 linkedSourceIds,
                 reservedDestinationIds,
@@ -135,11 +139,11 @@ public sealed class Planner(ILogger<Planner> logger)
     /// sides are absent.
     /// </para>
     /// </remarks>
-    private static SyncAction? EvaluateLinkedPair(
+    private static SyncAction<TItem>? EvaluateLinkedPair<TItem>(
         LinkStateRow link,
-        CanonicalItem? currentSourceItem,
-        CanonicalItem? currentDestinationItem,
-        JobOptions jobOptions)
+        TItem? currentSourceItem,
+        TItem? currentDestinationItem,
+        JobOptions jobOptions) where TItem : CanonicalItem
     {
         bool force = jobOptions.Force;
         // An item absent from the full filtered scan (null) is treated the same as IsDeleted=true
@@ -162,29 +166,29 @@ public sealed class Planner(ILogger<Planner> logger)
                 return null;
             }
 
-            if (jobOptions.SyncMode != SyncMode.Reverse
-                && jobOptions.DeletePolicy != DeletePolicy.Ignore
+            if (jobOptions.SyncMode != Reverse
+                && jobOptions.DeletePolicy != Ignore
                 && link.DestinationId != null
                 && !destinationIsGone)
             {
-                return new SyncAction
+                return new SyncAction<TItem>
                 {
-                    Kind = SyncActionKind.Delete,
-                    TargetSide = SyncSide.Destination,
+                    Kind = Delete,
+                    Direction = SourceToDestination,
                     Item = currentDestinationItem,
                     DeleteId = link.DestinationId,
                     Reason = "Source item absent (deleted or out of filter scope)",
                 };
             }
 
-            string sourceSkipReason = jobOptions.DeletePolicy == DeletePolicy.Ignore
+            string sourceSkipReason = jobOptions.DeletePolicy == Ignore
                 ? "Source item absent but delete policy is Ignore"
                 : "Source item absent but sync direction does not propagate source-side deletions";
 
-            return new SyncAction
+            return new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
-                TargetSide = SyncSide.Destination,
+                Direction = SourceToDestination,
                 Item = currentDestinationItem,
                 Reason = sourceSkipReason,
             };
@@ -193,60 +197,60 @@ public sealed class Planner(ILogger<Planner> logger)
         // --- Destination gone ---
         if (destinationIsGone)
         {
-            if (force && jobOptions.SyncMode != SyncMode.Reverse)
+            if (force && jobOptions.SyncMode != Reverse)
             {
                 // --force: act as if DB is empty. Source is present but destination is gone.
                 // On first run with empty DB we would Create on destination — do the same here
                 // instead of trying to Update a missing item (→ 404).
-                return new SyncAction
+                return new SyncAction<TItem>
                 {
-                    Kind = SyncActionKind.Create,
-                    TargetSide = SyncSide.Destination,
+                    Kind = Create,
+                    Direction = SourceToDestination,
                     Item = currentSourceItem,
                     Reason = "Destination absent; recreating per --force",
                 };
             }
 
-            if (jobOptions.SyncMode != SyncMode.Forward
-                && jobOptions.DeletePolicy != DeletePolicy.Ignore)
+            if (jobOptions.SyncMode != Forward
+                && jobOptions.DeletePolicy != Ignore)
             {
-                return new SyncAction
+                return new SyncAction<TItem>
                 {
-                    Kind = SyncActionKind.Delete,
-                    TargetSide = SyncSide.Source,
+                    Kind = Delete,
+                    Direction = DestinationToSource,
                     Item = currentSourceItem,
                     DeleteId = link.SourceId,
                     Reason = "Destination item absent (deleted or out of filter scope)",
                 };
             }
 
-            string destinationSkipReason = jobOptions.SyncMode == SyncMode.Forward
+            string destinationSkipReason = jobOptions.SyncMode == Forward
                 ? "Destination item absent but sync direction does not propagate destination-side deletions"
                 : "Destination item absent but delete policy is Ignore";
 
-            return new SyncAction
+            return new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
-                TargetSide = SyncSide.Source,
+                Direction = DestinationToSource,
                 Item = currentSourceItem,
                 Reason = destinationSkipReason,
             };
         }
 
         // Both items are present and non-deleted from this point on.
-        bool sourceChanged = force || HasChanged(currentSourceItem!, link, SyncSide.Source);
-        bool destinationChanged = force || HasChanged(currentDestinationItem!, link, SyncSide.Destination);
+        bool sourceChanged = force || HasChanged(currentSourceItem!, link, DestinationToSource);
+        bool destinationChanged = force || HasChanged(currentDestinationItem!, link, SourceToDestination);
 
         // If the payload is identical on both sides there is nothing to write — return a Skip so the
         // caller can still record/update the link without re-uploading the item.
         if (!jobOptions.Force && (sourceChanged || destinationChanged)
-            && CanonicalItemSerializer.HaveIdenticalContent(currentSourceItem!, currentDestinationItem!))
+            && ContentHashHelper.HaveIdenticalContent(currentSourceItem!, currentDestinationItem!))
         {
-            var skipTargetSide = jobOptions.SyncMode == SyncMode.Reverse ? SyncSide.Source : SyncSide.Destination;
-            return new SyncAction
+            var skipDirection = jobOptions.SyncMode == Reverse ? DestinationToSource : SourceToDestination;
+            return new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
-                TargetSide = skipTargetSide,
+                Direction = skipDirection,
                 Item = currentSourceItem,
                 MatchedTargetItem = currentDestinationItem,
                 Reason = "Content identical on both sides",
@@ -255,23 +259,23 @@ public sealed class Planner(ILogger<Planner> logger)
 
         return jobOptions.SyncMode switch
         {
-            SyncMode.Forward when !sourceChanged => null,
-            SyncMode.Forward when destinationChanged => ResolveConflict(currentSourceItem!, currentDestinationItem, SyncSide.Source, SyncSide.Destination, jobOptions),
-            SyncMode.Forward => new SyncAction
+            Forward when !sourceChanged => null,
+            Forward when destinationChanged => ResolveConflict(currentSourceItem, currentDestinationItem, SourceToDestination, jobOptions),
+            Forward => new SyncAction<TItem>
             {
-                Kind = SyncActionKind.Update,
-                TargetSide = SyncSide.Destination,
+                Kind = Update,
+                Direction = SourceToDestination,
                 Item = currentSourceItem,
                 MatchedTargetItem = currentDestinationItem,
                 Reason = "Item changed on source side",
             },
 
-            SyncMode.Reverse when !destinationChanged => null,
-            SyncMode.Reverse when sourceChanged => ResolveConflict(currentDestinationItem!, currentSourceItem, SyncSide.Destination, SyncSide.Source, jobOptions),
-            SyncMode.Reverse => new SyncAction
+            Reverse when !destinationChanged => null,
+            Reverse when sourceChanged => ResolveConflict(currentSourceItem, currentDestinationItem, DestinationToSource, jobOptions),
+            Reverse => new SyncAction<TItem>
             {
-                Kind = SyncActionKind.Update,
-                TargetSide = SyncSide.Source,
+                Kind = Update,
+                Direction = DestinationToSource,
                 Item = currentDestinationItem,
                 MatchedTargetItem = currentSourceItem,
                 Reason = "Item changed on destination side",
@@ -279,18 +283,18 @@ public sealed class Planner(ILogger<Planner> logger)
 
             // Bidirectional
             _ when !sourceChanged && !destinationChanged => null,
-            _ when sourceChanged && !destinationChanged => new SyncAction
+            _ when sourceChanged && !destinationChanged => new SyncAction<TItem>
             {
-                Kind = SyncActionKind.Update,
-                TargetSide = SyncSide.Destination,
+                Kind = Update,
+                Direction = SourceToDestination,
                 Item = currentSourceItem,
                 MatchedTargetItem = currentDestinationItem,
                 Reason = "Item changed on source side",
             },
-            _ when !sourceChanged => new SyncAction
+            _ when !sourceChanged => new SyncAction<TItem>
             {
-                Kind = SyncActionKind.Update,
-                TargetSide = SyncSide.Source,
+                Kind = Update,
+                Direction = DestinationToSource,
                 Item = currentDestinationItem,
                 MatchedTargetItem = currentSourceItem,
                 Reason = "Item changed on destination side",
@@ -298,15 +302,15 @@ public sealed class Planner(ILogger<Planner> logger)
             // Both changed: resolve using conflict policy. Prefer the A-originating direction
             // as the primary so that SourceWins and LastWriteWins work naturally; DestinationWins is
             // handled by checking the policy explicitly.
-            _ when jobOptions.ConflictPolicy == ConflictPolicy.DestinationWins && currentDestinationItem != null => new SyncAction
+            _ when jobOptions.ConflictPolicy == DestinationWins && currentDestinationItem != null => new SyncAction<TItem>
             {
-                Kind = SyncActionKind.Update,
-                TargetSide = SyncSide.Source,
+                Kind = Update,
+                Direction = DestinationToSource,
                 Item = currentDestinationItem,
                 MatchedTargetItem = currentSourceItem,
                 Reason = "Conflict: destination wins per policy",
             },
-            _ => ResolveConflict(currentSourceItem!, currentDestinationItem, SyncSide.Source, SyncSide.Destination, jobOptions),
+            _ => ResolveConflict(currentSourceItem!, currentDestinationItem, SourceToDestination, jobOptions),
         };
     }
 
@@ -316,7 +320,7 @@ public sealed class Planner(ILogger<Planner> logger)
     /// <param name="jobOptions">Job configuration.</param>
     /// <param name="sourceItems">All items on the source side.</param>
     /// <param name="targetItems">All items on the target side.</param>
-    /// <param name="targetSide">Which side is the target.</param>
+    /// <param name="direction">Which side is the target.</param>
     /// <param name="linkedSourceIds">Source-side ids that are already part of an existing link.</param>
     /// <param name="linkedTargetIds">Target-side ids that are already part of an existing link.</param>
     /// <param name="reservedSourceIds">
@@ -326,56 +330,56 @@ public sealed class Planner(ILogger<Planner> logger)
     /// Target ids already claimed by a planned action; updated in place as new actions are added.
     /// </param>
     /// <param name="actions">Accumulator list for planned actions.</param>
-    private void PlanUnlinkedItems(
+    private void PlanUnlinkedItems<TItem>(
         JobOptions jobOptions,
-        IReadOnlyList<CanonicalItem> sourceItems,
-        IReadOnlyList<CanonicalItem> targetItems,
-        SyncSide targetSide,
+        IReadOnlyList<TItem> sourceItems,
+        IReadOnlyList<TItem> targetItems,
+        SyncDirection direction,
         IReadOnlySet<string> linkedSourceIds,
         IReadOnlySet<string> linkedTargetIds,
         HashSet<string> reservedSourceIds,
         HashSet<string> reservedTargetIds,
-        List<SyncAction> actions)
+        List<SyncAction<TItem>> actions) where TItem : CanonicalItem
     {
         // Eligible target pool: unlinked, unreserved, not deleted.
         var eligibleTargets = targetItems
-            .Where(t => !t.IsDeleted && !linkedTargetIds.Contains(t.SourceId) && !reservedTargetIds.Contains(t.SourceId))
+            .Where(t => !t.IsDeleted && !linkedTargetIds.Contains(t.Provenance.ProviderId) && !reservedTargetIds.Contains(t.Provenance.ProviderId))
             .ToList();
 
         var unlinkedSources = sourceItems
-            .Where(s => !s.IsDeleted && !linkedSourceIds.Contains(s.SourceId) && !reservedSourceIds.Contains(s.SourceId))
+            .Where(s => !s.IsDeleted && !linkedSourceIds.Contains(s.Provenance.ProviderId) && !reservedSourceIds.Contains(s.Provenance.ProviderId))
             .ToList();
 
         // Build a candidate map using the two-step best-match strategy.
-        var candidatesBySourceId = BuildDuplicateCandidateMap(unlinkedSources, eligibleTargets);
+        var candidatesBySourceId = ItemMatcher.BuildDuplicateCandidateMap(unlinkedSources, eligibleTargets);
 
         // For each eligible target that appears as the unique candidate for exactly one source,
         // count how many sources point to it. If > 1 the match is ambiguous (many-to-one).
         var competitionForTarget = candidatesBySourceId
             .Where(kv => kv.Value.Length == 1)
-            .GroupBy(kv => kv.Value[0].SourceId, StringComparer.Ordinal)
+            .GroupBy(kv => kv.Value[0].Provenance.ProviderId, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
 
         foreach (var item in unlinkedSources)
         {
             // Re-check: a previous iteration in this pass may have reserved this source.
-            if (reservedSourceIds.Contains(item.SourceId))
+            if (reservedSourceIds.Contains(item.Provenance.ProviderId))
             {
                 continue;
             }
 
-            var candidates = candidatesBySourceId[item.SourceId];
+            var candidates = candidatesBySourceId[item.Provenance.ProviderId];
 
             if (candidates.Length == 0)
             {
-                actions.Add(new SyncAction
+                actions.Add(new SyncAction<TItem>
                 {
-                    Kind = SyncActionKind.Create,
-                    TargetSide = targetSide,
+                    Kind = Create,
+                    Direction = direction,
                     Item = item,
                     Reason = "New item on source side",
                 });
-                reservedSourceIds.Add(item.SourceId);
+                reservedSourceIds.Add(item.Provenance.ProviderId);
                 continue;
             }
 
@@ -383,14 +387,14 @@ public sealed class Planner(ILogger<Planner> logger)
             {
                 logger.LogWarning(
                     "Item {SourceId} has {MatchCount} matching contacts on side {TargetSide}; skipping auto-linking",
-                    item.SourceId,
+                    item.Provenance.ProviderId,
                     candidates.Length,
-                    targetSide);
+                    direction);
 
-                actions.Add(new SyncAction
+                actions.Add(new SyncAction<TItem>
                 {
                     Kind = SyncActionKind.Skip,
-                    TargetSide = targetSide,
+                    Direction = direction,
                     Item = item,
                     Reason = "Multiple matching contacts on target side",
                 });
@@ -400,34 +404,34 @@ public sealed class Planner(ILogger<Planner> logger)
             // Exactly one candidate.
             var target = candidates[0];
 
-            if (reservedTargetIds.Contains(target.SourceId))
+            if (reservedTargetIds.Contains(target.Provenance.ProviderId))
             {
                 // The target was claimed by a previous action after the eligible pool was built.
                 // The linked endpoint is unavailable as a candidate, so treat as zero matches → create.
-                actions.Add(new SyncAction
+                actions.Add(new SyncAction<TItem>
                 {
-                    Kind = SyncActionKind.Create,
-                    TargetSide = targetSide,
+                    Kind = Create,
+                    Direction = direction,
                     Item = item,
                     Reason = "New item on source side",
                 });
-                reservedSourceIds.Add(item.SourceId);
+                reservedSourceIds.Add(item.Provenance.ProviderId);
                 continue;
             }
 
-            if (competitionForTarget.GetValueOrDefault(target.SourceId, 0) > 1)
+            if (competitionForTarget.GetValueOrDefault(target.Provenance.ProviderId, 0) > 1)
             {
                 // Multiple source items compete for this target → ambiguous, skip.
                 logger.LogWarning(
                     "Item {SourceId} matches target contact {TargetId}, but that target also matches other source contacts on side {TargetSide}; skipping auto-linking",
-                    item.SourceId,
-                    target.SourceId,
-                    targetSide);
+                    item.Provenance.ProviderId,
+                    target.Provenance.ProviderId,
+                    direction);
 
-                actions.Add(new SyncAction
+                actions.Add(new SyncAction<TItem>
                 {
                     Kind = SyncActionKind.Skip,
-                    TargetSide = targetSide,
+                    Direction = direction,
                     Item = item,
                     Reason = "Target contact matches multiple source contacts",
                 });
@@ -435,12 +439,12 @@ public sealed class Planner(ILogger<Planner> logger)
             }
 
             // Clean 1:1 match — skip if content is already identical.
-            if (!jobOptions.Force && CanonicalItemSerializer.HaveIdenticalContent(item, target))
+            if (!jobOptions.Force && ContentHashHelper.HaveIdenticalContent(item, target))
             {
-                actions.Add(new SyncAction
+                actions.Add(new SyncAction<TItem>
                 {
                     Kind = SyncActionKind.Skip,
-                    TargetSide = targetSide,
+                    Direction = direction,
                     Item = item,
                     MatchedTargetItem = target,
                     Reason = "Content identical on both sides",
@@ -448,44 +452,44 @@ public sealed class Planner(ILogger<Planner> logger)
             }
             else
             {
-                actions.Add(new SyncAction
+                actions.Add(new SyncAction<TItem>
                 {
-                    Kind = SyncActionKind.Update,
-                    TargetSide = targetSide,
+                    Kind = Update,
+                    Direction = direction,
                     Item = item,
                     MatchedTargetItem = target,
                     Reason = "Matched existing contact on target side",
                 });
             }
-            reservedSourceIds.Add(item.SourceId);
-            reservedTargetIds.Add(target.SourceId);
+            reservedSourceIds.Add(item.Provenance.ProviderId);
+            reservedTargetIds.Add(target.Provenance.ProviderId);
         }
     }
 
-    private static bool HasChanged(CanonicalItem item, LinkStateRow link, SyncSide side)
+    private static bool HasChanged(CanonicalItem item, LinkStateRow link, SyncDirection direction)
     {
-        if (side == SyncSide.Source)
+        if (direction == DestinationToSource)
         {
-            if (item.Version != null && link.SourceVersion != null)
+            if (item.Provenance.Version != null && link.SourceVersion != null)
             {
-                return item.Version != link.SourceVersion;
+                return item.Provenance.Version != link.SourceVersion;
             }
 
-            if (item.ContentHash != null && link.SourceHash != null)
+            if (item.Provenance.ContentHash != null && link.SourceHash != null)
             {
-                return item.ContentHash != link.SourceHash;
+                return item.Provenance.ContentHash != link.SourceHash;
             }
         }
         else
         {
-            if (item.Version != null && link.DestinationVersion != null)
+            if (item.Provenance.Version != null && link.DestinationVersion != null)
             {
-                return item.Version != link.DestinationVersion;
+                return item.Provenance.Version != link.DestinationVersion;
             }
 
-            if (item.ContentHash != null && link.DestinationHash != null)
+            if (item.Provenance.ContentHash != null && link.DestinationHash != null)
             {
-                return item.ContentHash != link.DestinationHash;
+                return item.Provenance.ContentHash != link.DestinationHash;
             }
         }
 
@@ -493,169 +497,97 @@ public sealed class Planner(ILogger<Planner> logger)
         return true;
     }
 
-    private static SyncAction ResolveConflict(
-        CanonicalItem sourceItem,
-        CanonicalItem? targetItem,
-        SyncSide sourceSide,
-        SyncSide targetSide,
-        JobOptions jobOptions) =>
+    private static SyncAction<TItem> ResolveConflict<TItem>(
+        TItem? sourceItem,
+        TItem? destinationItem,
+        SyncDirection direction,
+        JobOptions jobOptions) where TItem : CanonicalItem =>
         jobOptions.ConflictPolicy switch
         {
-            ConflictPolicy.SourceWins when sourceSide == SyncSide.Source => new SyncAction
+            SourceWins when direction == SourceToDestination => new SyncAction<TItem>
             {
-                Kind = SyncActionKind.Update,
-                TargetSide = targetSide,
+                Kind = Update,
+                Direction = SourceToDestination,
                 Item = sourceItem,
-                MatchedTargetItem = targetItem,
+                MatchedTargetItem = destinationItem,
                 Reason = "Conflict: source wins per policy",
             },
-            ConflictPolicy.SourceWins => new SyncAction
+            SourceWins => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
-                TargetSide = targetSide,
-                Item = sourceItem,
+                Direction = DestinationToSource,
+                Item = destinationItem,
                 Reason = "Conflict: source wins per policy",
             },
-            ConflictPolicy.DestinationWins when sourceSide == SyncSide.Destination => new SyncAction
+            DestinationWins when direction == DestinationToSource => new SyncAction<TItem>
             {
-                Kind = SyncActionKind.Update,
-                TargetSide = targetSide,
-                Item = sourceItem,
-                MatchedTargetItem = targetItem,
+                Kind = Update,
+                Direction = DestinationToSource,
+                Item = destinationItem,
+                MatchedTargetItem = sourceItem,
                 Reason = "Conflict: destination wins per policy",
             },
-            ConflictPolicy.DestinationWins => new SyncAction
+            DestinationWins => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
-                TargetSide = targetSide,
+                Direction = SourceToDestination,
                 Item = sourceItem,
                 Reason = "Conflict: destination wins per policy",
             },
-            ConflictPolicy.Skip => new SyncAction
+            ConflictPolicy.Skip => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
-                TargetSide = targetSide,
-                Item = sourceItem,
+                Direction = direction,
+                Item = direction == SourceToDestination ? sourceItem : destinationItem,
                 Reason = "Conflict: skipped per policy",
             },
-            _ => ResolveLastWriteWinsConflict(sourceItem, targetItem, sourceSide, targetSide),
+            _ => ResolveLastWriteWinsConflict(sourceItem, destinationItem, direction),
         };
 
-    private static SyncAction ResolveLastWriteWinsConflict(
-        CanonicalItem sourceItem,
-        CanonicalItem? targetItem,
-        SyncSide sourceSide,
-        SyncSide targetSide)
+    private static SyncAction<TItem> ResolveLastWriteWinsConflict<TItem>(
+        TItem? sourceItem,
+        TItem? destinationItem,
+        SyncDirection direction) where TItem : CanonicalItem
     {
-        var sourceLastModified = GetLastModified(sourceItem);
-        var targetLastModified = GetLastModified(targetItem);
+        var sourceLastModified = sourceItem?.Provenance.LastModified;
+        var destinationLastModified = destinationItem?.Provenance.LastModified;
 
-        bool sourceWins = sourceLastModified > targetLastModified
-            || (sourceLastModified == targetLastModified && sourceSide == SyncSide.Source)
-            || (sourceLastModified is not null && targetLastModified is null);
+        bool sourceWins = sourceLastModified > destinationLastModified
+                          || (sourceLastModified == destinationLastModified && direction == SourceToDestination)
+                          || (sourceLastModified is not null && destinationLastModified is null);
 
-        return sourceWins
-            ? new SyncAction
+        return sourceWins switch
+        {
+            true when direction == SourceToDestination => new SyncAction<TItem>
             {
-                Kind = SyncActionKind.Update,
-                TargetSide = targetSide,
+                Kind = Update,
+                Direction = SourceToDestination,
                 Item = sourceItem,
-                MatchedTargetItem = targetItem,
+                MatchedTargetItem = destinationItem,
                 Reason = "Conflict: last write wins per policy",
-            }
-            : new SyncAction
+            },
+            true => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
-                TargetSide = targetSide,
+                Direction = DestinationToSource,
+                Item = destinationItem,
+                Reason = "Conflict: source wins per last-write-wins policy",
+            },
+            false when direction == SourceToDestination => new SyncAction<TItem>
+            {
+                Kind = SyncActionKind.Skip,
+                Direction = SourceToDestination,
                 Item = sourceItem,
-                Reason = "Conflict: target side wins per last-write-wins policy",
-            };
-    }
-
-    private static DateTimeOffset? GetLastModified(CanonicalItem? item) =>
-        item?.Payload switch
-        {
-            CanonicalCalendarEvent calendarEvent => calendarEvent.LastModified,
-            CanonicalContact contact => contact.LastModified,
-            _ => null,
+                Reason = "Conflict: destination wins but sync mode does not permit reverse write",
+            },
+            false => new SyncAction<TItem>
+            {
+                Kind = Update,
+                Direction = DestinationToSource,
+                Item = destinationItem,
+                MatchedTargetItem = sourceItem,
+                Reason = "Conflict: last write wins per policy",
+            }
         };
-
-    /// <summary>
-    /// Builds a candidate map from each source item's ID to its matching target items using a
-    /// two-step best-match strategy.
-    /// </summary>
-    /// <remarks>
-    /// <list type="number">
-    ///   <item>
-    ///     <term>Step 1 – unique name match</term>
-    ///     <description>
-    ///       When exactly one source item and exactly one target item share the same primary name
-    ///       (display name or organisation), they are treated as a match without requiring
-    ///       overlapping identifiers. This handles contacts that only carry non-contactable data
-    ///       (e.g. a LinkedIn URL) and would otherwise be incorrectly duplicated on every resync.
-    ///     </description>
-    ///   </item>
-    ///   <item>
-    ///     <term>Step 2 – detail disambiguation</term>
-    ///     <description>
-    ///       When the name group is ambiguous (multiple sources or multiple targets share the same
-    ///       primary name), a second pass filters the name-group candidates by overlapping
-    ///       identifiers (email, phone). Only targets that share at least one identifier with
-    ///       the source item are included in the candidate set. If no identifier overlap exists
-    ///       the candidate set is empty for that source item and the planner falls back to
-    ///       creating a new contact.
-    ///     </description>
-    ///   </item>
-    /// </list>
-    /// </remarks>
-    private static Dictionary<string, CanonicalItem[]> BuildDuplicateCandidateMap(
-        IReadOnlyList<CanonicalItem> sourceItems,
-        IReadOnlyList<CanonicalItem> targetItems)
-    {
-        // Group contact items by their normalised primary name.
-        var targetsByName = targetItems
-            .Where(t => t.Payload is CanonicalContact)
-            .GroupBy(ContactMatchComparer.GetNormalizedName)
-            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
-
-        var sourceCountByName = sourceItems
-            .Where(s => s.Payload is CanonicalContact)
-            .GroupBy(ContactMatchComparer.GetNormalizedName)
-            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
-
-        var result = new Dictionary<string, CanonicalItem[]>(StringComparer.Ordinal);
-
-        foreach (var item in sourceItems)
-        {
-            if (item.Payload is not CanonicalContact)
-            {
-                result[item.SourceId] = [];
-                continue;
-            }
-
-            string name = ContactMatchComparer.GetNormalizedName(item);
-            var targetsWithName = targetsByName.GetValueOrDefault(name) ?? [];
-            int sourcesWithNameCount = sourceCountByName.GetValueOrDefault(name, 0);
-
-            if (targetsWithName.Count == 0)
-            {
-                // No target shares this name — nothing to match.
-                result[item.SourceId] = [];
-                continue;
-            }
-
-            if (sourcesWithNameCount == 1 && targetsWithName.Count == 1)
-            {
-                // Step 1: unique 1:1 name match — accept without requiring overlapping identifiers.
-                result[item.SourceId] = [targetsWithName[0]];
-            }
-            else
-            {
-                // Step 2: ambiguous name group — require at least one overlapping detail identifier.
-                result[item.SourceId] = [.. targetsWithName.Where(t => Matcher.HasDetailMatch(item, t))];
-            }
-        }
-
-        return result;
     }
 }

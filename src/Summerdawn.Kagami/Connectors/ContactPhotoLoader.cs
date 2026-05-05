@@ -6,9 +6,9 @@ namespace Summerdawn.Kagami.Connectors;
 
 internal static class ContactPhotoLoader
 {
-    private static readonly ConditionalWeakTable<CanonicalItem, LoaderState> Loaders = [];
+    private static readonly ConditionalWeakTable<CanonicalContact, LoaderState> Loaders = [];
 
-    public static void Attach(CanonicalItem item, Func<CancellationToken, Task> loader)
+    public static void Attach(CanonicalContact item, Func<CancellationToken, Task> loader)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(loader);
@@ -17,7 +17,7 @@ internal static class ContactPhotoLoader
         Loaders.Add(item, new LoaderState(loader));
     }
 
-    public static async Task EnsureLoadedAsync(CanonicalItem item, CancellationToken cancellationToken = default)
+    public static async Task EnsureLoadedAsync(CanonicalContact item, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(item);
 

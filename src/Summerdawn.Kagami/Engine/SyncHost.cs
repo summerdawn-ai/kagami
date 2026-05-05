@@ -1,14 +1,18 @@
+using Microsoft.Extensions.DependencyInjection;
+
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
+using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
 namespace Summerdawn.Kagami.Engine;
+
 /// <summary>
 /// Orchestrates multiple sync jobs: builds connectors, manages concurrency, and dispatches to JobExecutor.
 /// </summary>
 public sealed class SyncHost(
     KagamiOptions options,
-    Func<string, IConnector> connectorResolver,
+    IServiceProvider provider,
     JobExecutor executor,
     StateDatabase stateDb,
     ILogger<SyncHost> logger)
@@ -101,13 +105,36 @@ public sealed class SyncHost(
         logger.LogInformation("Reset job {JobKey}: link state and cursors cleared", jobKey);
     }
 
-    private async Task ExecuteJobAsync(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken)
+    private Task ExecuteJobAsync(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken)
     {
         try
         {
-            var connA = connectorResolver(jobOptions.Source);
-            var connB = connectorResolver(jobOptions.Destination);
-            await executor.ExecuteAsync(jobKey, jobOptions, connA, connB, whatIf, cancellationToken: cancellationToken);
+            return jobOptions.EntityType switch
+            {
+                EntityType.Contact => ExecuteJobAsync<CanonicalContact>(jobKey, jobOptions, whatIf, cancellationToken),
+                EntityType.CalendarEvent => ExecuteJobAsync<CanonicalCalendarEvent>(jobKey, jobOptions, whatIf, cancellationToken),
+                _ => throw new InvalidOperationException($"Unknown entity type {jobOptions.EntityType}.")
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Job {JobKey} failed: {Message}", jobKey, ex.Message);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    private async Task ExecuteJobAsync<TItem>(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken) where TItem : CanonicalItem
+    {
+        try
+        {
+            var connectorResolver = provider.GetRequiredService<Func<string, IConnector<TItem>>>();
+            var sourceConnector = connectorResolver(jobOptions.Source);
+            var destinationConnector = connectorResolver(jobOptions.Destination);
+
+            var job = new Job<TItem>(jobKey, jobOptions, sourceConnector, destinationConnector);
+
+            await executor.ExecuteAsync(job, whatIf, cancellationToken);
         }
         catch (Exception ex)
         {

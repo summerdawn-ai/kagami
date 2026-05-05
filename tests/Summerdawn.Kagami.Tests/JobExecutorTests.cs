@@ -56,12 +56,12 @@ public sealed class JobExecutorTests : IDisposable
 
         var executor = CreateExecutor();
 
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
         var updatedTarget = await destinationConnector.GetItemAsync("b1");
 
         Assert.True(result.Succeeded);
         Assert.NotNull(updatedTarget);
-        Assert.Equal("Alice Updated", ((CanonicalContact)updatedTarget.Payload!).DisplayName);
+        Assert.Equal("Alice Updated", updatedTarget.DisplayName);
         Assert.Null(await destinationConnector.GetItemAsync("a1"));
     }
 
@@ -69,13 +69,13 @@ public sealed class JobExecutorTests : IDisposable
     public async Task ExecuteAsync_AggregatesMultiPageConnectorReads()
     {
         PagedConnector sourceConnector = new(
-            new IncrementalPage
+            new IncrementalPage<CanonicalContact>
             {
                 Items = [CreateContactItem("a1", "v1", "Alice One")],
                 HasMore = true,
                 NextCursor = "page-2",
             },
-            new IncrementalPage
+            new IncrementalPage<CanonicalContact>
             {
                 Items = [CreateContactItem("a2", "v1", "Alice Two")],
                 HasMore = false,
@@ -84,7 +84,7 @@ public sealed class JobExecutorTests : IDisposable
         FakeConnector destinationConnector = new();
         var executor = CreateExecutor();
 
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
         Assert.True(result.Succeeded);
         Assert.Equal(2, result.ActionsPlanned);
@@ -100,7 +100,7 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
 
-        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
+        await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
         Assert.Contains(logger.Entries, entry => entry.Contains("would create contact 'Alice Logging'", StringComparison.Ordinal));
     }
@@ -115,7 +115,7 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
 
-        await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, whatIf: true);
+        await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
         Assert.Contains(logger.Entries, entry => entry.Contains("would create contact 'Contoso Ltd'", StringComparison.Ordinal));
     }
@@ -131,15 +131,11 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
 
-        await executor.ExecuteAsync(
-            "job-1",
-            CreateJob(conflictPolicy: ConflictPolicy.SourceWins),
-            sourceConnector,
-            destinationConnector,
-            whatIf: true);
+        await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, conflictPolicy: ConflictPolicy.SourceWins),
+            true);
 
-        Assert.Contains(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side Destination", StringComparison.Ordinal));
-        Assert.DoesNotContain(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' on side Source", StringComparison.Ordinal));
+        Assert.Contains(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' in direction SourceToDestination", StringComparison.Ordinal));
+        Assert.DoesNotContain(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' in direction DestinationToSource", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -153,10 +149,10 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<JobExecutor> logger = new();
         var executor = CreateExecutor(logger);
 
-        var result = await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector);
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
 
         Assert.True(result.Succeeded);
-        Assert.Contains(destinationConnector.Items, i => ((CanonicalContact)i.Payload!).DisplayName == "Bob" && !i.IsDeleted);
+        Assert.Contains(destinationConnector.Items, i => i.DisplayName == "Bob" && !i.IsDeleted);
         Assert.Contains(logger.Entries, e => e.Contains("a1", StringComparison.Ordinal) && e.Contains("failed", StringComparison.Ordinal));
     }
 
@@ -169,7 +165,12 @@ public sealed class JobExecutorTests : IDisposable
             leaseRepository,
             logger ?? NullLogger<JobExecutor>.Instance);
 
-    private static JobOptions CreateJob(ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins) =>
+    private static Job<CanonicalContact> CreateJob(string jobKey, IConnector<CanonicalContact> sourceConnector, IConnector<CanonicalContact> destinationConnector, ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins)
+    {
+        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy), sourceConnector, destinationConnector);
+    }
+
+    private static JobOptions CreateJobOptions(ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins) =>
         new()
         {
             Enabled = true,
@@ -181,26 +182,24 @@ public sealed class JobExecutorTests : IDisposable
             ConflictPolicy = conflictPolicy,
         };
 
-    private static CanonicalItem CreateContactItem(string id, string version, string displayName, string? organization = null, string? email = null) =>
-        new()
+    private static CanonicalContact CreateContactItem(string id, string version, string displayName, string? organization = null, string? email = null) => new()
+    {
+        DisplayName = displayName,
+        Organization = organization,
+        Emails = [new ContactEmail { Address = email ?? GenerateTestEmail(displayName) }],
+
+        Provenance =
         {
-            EntityType = EntityType.Contact,
-            SourceId = id,
+            ProviderId = id,
             Version = version,
-            Payload = new CanonicalContact
-            {
-                DisplayName = displayName,
-                Organization = organization,
-                Emails = [new ContactEmail { Address = email ?? GenerateTestEmail(displayName) }],
-            },
-        };
+        },
+    };
 
     private static string GenerateTestEmail(string displayName) =>
         $"{displayName.Replace(" ", ".", StringComparison.OrdinalIgnoreCase).ToLowerInvariant()}@example.com";
 
-    private sealed class PagedConnector(params IncrementalPage[] pages) : IConnector
+    private sealed class PagedConnector(params IncrementalPage<CanonicalContact>[] pages) : IConnector<CanonicalContact>
     {
-        private readonly IncrementalPage[] pages = pages;
         private int index;
 
         public ConnectorCapabilities Capabilities { get; } = new()
@@ -212,24 +211,24 @@ public sealed class JobExecutorTests : IDisposable
 
         public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-        public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
+        public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(GetPage(reset: true));
 
-        public Task<IncrementalPage> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
+        public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
             Task.FromResult(GetPage());
 
-        public Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
-            Task.FromResult<CanonicalItem?>(null);
+        public Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
+            Task.FromResult<CanonicalContact?>(null);
 
-        public Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default) =>
+        public Task<CanonicalContact> CreateItemAsync(CanonicalContact item, CancellationToken cancellationToken = default) =>
             Task.FromResult(item);
 
-        public Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default) =>
+        public Task<CanonicalContact> UpdateItemAsync(CanonicalContact item, CancellationToken cancellationToken = default) =>
             Task.FromResult(item);
 
         public Task DeleteItemAsync(string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-        private IncrementalPage GetPage(bool reset = false)
+        private IncrementalPage<CanonicalContact> GetPage(bool reset = false)
         {
             if (pages.Length == 0)
             {
