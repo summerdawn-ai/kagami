@@ -11,7 +11,7 @@ using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Connectors.Microsoft;
 
-internal sealed class MicrosoftContactsConnector : IConnector
+internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
 {
     private const string MicrosoftScope = "https://graph.microsoft.com/.default";
     private const string ContactSelectFields = "id,displayName,givenName,middleName,surname,emailAddresses,businessPhones,homePhones,mobilePhone,companyName,jobTitle,personalNotes,birthday,categories,homeAddress,businessAddress,otherAddress,lastModifiedDateTime";
@@ -70,52 +70,52 @@ internal sealed class MicrosoftContactsConnector : IConnector
         _ = await credential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
     }
 
-    public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
+    public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
         GetPageAsync($"{collectionPath}/delta?$select={Uri.EscapeDataString(ContactSelectFields)}", cancellationToken);
 
-    public Task<IncrementalPage> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
+    public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
         GetPageAsync(cursor, cancellationToken);
 
-    public async Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
         string uri = $"{collectionPath}/{Uri.EscapeDataString(id)}?$select={Uri.EscapeDataString(ContactSelectFields)}&{ExtendedPropertiesExpand}";
         using var request = await CreateRequestAsync(HttpMethod.Get, uri, cancellationToken);
         using var document = await SendForJsonAsync(request, cancellationToken);
-        var item = ConvertContact(document.RootElement);
-        if (item is not null && !item.IsDeleted)
+        var contact = ConvertContact(document.RootElement);
+        if (contact is not null && !contact.IsDeleted)
         {
-            ApplyExtendedPhoneProperties(item, document.RootElement);
-            await PopulatePhotoAsync(item, id, cancellationToken);
+            ApplyExtendedPhoneProperties(contact, document.RootElement);
+            await PopulatePhotoAsync(contact, id, cancellationToken);
         }
 
-        return item;
+        return contact;
     }
 
-    public async Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
+    public async Task<CanonicalContact> CreateItemAsync(CanonicalContact contact, CancellationToken cancellationToken = default)
     {
         using var request = await CreateRequestAsync(HttpMethod.Post, collectionPath, cancellationToken);
-        request.Content = CreateJsonContent(BuildWritableContact(GetContactPayload(item)));
+        request.Content = CreateJsonContent(BuildWritableContact(contact));
         using var document = await SendForJsonAsync(request, cancellationToken);
         var created = ConvertContact(document.RootElement) ?? throw new InvalidOperationException("Microsoft Contacts create returned no payload.");
-        await SyncPhotoAsync(created.SourceId, item, deleteWhenAbsent: false, cancellationToken);
-        return await GetItemAsync(created.SourceId, cancellationToken)
-            ?? throw new InvalidOperationException("Microsoft Contacts create succeeded but the created item could not be reloaded.");
+        await SyncPhotoAsync(created.Provenance.ProviderId, contact, deleteWhenAbsent: false, cancellationToken);
+        return await GetItemAsync(created.Provenance.ProviderId, cancellationToken)
+            ?? throw new InvalidOperationException("Microsoft Contacts create succeeded but the created contact could not be reloaded.");
     }
 
-    public async Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
+    public async Task<CanonicalContact> UpdateItemAsync(CanonicalContact contact, CancellationToken cancellationToken = default)
     {
-        using var request = await CreateRequestAsync(HttpMethod.Patch, $"{collectionPath}/{Uri.EscapeDataString(item.SourceId)}", cancellationToken);
-        request.Content = CreateJsonContent(BuildWritableContact(GetContactPayload(item)));
-        if (!string.IsNullOrWhiteSpace(item.Version))
+        using var request = await CreateRequestAsync(HttpMethod.Patch, $"{collectionPath}/{Uri.EscapeDataString(contact.Provenance.ProviderId)}", cancellationToken);
+        request.Content = CreateJsonContent(BuildWritableContact(contact));
+        if (!string.IsNullOrWhiteSpace(contact.Provenance.Version))
         {
-            request.Headers.TryAddWithoutValidation("If-Match", item.Version);
+            request.Headers.TryAddWithoutValidation("If-Match", contact.Provenance.Version);
         }
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
-        await SyncPhotoAsync(item.SourceId, item, deleteWhenAbsent: true, cancellationToken);
-        return await GetItemAsync(item.SourceId, cancellationToken)
-            ?? throw new InvalidOperationException("Microsoft Contacts update succeeded but the updated item could not be reloaded.");
+        await SyncPhotoAsync(contact.Provenance.ProviderId, contact, deleteWhenAbsent: true, cancellationToken);
+        return await GetItemAsync(contact.Provenance.ProviderId, cancellationToken)
+            ?? throw new InvalidOperationException("Microsoft Contacts update succeeded but the updated contact could not be reloaded.");
     }
 
     public async Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
@@ -125,25 +125,25 @@ internal sealed class MicrosoftContactsConnector : IConnector
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
-    private async Task<IncrementalPage> GetPageAsync(string requestUri, CancellationToken cancellationToken)
+    private async Task<IncrementalPage<CanonicalContact>> GetPageAsync(string requestUri, CancellationToken cancellationToken)
     {
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         using var document = await SendForJsonAsync(request, cancellationToken);
 
-        List<CanonicalItem> items = [];
+        List<CanonicalContact> items = [];
         if (document.RootElement.TryGetProperty("value", out var values))
         {
             foreach (var element in values.EnumerateArray())
             {
-                var item = ConvertContact(element);
-                if (item is not null)
+                var contact = ConvertContact(element);
+                if (contact is not null)
                 {
-                    if (!item.IsDeleted)
+                    if (!contact.IsDeleted)
                     {
-                        ContactPhotoLoader.Attach(item, ct => PopulatePhotoAsync(item, item.SourceId, ct));
+                        ContactPhotoLoader.Attach(contact, ct => PopulatePhotoAsync(contact, contact.Provenance.ProviderId, ct));
                     }
 
-                    items.Add(item);
+                    items.Add(contact);
                 }
             }
         }
@@ -160,7 +160,7 @@ internal sealed class MicrosoftContactsConnector : IConnector
             ? deltaLinkElement.GetString()
             : null;
 
-        return new IncrementalPage
+        return new IncrementalPage<CanonicalContact>
         {
             Items = items,
             HasMore = nextLink is not null,
@@ -171,11 +171,11 @@ internal sealed class MicrosoftContactsConnector : IConnector
     // The delta endpoint does not support extended property expansion, so after loading a delta
     // page we enrich the non-deleted items by querying the regular contacts endpoint filtered
     // by the minimum lastModifiedDateTime seen in the page.
-    private async Task EnrichWithExtendedPhonePropertiesAsync(List<CanonicalItem> items, CancellationToken cancellationToken)
+    private async Task EnrichWithExtendedPhonePropertiesAsync(List<CanonicalContact> contacts, CancellationToken cancellationToken)
     {
         // Collect non-deleted items that have payloads.
-        var nonDeleted = items
-            .Where(i => !i.IsDeleted && i.Payload is CanonicalContact { LastModified: not null })
+        var nonDeleted = contacts
+            .Where(i => i is { IsDeleted: false, Provenance.LastModified: not null })
             .ToList();
         if (nonDeleted.Count == 0)
         {
@@ -184,7 +184,7 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
         // Find the minimum lastModifiedDateTime.
         var minModified = nonDeleted
-            .Select(i => ((CanonicalContact)i.Payload!).LastModified!.Value)
+            .Select(i => i.Provenance.LastModified!.Value)
             .Min();
 
         // Query the regular contacts endpoint with a filter and extended-property expansion.
@@ -218,11 +218,11 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
         // Apply extended phone properties only to items that were in the delta page.
         // Ignore any extra contacts returned by the enrichment query.
-        foreach (var item in nonDeleted)
+        foreach (var contact in nonDeleted)
         {
-            if (enriched.TryGetValue(item.SourceId, out var enrichedElement))
+            if (enriched.TryGetValue(contact.Provenance.ProviderId, out var enrichedElement))
             {
-                ApplyExtendedPhoneProperties(item, enrichedElement);
+                ApplyExtendedPhoneProperties(contact, enrichedElement);
             }
         }
     }
@@ -321,10 +321,6 @@ internal sealed class MicrosoftContactsConnector : IConnector
         };
     }
 
-    private static CanonicalContact GetContactPayload(CanonicalItem item) =>
-        item.Payload as CanonicalContact
-        ?? throw new InvalidOperationException("Microsoft Contacts connector only supports CanonicalContact payloads.");
-
     private static JsonArray CreateArray(IEnumerable<JsonNode?> values)
     {
         JsonArray array = [];
@@ -347,7 +343,7 @@ internal sealed class MicrosoftContactsConnector : IConnector
         return array;
     }
 
-    private static CanonicalItem? ConvertContact(JsonElement element)
+    private static CanonicalContact? ConvertContact(JsonElement element)
     {
         string? id = element.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
         if (string.IsNullOrWhiteSpace(id))
@@ -357,11 +353,13 @@ internal sealed class MicrosoftContactsConnector : IConnector
 
         if (element.TryGetProperty("@removed", out _))
         {
-            return new CanonicalItem
+            return new CanonicalContact
             {
-                EntityType = EntityType.Contact,
-                SourceId = id,
                 IsDeleted = true,
+                Provenance =
+                {
+                    ProviderId = id,
+                }
             };
         }
 
@@ -375,8 +373,14 @@ internal sealed class MicrosoftContactsConnector : IConnector
             Title = ReadString(element, "jobTitle"),
             Notes = ReadString(element, "personalNotes"),
             Birthday = ReadDateOnly(element, "birthday"),
-            LastModified = ReadDateTimeOffset(element, "lastModifiedDateTime"),
             Categories = ReadStringArray(element, "categories"),
+
+            Provenance =
+            {
+                ProviderId = id,
+                Version = ReadString(element, "@odata.etag"),
+                LastModified = ReadDateTimeOffset(element, "lastModifiedDateTime"),
+            }
         };
 
         if (element.TryGetProperty("emailAddresses", out var emailAddresses))
@@ -407,26 +411,19 @@ internal sealed class MicrosoftContactsConnector : IConnector
         AddAddress(contact.Addresses, element, "businessAddress", "work");
         AddAddress(contact.Addresses, element, "otherAddress", "other");
 
-        return CanonicalItemSerializer.WithComputedHash(new CanonicalItem
-        {
-            EntityType = EntityType.Contact,
-            Payload = contact,
-            SourceId = id,
-            Version = ReadString(element, "@odata.etag"),
-            Metadata = [],
-        });
+        return CanonicalItemSerializer.WithComputedHash(contact);
     }
 
-    private async Task PopulatePhotoAsync(CanonicalItem item, string id, CancellationToken cancellationToken)
+    private async Task PopulatePhotoAsync(CanonicalContact contact, string id, CancellationToken cancellationToken)
     {
         var photo = await DownloadPhotoAsync(id, cancellationToken);
         if (photo is null)
         {
-            ContactPhotoMetadata.SetNoPhoto(item);
+            ContactPhotoMetadata.SetNoPhoto(contact);
             return;
         }
 
-        ContactPhotoMetadata.SetPhoto(item, photo.Value.photoBytes, photo.Value.contentType);
+        ContactPhotoMetadata.SetPhoto(contact, photo.Value.photoBytes, photo.Value.contentType);
     }
 
     private async Task<(byte[] photoBytes, string contentType)?> DownloadPhotoAsync(string id, CancellationToken cancellationToken)
@@ -449,9 +446,9 @@ internal sealed class MicrosoftContactsConnector : IConnector
         return (photoBytes, contentType);
     }
 
-    private async Task SyncPhotoAsync(string id, CanonicalItem item, bool deleteWhenAbsent, CancellationToken cancellationToken)
+    private async Task SyncPhotoAsync(string id, CanonicalContact contact, bool deleteWhenAbsent, CancellationToken cancellationToken)
     {
-        if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out string contentType))
+        if (ContactPhotoMetadata.TryGetPhoto(contact, out byte[] photoBytes, out string contentType))
         {
             using var request = await CreateRequestAsync(HttpMethod.Put, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
             request.Content = new ByteArrayContent(photoBytes);
@@ -461,7 +458,7 @@ internal sealed class MicrosoftContactsConnector : IConnector
             return;
         }
 
-        if (!deleteWhenAbsent || !ContactPhotoMetadata.HasKnownAbsence(item))
+        if (!deleteWhenAbsent || !ContactPhotoMetadata.HasKnownAbsence(contact))
         {
             return;
         }
@@ -493,13 +490,8 @@ internal sealed class MicrosoftContactsConnector : IConnector
         }
     }
 
-    private static void ApplyExtendedPhoneProperties(CanonicalItem item, JsonElement element)
+    private static void ApplyExtendedPhoneProperties(CanonicalContact contact, JsonElement element)
     {
-        if (item.Payload is not CanonicalContact contact)
-        {
-            return;
-        }
-
         if (!element.TryGetProperty("singleValueExtendedProperties", out var extProps)
             || extProps.ValueKind != JsonValueKind.Array)
         {

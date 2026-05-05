@@ -99,8 +99,6 @@ public sealed class ForceSyncTests : IDisposable
         // Only Alice should have been synced to destinationConnector
         var syncedContacts = destinationConnector.Items
             .Where(i => !i.IsDeleted)
-            .Select(i => i.Payload as CanonicalContact)
-            .Where(c => c is not null)
             .ToList();
 
         Assert.Single(syncedContacts);
@@ -120,7 +118,7 @@ public sealed class ForceSyncTests : IDisposable
         await executor.ExecuteAsync("job-1", CreateJob(), sourceConnector, destinationConnector, filter: filter);
 
         // Bob was on B before the sync; he must still be there
-        Assert.Contains(destinationConnector.Items, i => i.SourceId == "b-bob" && !i.IsDeleted);
+        Assert.Contains(destinationConnector.Items, i => i.Provenance.ProviderId == "b-bob" && !i.IsDeleted);
     }
 
     [Fact]
@@ -142,7 +140,7 @@ public sealed class ForceSyncTests : IDisposable
         Assert.True(unfilteredResult.Succeeded);
         Assert.Equal(1, unfilteredResult.ActionsPlanned);
         Assert.Equal(2, destinationConnector.Items.Count(item => !item.IsDeleted));
-        Assert.Contains(destinationConnector.Items, item => item.Payload is CanonicalContact { DisplayName: "Bob" } && !item.IsDeleted);
+        Assert.Contains(destinationConnector.Items, item => item is { DisplayName: "Bob", IsDeleted: false });
         Assert.NotNull(unfilteredCursor);
         Assert.Equal(string.Empty, unfilteredCursor!.Scope);
     }
@@ -183,7 +181,7 @@ public sealed class ForceSyncTests : IDisposable
         new()
         {
             Enabled = true,
-            EntityType = EntityType.Contact,
+            EntityType = ItemType.Contact,
             Source = "endpointA",
             Destination = "endpointB",
             SyncMode = SyncMode.Bidirectional,
@@ -193,12 +191,14 @@ public sealed class ForceSyncTests : IDisposable
             Full = full,
         };
 
-    private static CanonicalItem CreateContact(string id, string displayName) =>
-        new()
+    private static CanonicalContact CreateContact(string id, string displayName) => new()
+    {
+        DisplayName = displayName,
+
+        Provenance =
         {
-            EntityType = EntityType.Contact,
-            SourceId = id,
+            ProviderId = id,
             Version = "v1",
-            Payload = new CanonicalContact { DisplayName = displayName },
-        };
+        }
+    };
 }

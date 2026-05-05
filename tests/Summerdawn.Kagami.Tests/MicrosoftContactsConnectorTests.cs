@@ -250,7 +250,7 @@ public sealed class MicrosoftContactsConnectorTests
 
         // Only c1 should be in the page, not c-extra
         Assert.Single(page.Items);
-        Assert.Equal("c1", page.Items[0].SourceId);
+        Assert.Equal("c1", page.Items[0].Provenance.ProviderId);
     }
 
     [Fact]
@@ -268,12 +268,11 @@ public sealed class MicrosoftContactsConnectorTests
         var page = await connector.GetInitialPageAsync();
 
         Assert.Equal(2, page.Items.Count);
-        var deletedItem = page.Items.Single(i => i.SourceId == "del1");
+        var deletedItem = page.Items.Single(i => i.Provenance.ProviderId == "del1");
         Assert.True(deletedItem.IsDeleted);
-        var liveItem = page.Items.Single(i => i.SourceId == "c1");
-        var contact = (CanonicalContact)liveItem.Payload!;
-        Assert.Single(contact.Phones);
-        Assert.Equal("other", contact.Phones[0].Label);
+        var liveItem = page.Items.Single(i => i.Provenance.ProviderId == "c1");
+        Assert.Single(liveItem.Phones);
+        Assert.Equal("other", liveItem.Phones[0].Label);
     }
 
     // ── write: extended phone properties ─────────────────────────────────
@@ -281,7 +280,15 @@ public sealed class MicrosoftContactsConnectorTests
     [Fact]
     public void BuildWritableContact_AlwaysIncludesFullExtendedPropertySet()
     {
-        var contact = new CanonicalContact { DisplayName = "Test" };
+        var contact = new CanonicalContact
+        {
+            DisplayName = "Test",
+
+            Provenance =
+            {
+                ProviderId = "test"
+            }
+        };
         var json = InvokeInternalBuildWritableContact(contact);
 
         Assert.True(json.TryGetPropertyValue("singleValueExtendedProperties", out var extProps));
@@ -300,7 +307,15 @@ public sealed class MicrosoftContactsConnectorTests
     [Fact]
     public void BuildWritableContact_WritesNullForAbsentExtendedProperties()
     {
-        var contact = new CanonicalContact { DisplayName = "Test" };
+        var contact = new CanonicalContact
+        {
+            DisplayName = "Test",
+
+            Provenance =
+            {
+                ProviderId = "test"
+            }
+        };
         var json = InvokeInternalBuildWritableContact(contact);
 
         var extProps = json["singleValueExtendedProperties"]!.AsArray();
@@ -319,6 +334,11 @@ public sealed class MicrosoftContactsConnectorTests
                 new ContactPhone { Label = "pager", Number = "555-9002" },
                 new ContactPhone { Label = "assistant", Number = "555-9003" },
             },
+
+            Provenance =
+            {
+                ProviderId = "test"
+            }
         };
         var json = InvokeInternalBuildWritableContact(contact);
 
@@ -346,6 +366,11 @@ public sealed class MicrosoftContactsConnectorTests
                 new ContactPhone { Label = "home", Number = "555-1001" },
                 new ContactPhone { Label = "mobile", Number = "555-2001" },
             },
+
+            Provenance =
+            {
+                ProviderId = "test"
+            }
         };
         var json = InvokeInternalBuildWritableContact(contact);
 
@@ -360,11 +385,8 @@ public sealed class MicrosoftContactsConnectorTests
 
     // ── helpers ───────────────────────────────────────────────────────────
 
-    private static CanonicalContact GetContact(IncrementalPage page, string id)
-    {
-        var item = page.Items.Single(i => i.SourceId == id);
-        return (CanonicalContact)item.Payload!;
-    }
+    private static CanonicalContact GetContact(IncrementalPage<CanonicalContact> page, string id) =>
+        page.Items.Single(i => i.Provenance.ProviderId == id);
 
     /// <summary>
     /// Calls the internal BuildWritableContact via JSON round-trip by going through
@@ -376,13 +398,6 @@ public sealed class MicrosoftContactsConnectorTests
         var method = typeof(MicrosoftContactsConnector)
             .GetMethod("BuildWritableContact", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("BuildWritableContact not found");
-
-        var item = new CanonicalItem
-        {
-            EntityType = EntityType.Contact,
-            Payload = contact,
-            SourceId = "test",
-        };
 
         return (JsonObject)method.Invoke(null, [contact])!;
     }

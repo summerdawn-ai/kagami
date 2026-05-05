@@ -52,7 +52,7 @@ public sealed class PlannerTests
     [Fact]
     public void PlanActions_CreatesBothDirections_WhenBidirectionalAndBothUnlinked()
     {
-        var actions = planner.PlanActions(CreateJob(SyncMode.Bidirectional), [CreateItem("a1")], [CreateItem("b1")], []);
+        var actions = planner.PlanActions(CreateJob(SyncMode.Bidirectional), [CreateItem("a1", displayName: "foo")], [CreateItem("b1", displayName: "bar")], []);
 
         Assert.Equal(2, actions.Count);
         Assert.Contains(actions, a => a.Kind == SyncActionKind.Create && a.TargetSide == SyncSide.Destination);
@@ -70,7 +70,7 @@ public sealed class PlannerTests
 
         var actions = planner.PlanActions(
             CreateJob(deletePolicy: DeletePolicy.Mirror),
-            [new CanonicalItem { EntityType = EntityType.CalendarEvent, SourceId = "a1", IsDeleted = true }],
+            [new CanonicalContact { IsDeleted = true, Provenance = { ProviderId = "a1" } }],
             [CreateItem("b1")],
             [link]);
 
@@ -86,7 +86,7 @@ public sealed class PlannerTests
 
         var actions = planner.PlanActions(
             CreateJob(deletePolicy: DeletePolicy.Ignore),
-            [new CanonicalItem { EntityType = EntityType.CalendarEvent, SourceId = "a1", IsDeleted = true }],
+            [new CanonicalContact { IsDeleted = true, Provenance = { ProviderId = "a1" } }],
             [CreateItem("b1")],
             [link]);
 
@@ -119,8 +119,8 @@ public sealed class PlannerTests
 
         var actions = planner.PlanActions(
             CreateJob(),
-            [CreateItem("a1", "v2")],
-            [CreateItem("b1", "v1")],
+            [CreateItem("a1", "v2") with { Notes = "foo" }],
+            [CreateItem("b1", "v1") with { Notes = "bar" }],
             [link]);
 
         Assert.Single(actions);
@@ -135,8 +135,8 @@ public sealed class PlannerTests
 
         var actions = planner.PlanActions(
             CreateJob(),
-            [CreateItem("a1", "v1")],
-            [CreateItem("b1", "v2")],
+            [CreateItem("a1", "v1") with { Notes = "foo" }],
+            [CreateItem("b1", "v2") with { Notes = "bar" }],
             [link]);
 
         Assert.Single(actions);
@@ -151,14 +151,14 @@ public sealed class PlannerTests
 
         var actions = planner.PlanActions(
             CreateJob(conflictPolicy: ConflictPolicy.SourceWins),
-            [CreateItem("a1", "v2")],
-            [CreateItem("b1", "v2b")],
+            [CreateItem("a1", "v2") with { Notes = "foo" }],
+            [CreateItem("b1", "v2b") with { Notes = "bar" }],
             [link]);
 
         Assert.Single(actions);
         Assert.Equal(SyncActionKind.Update, actions[0].Kind);
         Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
-        Assert.Equal("a1", actions[0].Item!.SourceId);
+        Assert.Equal("a1", actions[0].Item!.Provenance.ProviderId);
     }
 
     [Fact]
@@ -168,14 +168,14 @@ public sealed class PlannerTests
 
         var actions = planner.PlanActions(
             CreateJob(conflictPolicy: ConflictPolicy.DestinationWins),
-            [CreateItem("a1", "v2")],
-            [CreateItem("b1", "v2b")],
+            [CreateItem("a1", "v2") with { Notes = "foo" }],
+            [CreateItem("b1", "v2b") with { Notes = "bar" }],
             [link]);
 
         Assert.Single(actions);
         Assert.Equal(SyncActionKind.Update, actions[0].Kind);
         Assert.Equal(SyncSide.Source, actions[0].TargetSide);
-        Assert.Equal("b1", actions[0].Item!.SourceId);
+        Assert.Equal("b1", actions[0].Item!.Provenance.ProviderId);
     }
 
     [Fact]
@@ -197,12 +197,12 @@ public sealed class PlannerTests
     public void PlanActions_RespectsForwardDirectionForLinkedPair()
     {
         var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
-        var changedItem = CreateItem("a1", "v2");
+        var changedItem = CreateItem("a1", "v2") with { Notes = "foo" };
 
         // Forward mode: A changed → plan action
-        Assert.Single(planner.PlanActions(CreateJob(SyncMode.Forward), [changedItem], [CreateItem("b1", "v1")], [link]));
+        Assert.Single(planner.PlanActions(CreateJob(SyncMode.Forward), [changedItem], [CreateItem("b1", "v1") with { Notes = "bar" }], [link]));
         // Reverse mode: A changed only → no action
-        Assert.Empty(planner.PlanActions(CreateJob(SyncMode.Reverse), [changedItem], [CreateItem("b1", "v1")], [link]));
+        Assert.Empty(planner.PlanActions(CreateJob(SyncMode.Reverse), [changedItem], [CreateItem("b1", "v1") with { Notes = "bar" }], [link]));
     }
 
     // -------------------------------------------------------------------------
@@ -215,10 +215,10 @@ public sealed class PlannerTests
         // a1 is already linked to b1 (both present, unchanged).
         // a2 appears and semantically matches b1 (same display name + email).
         // b1 must NOT be a duplicate candidate for a2; a2 should result in Create(Destination).
-        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1", entityType: EntityType.Contact);
-        var a1 = CreateContactItem("a1", version: "v1"); // linked, unchanged → no action
-        var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
-        var b1 = CreateContactItem("b1", version: "v1", displayName: "Alice", email: "alice@example.com");
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1", entityType: ItemType.Contact);
+        var a1 = CreateItem("a1", version: "v1"); // linked, unchanged → no action
+        var a2 = CreateItem("a2", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateItem("b1", version: "v1", displayName: "Alice", email: "alice@example.com");
 
         var actions = planner.PlanActions(
             CreateJob(SyncMode.Forward),
@@ -229,7 +229,7 @@ public sealed class PlannerTests
         Assert.Single(actions);
         Assert.Equal(SyncActionKind.Create, actions[0].Kind);
         Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
-        Assert.Equal("a2", actions[0].Item!.SourceId);
+        Assert.Equal("a2", actions[0].Item!.Provenance.ProviderId);
     }
 
     [Fact]
@@ -237,10 +237,10 @@ public sealed class PlannerTests
     {
         // b1 is linked to a1 (both present, unchanged); b2 matches a1 semantically.
         // a1 must NOT be a duplicate candidate for b2; b2 should result in Create(Source).
-        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1", entityType: EntityType.Contact);
-        var a1 = CreateContactItem("a1", version: "v1", displayName: "Alice", email: "alice@example.com");
-        var b1 = CreateContactItem("b1", version: "v1"); // linked, unchanged → no action
-        var b2 = CreateContactItem("b2", displayName: "Alice", email: "alice@example.com");
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1", entityType: ItemType.Contact);
+        var a1 = CreateItem("a1", version: "v1", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateItem("b1", version: "v1"); // linked, unchanged → no action
+        var b2 = CreateItem("b2", displayName: "Alice", email: "alice@example.com");
 
         var actions = planner.PlanActions(
             CreateJob(SyncMode.Reverse),
@@ -251,16 +251,16 @@ public sealed class PlannerTests
         Assert.Single(actions);
         Assert.Equal(SyncActionKind.Create, actions[0].Kind);
         Assert.Equal(SyncSide.Source, actions[0].TargetSide);
-        Assert.Equal("b2", actions[0].Item!.SourceId);
+        Assert.Equal("b2", actions[0].Item!.Provenance.ProviderId);
     }
 
     [Fact]
     public void PlanActions_ReturnsSkip_WhenOneSourceMatchesMultipleTargets()
     {
         // a1 matches both b1 and b2 (ambiguous initial duplicate).
-        var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
-        var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
-        var b2 = CreateContactItem("b2", displayName: "Alice", email: "alice@example.com");
+        var a1 = CreateItem("a1", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateItem("b1", displayName: "Alice", email: "alice@example.com");
+        var b2 = CreateItem("b2", displayName: "Alice", email: "alice@example.com");
 
         var actions = planner.PlanActions(
             CreateJob(SyncMode.Forward),
@@ -276,9 +276,9 @@ public sealed class PlannerTests
     public void PlanActions_ReturnsSkip_WhenOneTargetMatchesMultipleSources()
     {
         // Mirror ambiguity: b1 matches both a1 and a2.
-        var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
-        var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
-        var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
+        var a1 = CreateItem("a1", displayName: "Alice", email: "alice@example.com");
+        var a2 = CreateItem("a2", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateItem("b1", displayName: "Alice", email: "alice@example.com");
 
         var actions = planner.PlanActions(
             CreateJob(SyncMode.Reverse),
@@ -295,9 +295,9 @@ public sealed class PlannerTests
     public void PlanActions_SkipForAllCompetitors_WhenMultipleSourcesCompeteForSameTarget()
     {
         // a1 and a2 both uniquely match b1 (many-to-one competition).
-        var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
-        var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
-        var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
+        var a1 = CreateItem("a1", displayName: "Alice", email: "alice@example.com");
+        var a2 = CreateItem("a2", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateItem("b1", displayName: "Alice", email: "alice@example.com");
 
         var actions = planner.PlanActions(
             CreateJob(SyncMode.Forward),
@@ -334,7 +334,7 @@ public sealed class PlannerTests
 
         var sourceIds = actions
             .Where(a => a.Item is not null)
-            .Select(a => a.Item!.SourceId)
+            .Select(a => a.Item!.Provenance.ProviderId)
             .ToList();
 
         Assert.Equal(sourceIds.Count, sourceIds.Distinct(StringComparer.Ordinal).Count());
@@ -344,9 +344,9 @@ public sealed class PlannerTests
     public void PlanActions_NeverProducesTwoActionsWithSameTargetItem()
     {
         // Two unlinked contacts both matching the same target (many-to-one case).
-        var a1 = CreateContactItem("a1", displayName: "Alice", email: "alice@example.com");
-        var a2 = CreateContactItem("a2", displayName: "Alice", email: "alice@example.com");
-        var b1 = CreateContactItem("b1", displayName: "Alice", email: "alice@example.com");
+        var a1 = CreateItem("a1", displayName: "Alice", email: "alice@example.com");
+        var a2 = CreateItem("a2", displayName: "Alice", email: "alice@example.com");
+        var b1 = CreateItem("b1", displayName: "Alice", email: "alice@example.com");
 
         var actions = planner.PlanActions(
             CreateJob(SyncMode.Forward),
@@ -357,7 +357,7 @@ public sealed class PlannerTests
         // Collect target IDs from Update/Create actions.
         var targetIds = actions
             .Where(a => a.Kind is SyncActionKind.Update && a.MatchedTargetItem is not null)
-            .Select(a => a.MatchedTargetItem!.SourceId)
+            .Select(a => a.MatchedTargetItem!.Provenance.ProviderId)
             .ToList();
 
         Assert.Equal(targetIds.Count, targetIds.Distinct(StringComparer.Ordinal).Count());
@@ -398,7 +398,7 @@ public sealed class PlannerTests
         Assert.Single(actions);
         Assert.Equal(SyncActionKind.Create, actions[0].Kind);
         Assert.Equal(SyncSide.Destination, actions[0].TargetSide);
-        Assert.Equal("a1", actions[0].Item!.SourceId);
+        Assert.Equal("a1", actions[0].Item!.Provenance.ProviderId);
     }
 
     [Fact]
@@ -468,7 +468,7 @@ public sealed class PlannerTests
     {
         var link = CreateLink("a1", "b1");
 
-        var actions = planner.PlanActions(
+        var actions = planner.PlanActions<CanonicalContact>(
             CreateJob(SyncMode.Bidirectional, deletePolicy: DeletePolicy.Mirror),
             sourceItems: [],
             destinationItems: [],
@@ -506,7 +506,7 @@ public sealed class PlannerTests
         new()
         {
             Enabled = true,
-            EntityType = EntityType.CalendarEvent,
+            EntityType = ItemType.CalendarEvent,
             Source = "endpointA",
             Destination = "endpointB",
             SyncMode = mode,
@@ -515,38 +515,22 @@ public sealed class PlannerTests
             Force = force,
         };
 
-    private static CanonicalItem CreateItem(string id, string version = "v1", DateTimeOffset? lastModified = null) =>
-        new()
-        {
-            EntityType = EntityType.CalendarEvent,
-            SourceId = id,
-            Version = version,
-            Payload = new CanonicalCalendarEvent
-            {
-                Subject = id,
-                Start = DateTimeOffset.UtcNow,
-                End = DateTimeOffset.UtcNow.AddHours(1),
-                LastModified = lastModified,
-            },
-        };
-
-    private static CanonicalItem CreateContactItem(
+    private static CanonicalContact CreateItem(
         string id,
         string version = "v1",
         string displayName = "",
         string email = "",
-        DateTimeOffset? lastModified = null) =>
-        new()
+        DateTimeOffset? lastModified = null) => new()
         {
-            EntityType = EntityType.Contact,
-            SourceId = id,
-            Version = version,
-            Payload = new CanonicalContact
+            DisplayName = displayName,
+            Emails = string.IsNullOrEmpty(email) ? [] : [new ContactEmail { Address = email }],
+
+            Provenance =
             {
-                DisplayName = displayName,
-                Emails = string.IsNullOrEmpty(email) ? [] : [new ContactEmail { Address = email }],
+                ProviderId = id,
+                Version = version,
                 LastModified = lastModified,
-            },
+            }
         };
 
     private static LinkStateRow CreateLink(
@@ -554,7 +538,7 @@ public sealed class PlannerTests
         string destinationId,
         string? sourceVersion = null,
         string? destinationVersion = null,
-        string entityType = EntityType.CalendarEvent) =>
+        string entityType = ItemType.CalendarEvent) =>
         new()
         {
             JobKey = "job-1",

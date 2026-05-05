@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Summerdawn.Kagami.Configuration;
@@ -117,13 +118,17 @@ public sealed class SyncHostTests : IDisposable
         FakeConnector targetB,
         int schedulerIntervalSeconds)
     {
-        var connectors = new Dictionary<string, IConnector>(StringComparer.OrdinalIgnoreCase)
+        var connectors = new Dictionary<string, IConnector<CanonicalContact>>(StringComparer.OrdinalIgnoreCase)
         {
             ["endpointA1"] = sourceA,
             ["endpointB1"] = targetA,
             ["endpointA2"] = sourceB,
             ["endpointB2"] = targetB,
         };
+
+        var provider = new ServiceCollection()
+            .AddSingleton<Func<string, IConnector<CanonicalContact>>>(_ => name => connectors[name])
+            .BuildServiceProvider();
 
         KagamiOptions options = new()
         {
@@ -156,7 +161,7 @@ public sealed class SyncHostTests : IDisposable
 
         return new SyncHost(
             options,
-            name => connectors[name],
+            provider,
             executor,
             db,
             NullLogger<SyncHost>.Instance);
@@ -166,7 +171,7 @@ public sealed class SyncHostTests : IDisposable
         new()
         {
             Enabled = true,
-            EntityType = EntityType.Contact,
+            EntityType = ItemType.Contact,
             Source = endpointA,
             Destination = endpointB,
             SyncMode = SyncMode.Bidirectional,
@@ -175,12 +180,14 @@ public sealed class SyncHostTests : IDisposable
             Schedule = schedule,
         };
 
-    private static CanonicalItem CreateContact(string id, string displayName) =>
-        new()
+    private static CanonicalContact CreateContact(string id, string displayName) => new()
+    {
+        DisplayName = displayName,
+
+        Provenance =
         {
-            EntityType = EntityType.Contact,
-            SourceId = id,
+            ProviderId = id,
             Version = "v1",
-            Payload = new CanonicalContact { DisplayName = displayName },
-        };
+        }
+    };
 }

@@ -3,8 +3,10 @@ namespace Summerdawn.Kagami.Models;
 /// <summary>
 /// Canonical model for a calendar event.
 /// </summary>
-public sealed class CanonicalCalendarEvent
+public sealed record CanonicalCalendarEvent : CanonicalItem
 {
+    public override string ItemType => "calendar-event";
+
     /// <summary>Event subject/title.</summary>
     public string Subject { get; set; } = string.Empty;
 
@@ -46,7 +48,4 @@ public sealed class CanonicalCalendarEvent
 
     /// <summary>Importance/priority level.</summary>
     public string? Importance { get; set; }
-
-    /// <summary>Last modified time (UTC).</summary>
-    public DateTimeOffset? LastModified { get; set; }
 }

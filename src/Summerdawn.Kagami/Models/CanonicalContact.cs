@@ -3,8 +3,10 @@ namespace Summerdawn.Kagami.Models;
 /// <summary>
 /// Canonical model for a contact.
 /// </summary>
-public sealed class CanonicalContact
+public sealed record CanonicalContact : CanonicalItem
 {
+    public override string ItemType => "contact";
+
     /// <summary>Given (first) name.</summary>
     public string? GivenName { get; set; }
 
@@ -40,13 +42,10 @@ public sealed class CanonicalContact
 
     /// <summary>Birthday.</summary>
     public DateOnly? Birthday { get; set; }
-
-    /// <summary>Last modified time (UTC).</summary>
-    public DateTimeOffset? LastModified { get; set; }
 }
 
 /// <summary>Email address entry.</summary>
-public sealed class ContactEmail
+public sealed record ContactEmail
 {
     /// <summary>Address type label (e.g., "work", "home", "other").</summary>
     public string? Label { get; set; }
@@ -55,7 +54,7 @@ public sealed class ContactEmail
 }
 
 /// <summary>Phone number entry.</summary>
-public sealed class ContactPhone
+public sealed record ContactPhone
 {
     /// <summary>
     /// Phone type label. Standard labels: <c>home</c>, <c>work</c>, <c>mobile</c>,
@@ -67,7 +66,7 @@ public sealed class ContactPhone
 }
 
 /// <summary>Physical address entry.</summary>
-public sealed class ContactAddress
+public sealed record ContactAddress
 {
     /// <summary>Address type label (e.g., "work", "home").</summary>
     public string? Label { get; set; }

@@ -10,7 +10,7 @@ using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Connectors.Google;
 
-internal sealed class GoogleContactsConnector : IConnector
+internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
 {
     private const string PersonFields = "metadata,names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships,photos";
     private static readonly DateOnly DefaultBirthday = new(1900, 1, 1);
@@ -51,13 +51,13 @@ internal sealed class GoogleContactsConnector : IConnector
         _ = await credential.GetAccessTokenAsync(cancellationToken);
     }
 
-    public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
+    public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
         GetConnectionsPageAsync(new GoogleCursor(null, null, true), cancellationToken);
 
-    public Task<IncrementalPage> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
+    public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
         GetConnectionsPageAsync(ParseCursor(cursor), cancellationToken);
 
-    public async Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
         string requestUri = $"https://people.googleapis.com/v1/{id}?personFields={Uri.EscapeDataString(PersonFields)}";
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
@@ -71,37 +71,35 @@ internal sealed class GoogleContactsConnector : IConnector
         return item;
     }
 
-    public async Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
+    public async Task<CanonicalContact> CreateItemAsync(CanonicalContact contact, CancellationToken cancellationToken = default)
     {
-        var contact = GetContactPayload(item);
         var body = await BuildWritablePersonAsync(contact, cancellationToken);
         string requestUri = $"https://people.googleapis.com/v1/people:createContact?personFields={Uri.EscapeDataString(PersonFields)}";
         using var request = await CreateRequestAsync(HttpMethod.Post, requestUri, cancellationToken);
         request.Content = CreateJsonContent(body);
         using var document = await SendForJsonAsync(request, cancellationToken);
         var created = ConvertPerson(document.RootElement) ?? throw new InvalidOperationException("Google createContact returned no person payload.");
-        await SyncPhotoAsync(created.SourceId, item, deleteWhenAbsent: false, cancellationToken);
-        return await GetItemAsync(created.SourceId, cancellationToken)
+        await SyncPhotoAsync(created.Provenance.ProviderId, contact, deleteWhenAbsent: false, cancellationToken);
+        return await GetItemAsync(created.Provenance.ProviderId, cancellationToken)
             ?? throw new InvalidOperationException("Google createContact succeeded but the created item could not be reloaded.");
     }
 
-    public async Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
+    public async Task<CanonicalContact> UpdateItemAsync(CanonicalContact contact, CancellationToken cancellationToken = default)
     {
-        var contact = GetContactPayload(item);
         var person = await BuildWritablePersonAsync(contact, cancellationToken);
-        person["resourceName"] = item.SourceId;
-        if (!string.IsNullOrWhiteSpace(item.Version))
+        person["resourceName"] = contact.Provenance.ProviderId;
+        if (!string.IsNullOrWhiteSpace(contact.Provenance.Version))
         {
-            person["etag"] = item.Version;
+            person["etag"] = contact.Provenance.Version;
         }
 
         string updateFields = Uri.EscapeDataString("names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships");
-        string requestUri = $"https://people.googleapis.com/v1/{item.SourceId}:updateContact?updatePersonFields={updateFields}&personFields={Uri.EscapeDataString(PersonFields)}";
+        string requestUri = $"https://people.googleapis.com/v1/{contact.Provenance.ProviderId}:updateContact?updatePersonFields={updateFields}&personFields={Uri.EscapeDataString(PersonFields)}";
         using var request = await CreateRequestAsync(HttpMethod.Patch, requestUri, cancellationToken);
         request.Content = CreateJsonContent(person);
         using var _ = await SendForJsonAsync(request, cancellationToken);
-        await SyncPhotoAsync(item.SourceId, item, deleteWhenAbsent: true, cancellationToken);
-        return await GetItemAsync(item.SourceId, cancellationToken)
+        await SyncPhotoAsync(contact.Provenance.ProviderId, contact, deleteWhenAbsent: true, cancellationToken);
+        return await GetItemAsync(contact.Provenance.ProviderId, cancellationToken)
             ?? throw new InvalidOperationException("Google updateContact succeeded but the updated item could not be reloaded.");
     }
 
@@ -113,7 +111,7 @@ internal sealed class GoogleContactsConnector : IConnector
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
-    private async Task<IncrementalPage> GetConnectionsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
+    private async Task<IncrementalPage<CanonicalContact>> GetConnectionsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
     {
         StringBuilder requestUri = new("https://people.googleapis.com/v1/people/me/connections");
         requestUri.Append("?personFields=").Append(Uri.EscapeDataString("metadata"));
@@ -146,7 +144,7 @@ internal sealed class GoogleContactsConnector : IConnector
         await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken);
 
-        List<CanonicalItem> items = [];
+        List<CanonicalContact> items = [];
         List<string> nonDeletedResourceNames = [];
         if (document.RootElement.TryGetProperty("connections", out var connections))
         {
@@ -166,10 +164,12 @@ internal sealed class GoogleContactsConnector : IConnector
 
                 if (isDeleted)
                 {
-                    items.Add(new CanonicalItem
+                    items.Add(new CanonicalContact
                     {
-                        EntityType = EntityType.Contact,
-                        SourceId = resourceName,
+                        Provenance =
+                        {
+                            ProviderId = resourceName
+                        },
                         IsDeleted = true,
                     });
                 }
@@ -193,7 +193,7 @@ internal sealed class GoogleContactsConnector : IConnector
             ? nextSyncTokenElement.GetString()
             : cursor.SyncToken;
 
-        return new IncrementalPage
+        return new IncrementalPage<CanonicalContact>
         {
             Items = items,
             HasMore = nextPageToken is not null,
@@ -203,7 +203,7 @@ internal sealed class GoogleContactsConnector : IConnector
         };
     }
 
-    private async Task<List<CanonicalItem>> BatchGetPeopleAsync(List<string> resourceNames, CancellationToken cancellationToken)
+    private async Task<List<CanonicalContact>> BatchGetPeopleAsync(List<string> resourceNames, CancellationToken cancellationToken)
     {
         StringBuilder requestUri = new("https://people.googleapis.com/v1/people:batchGet");
         requestUri.Append("?personFields=").Append(Uri.EscapeDataString(PersonFields));
@@ -215,7 +215,7 @@ internal sealed class GoogleContactsConnector : IConnector
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri.ToString(), cancellationToken);
         using var document = await SendForJsonAsync(request, cancellationToken);
 
-        List<CanonicalItem> items = [];
+        List<CanonicalContact> items = [];
         if (document.RootElement.TryGetProperty("responses", out var responses))
         {
             foreach (var responseElement in responses.EnumerateArray())
@@ -375,11 +375,7 @@ internal sealed class GoogleContactsConnector : IConnector
         return person;
     }
 
-    private static CanonicalContact GetContactPayload(CanonicalItem item) =>
-        item.Payload as CanonicalContact
-        ?? throw new InvalidOperationException("Google contacts connector only supports CanonicalContact payloads.");
-
-    private CanonicalItem? ConvertPerson(JsonElement person)
+    private CanonicalContact? ConvertPerson(JsonElement person)
     {
         string? resourceName = person.TryGetProperty("resourceName", out var resourceNameElement)
             ? resourceNameElement.GetString()
@@ -394,11 +390,10 @@ internal sealed class GoogleContactsConnector : IConnector
             && deletedElement.ValueKind == JsonValueKind.True;
         if (isDeleted)
         {
-            return new CanonicalItem
+            return new CanonicalContact
             {
-                EntityType = EntityType.Contact,
-                SourceId = resourceName,
                 IsDeleted = true,
+                Provenance = { ProviderId = resourceName }
             };
         }
 
@@ -412,8 +407,14 @@ internal sealed class GoogleContactsConnector : IConnector
             Title = ReadFirstNestedString(person, "organizations", "title"),
             Notes = ReadFirstNestedString(person, "biographies", "value"),
             Birthday = ReadBirthday(person),
-            LastModified = ReadLastModified(person),
             Categories = ReadMemberships(person),
+
+            Provenance =
+            {
+                ProviderId = resourceName,
+                Version = person.TryGetProperty("etag", out var etagElement) ? etagElement.GetString() : null,
+                LastModified = ReadLastModified(person),
+            }
         };
 
         if (person.TryGetProperty("emailAddresses", out var emails))
@@ -464,17 +465,10 @@ internal sealed class GoogleContactsConnector : IConnector
             }
         }
 
-        return CanonicalItemSerializer.WithComputedHash(new CanonicalItem
-        {
-            EntityType = EntityType.Contact,
-            Payload = contact,
-            SourceId = resourceName,
-            Version = person.TryGetProperty("etag", out var etagElement) ? etagElement.GetString() : null,
-            Metadata = [],
-        });
+        return CanonicalItemSerializer.WithComputedHash(contact);
     }
 
-    private async Task PopulatePhotoAsync(CanonicalItem item, JsonElement person, CancellationToken cancellationToken)
+    private async Task PopulatePhotoAsync(CanonicalContact item, JsonElement person, CancellationToken cancellationToken)
     {
         string? photoUrl = ReadPhotoUrl(person);
         if (string.IsNullOrWhiteSpace(photoUrl))
@@ -513,7 +507,7 @@ internal sealed class GoogleContactsConnector : IConnector
         return (photoBytes, contentType);
     }
 
-    private async Task SyncPhotoAsync(string personId, CanonicalItem item, bool deleteWhenAbsent, CancellationToken cancellationToken)
+    private async Task SyncPhotoAsync(string personId, CanonicalContact item, bool deleteWhenAbsent, CancellationToken cancellationToken)
     {
         if (ContactPhotoMetadata.TryGetPhoto(item, out byte[] photoBytes, out _))
         {
@@ -663,7 +657,7 @@ internal sealed class GoogleContactsConnector : IConnector
                 continue;
             }
 
-            categories.Add(groupNamesByResource.TryGetValue(resourceName, out string? name) ? name : resourceName);
+            categories.Add(groupNamesByResource.GetValueOrDefault(resourceName, defaultValue: resourceName));
         }
 
         return categories.Distinct(StringComparer.OrdinalIgnoreCase).ToList();

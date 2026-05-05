@@ -10,32 +10,32 @@ internal static class ContactPhotoMetadata
     private const string PhotoBytesKey = "contact.photo.bytes";
     private const string PhotoContentTypeKey = "contact.photo.contentType";
 
-    public static void SetPhoto(CanonicalItem item, byte[] photoBytes, string? contentType)
+    public static void SetPhoto(CanonicalContact contact, byte[] photoBytes, string? contentType)
     {
-        item.Metadata[PhotoPresenceKey] = "present";
-        item.Metadata[PhotoBytesKey] = Convert.ToBase64String(photoBytes);
-        item.Metadata[PhotoContentTypeKey] = NormalizeContentType(contentType, photoBytes);
+        contact.Metadata[PhotoPresenceKey] = "present";
+        contact.Metadata[PhotoBytesKey] = Convert.ToBase64String(photoBytes);
+        contact.Metadata[PhotoContentTypeKey] = NormalizeContentType(contentType, photoBytes);
     }
 
-    public static void SetNoPhoto(CanonicalItem item)
+    public static void SetNoPhoto(CanonicalContact contact)
     {
-        item.Metadata[PhotoPresenceKey] = "absent";
-        item.Metadata.Remove(PhotoBytesKey);
-        item.Metadata.Remove(PhotoContentTypeKey);
+        contact.Metadata[PhotoPresenceKey] = "absent";
+        contact.Metadata.Remove(PhotoBytesKey);
+        contact.Metadata.Remove(PhotoContentTypeKey);
     }
 
-    public static bool HasKnownAbsence(CanonicalItem item) =>
-        item.Metadata.TryGetValue(PhotoPresenceKey, out string? presence)
+    public static bool HasKnownAbsence(CanonicalContact contact) =>
+        contact.Metadata.TryGetValue(PhotoPresenceKey, out string? presence)
         && string.Equals(presence, "absent", StringComparison.Ordinal);
 
     /// <summary>
-    /// Returns a deterministic hash of the photo on <paramref name="item"/>.
+    /// Returns a deterministic hash of the photo on <paramref name="contact"/>.
     /// Returns <c>null</c> when photo presence has not yet been determined (loader not yet run).
-    /// Returns a fixed sentinel string when the item is known to have no photo.
+    /// Returns a fixed sentinel string when the contact is known to have no photo.
     /// </summary>
-    public static string? ComputePhotoHash(CanonicalItem item)
+    public static string? ComputePhotoHash(CanonicalContact contact)
     {
-        if (!item.Metadata.TryGetValue(PhotoPresenceKey, out string? presence))
+        if (!contact.Metadata.TryGetValue(PhotoPresenceKey, out string? presence))
         {
             return null;
         }
@@ -45,7 +45,7 @@ internal static class ContactPhotoMetadata
             return "absent";
         }
 
-        if (!TryGetPhoto(item, out byte[] photoBytes, out _))
+        if (!TryGetPhoto(contact, out byte[] photoBytes, out _))
         {
             return null;
         }
@@ -53,14 +53,14 @@ internal static class ContactPhotoMetadata
         return Convert.ToHexString(SHA256.HashData(photoBytes));
     }
 
-    public static bool TryGetPhoto(CanonicalItem item, out byte[] photoBytes, out string contentType)
+    public static bool TryGetPhoto(CanonicalContact contact, out byte[] photoBytes, out string contentType)
     {
         photoBytes = [];
         contentType = string.Empty;
 
-        if (!item.Metadata.TryGetValue(PhotoPresenceKey, out string? presence)
+        if (!contact.Metadata.TryGetValue(PhotoPresenceKey, out string? presence)
             || !string.Equals(presence, "present", StringComparison.Ordinal)
-            || !item.Metadata.TryGetValue(PhotoBytesKey, out string? encodedBytes))
+            || !contact.Metadata.TryGetValue(PhotoBytesKey, out string? encodedBytes))
         {
             return false;
         }
@@ -74,7 +74,7 @@ internal static class ContactPhotoMetadata
             return false;
         }
 
-        item.Metadata.TryGetValue(PhotoContentTypeKey, out string? storedContentType);
+        contact.Metadata.TryGetValue(PhotoContentTypeKey, out string? storedContentType);
         contentType = NormalizeContentType(storedContentType, photoBytes);
         return true;
     }
@@ -91,23 +91,23 @@ internal static class ContactPhotoMetadata
             _ => "application/octet-stream",
         };
 
-    /// <summary>Explicitly clears any photo metadata from the item.</summary>
-    public static void ClearPhoto(CanonicalItem item)
+    /// <summary>Explicitly clears any photo metadata from the contact.</summary>
+    public static void ClearPhoto(CanonicalContact contact)
     {
-        item.Metadata.Remove(PhotoBytesKey);
-        item.Metadata.Remove(PhotoContentTypeKey);
-        item.Metadata[PhotoPresenceKey] = "absent";
+        contact.Metadata.Remove(PhotoBytesKey);
+        contact.Metadata.Remove(PhotoContentTypeKey);
+        contact.Metadata[PhotoPresenceKey] = "absent";
     }
 
     /// <summary>
     /// Removes all photo metadata keys so the photo is neither present nor absent —
-    /// causing connectors to treat photo sync as a no-op for this item.
+    /// causing connectors to treat photo sync as a no-op for this contact.
     /// </summary>
-    public static void DetachPhoto(CanonicalItem item)
+    public static void DetachPhoto(CanonicalContact contact)
     {
-        item.Metadata.Remove(PhotoPresenceKey);
-        item.Metadata.Remove(PhotoBytesKey);
-        item.Metadata.Remove(PhotoContentTypeKey);
+        contact.Metadata.Remove(PhotoPresenceKey);
+        contact.Metadata.Remove(PhotoBytesKey);
+        contact.Metadata.Remove(PhotoContentTypeKey);
     }
 
     public static string GetFileExtension(string? contentType, ReadOnlySpan<byte> photoBytes)
@@ -188,5 +188,21 @@ internal static class ContactPhotoMetadata
         }
 
         return "application/octet-stream";
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> if both items have a known photo hash and the hashes are equal,
+    /// indicating the photo does not need to be re-uploaded during an update.
+    /// </summary>
+    public static bool PhotoHashesMatch(CanonicalContact? source, CanonicalContact? destination)
+    {
+        if (source is null || destination is null)
+        {
+            return false;
+        }
+
+        string? srcHash = ContactPhotoMetadata.ComputePhotoHash(source);
+        string? dstHash = ContactPhotoMetadata.ComputePhotoHash(destination);
+        return srcHash is not null && dstHash is not null && srcHash == dstHash;
     }
 }

@@ -9,6 +9,7 @@ using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Connectors.Google;
 using Summerdawn.Kagami.Connectors.Microsoft;
 using Summerdawn.Kagami.Engine;
+using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
 
 namespace Summerdawn.Kagami.DependencyInjection;
@@ -55,7 +56,7 @@ public static class KagamiServiceCollectionExtensions
 
             string capturedEndpointName = endpointName;
             var capturedEndpoint = endpoint;
-            services.AddKeyedSingleton<IConnector>(endpointName, (sp, _) =>
+            services.AddKeyedSingleton<IConnector<CanonicalContact>>(endpointName, (sp, _) =>
             {
                 var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
                 var httpClient = httpClientFactory.CreateClient($"kagami-{capturedEndpointName}");
@@ -83,7 +84,7 @@ public static class KagamiServiceCollectionExtensions
         }
 
         // Func<string, IConnector> that resolves keyed connectors by endpoint name
-        services.AddSingleton<Func<string, IConnector>>(sp => name => sp.GetRequiredKeyedService<IConnector>(name));
+        services.AddSingleton<Func<string, IConnector<CanonicalContact>>>(sp => sp.GetRequiredKeyedService<IConnector<CanonicalContact>>);
 
         services.AddSingleton(sp =>
         {
@@ -97,7 +98,7 @@ public static class KagamiServiceCollectionExtensions
         services.AddSingleton<Planner>();
         services.AddSingleton<JobExecutor>();
         services.AddSingleton<SyncHost>();
-        services.AddSingleton<ContactsService>();
+        services.AddSingleton<SyncService<CanonicalContact>>();
         return services;
     }
 

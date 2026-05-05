@@ -11,20 +11,9 @@ public static class ContactName
             ? contact.DisplayName
             : contact.Organization ?? string.Empty;
 
-    public static string GetName(CanonicalItem item) =>
-        item.Payload is CanonicalContact contact
-            ? GetName(contact)
-            : string.Empty;
-
-    public static string GetNameOrId(CanonicalItem item)
+    public static string BuildExportBaseName(CanonicalContact contact)
     {
-        string name = GetName(item);
-        return string.IsNullOrWhiteSpace(name) ? item.SourceId : name;
-    }
-
-    public static string BuildExportBaseName(CanonicalItem item)
-    {
-        string name = GetName(item);
+        string name = GetName(contact);
         if (!string.IsNullOrWhiteSpace(name))
         {
             string sanitizedName = SanitizeName(name);
@@ -34,7 +23,7 @@ public static class ContactName
             }
         }
 
-        return SanitizeId(item.SourceId);
+        return SanitizeId(contact.Provenance.ProviderId);
     }
 
     private static string SanitizeName(string value)

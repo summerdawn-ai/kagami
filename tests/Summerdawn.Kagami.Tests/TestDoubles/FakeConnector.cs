@@ -3,9 +3,9 @@ using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Tests.TestDoubles;
 
-public sealed class FakeConnector : IConnector
+public sealed class FakeConnector : IConnector<CanonicalContact>
 {
-    private readonly List<CanonicalItem> items = [];
+    private readonly List<CanonicalContact> items = [];
     private int generation;
 
     public ConnectorCapabilities Capabilities { get; } = new()
@@ -19,17 +19,17 @@ public sealed class FakeConnector : IConnector
         SupportsServerSideFiltering = false,
     };
 
-    public void Seed(CanonicalItem item)
+    public void Seed(CanonicalContact item)
     {
         item.Metadata["gen"] = generation.ToString();
         items.Add(item);
     }
 
-    public IReadOnlyList<CanonicalItem> Items => items;
+    public IReadOnlyList<CanonicalContact> Items => items;
 
     public void MarkDeleted(string id)
     {
-        var item = items.FirstOrDefault(i => i.SourceId == id);
+        var item = items.FirstOrDefault(i => i.Provenance.ProviderId == id);
         if (item is not null)
         {
             generation++;
@@ -40,15 +40,15 @@ public sealed class FakeConnector : IConnector
 
     public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-    public Task<IncrementalPage> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult(new IncrementalPage
+    public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new IncrementalPage<CanonicalContact>
         {
             Items = [.. items],
             NextCursor = generation.ToString(),
             HasMore = false,
         });
 
-    public Task<IncrementalPage> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default)
+    public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default)
     {
         if (!int.TryParse(cursor, out int fromGeneration))
         {
@@ -56,7 +56,7 @@ public sealed class FakeConnector : IConnector
         }
 
         var changed = items.Where(i => GetItemGeneration(i) > fromGeneration).ToList();
-        return Task.FromResult(new IncrementalPage
+        return Task.FromResult(new IncrementalPage<CanonicalContact>
         {
             Items = changed,
             NextCursor = generation.ToString(),
@@ -64,32 +64,55 @@ public sealed class FakeConnector : IConnector
         });
     }
 
-    public Task<CanonicalItem?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
-        Task.FromResult(items.FirstOrDefault(i => i.SourceId == id));
+    public Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
+        Task.FromResult(items.FirstOrDefault(i => i.Provenance.ProviderId == id));
 
-    public Task<CanonicalItem> CreateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
+    public Task<CanonicalContact> CreateItemAsync(CanonicalContact item, CancellationToken cancellationToken = default)
     {
         generation++;
-        var created = Clone(item);
-        created.SourceId = Guid.NewGuid().ToString("N");
-        created.Version = generation.ToString();
-        created.Metadata["gen"] = generation.ToString();
+
+        var created = item with
+        {
+            Metadata = new(item.Metadata)
+            {
+                ["gen"] = generation.ToString()
+            },
+
+            Provenance = new()
+            {
+                ProviderId = Guid.NewGuid().ToString("N"),
+                Version = generation.ToString(),
+            }
+        };
+
         items.Add(created);
         return Task.FromResult(created);
     }
 
-    public Task<CanonicalItem> UpdateItemAsync(CanonicalItem item, CancellationToken cancellationToken = default)
+    public Task<CanonicalContact> UpdateItemAsync(CanonicalContact item, CancellationToken cancellationToken = default)
     {
         generation++;
-        var existing = items.FirstOrDefault(i => i.SourceId == item.SourceId)
-            ?? throw new InvalidOperationException($"Item {item.SourceId} not found in fake connector.");
-        existing.Payload = item.Payload;
-        existing.Version = generation.ToString();
-        existing.ContentHash = item.ContentHash;
-        existing.IsDeleted = item.IsDeleted;
-        existing.Metadata = new Dictionary<string, string>(item.Metadata);
-        existing.Metadata["gen"] = generation.ToString();
-        return Task.FromResult(existing);
+        var existing = items.FirstOrDefault(i => i.Provenance.ProviderId == item.Provenance.ProviderId)
+            ?? throw new InvalidOperationException($"Item {item.Provenance.ProviderId} not found in fake connector.");
+
+        var updated = item with
+        {
+            Metadata = new(item.Metadata)
+            {
+                ["gen"] = generation.ToString()
+            },
+
+            Provenance = new()
+            {
+                ProviderId = item.Provenance.ProviderId,
+                Version = generation.ToString(),
+            }
+        };
+
+        items.Remove(existing);
+        items.Add(updated);
+
+        return Task.FromResult(updated);
     }
 
     public Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
@@ -100,16 +123,4 @@ public sealed class FakeConnector : IConnector
 
     private static int GetItemGeneration(CanonicalItem item) =>
         item.Metadata.TryGetValue("gen", out string? genText) && int.TryParse(genText, out int gen) ? gen : 0;
-
-    private static CanonicalItem Clone(CanonicalItem item) =>
-        new()
-        {
-            EntityType = item.EntityType,
-            Payload = item.Payload,
-            SourceId = item.SourceId,
-            Version = item.Version,
-            ContentHash = item.ContentHash,
-            IsDeleted = item.IsDeleted,
-            Metadata = new Dictionary<string, string>(item.Metadata),
-        };
 }

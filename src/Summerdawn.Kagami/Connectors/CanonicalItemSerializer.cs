@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -9,26 +10,25 @@ namespace Summerdawn.Kagami.Connectors;
 
 internal static class CanonicalItemSerializer
 {
-    public static string ComputeContentHash(object? payload)
-    {
-        if (payload is null)
-        {
-            return string.Empty;
-        }
 
-        string json = payload switch
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "KagamiJsonContext supports all possible types of item")]
+    [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "KagamiJsonContext supports all possible types of item")]
+    public static string ComputeContentHash(CanonicalItem item)
+    {
+        // Serialize with custom 'Hash' context which excludes provenance and other non-canonical data
+        string json = item switch
         {
-            CanonicalCalendarEvent calendarEvent => JsonSerializer.Serialize(calendarEvent, KagamiJsonContext.Default.CanonicalCalendarEvent),
-            CanonicalContact contact => JsonSerializer.Serialize(contact, KagamiJsonContext.Default.CanonicalContact),
-            _ => throw new InvalidOperationException($"Unsupported canonical payload type '{payload.GetType().FullName}'."),
+            CanonicalCalendarEvent calendarEvent => JsonSerializer.Serialize(calendarEvent, KagamiJsonContext.HashJsonOptions),
+            CanonicalContact contact => JsonSerializer.Serialize(contact, KagamiJsonContext.HashJsonOptions),
+            _ => throw new InvalidOperationException($"Unsupported canonical payload type '{item.GetType().FullName}'."),
         };
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(json));
         return Convert.ToHexString(hash);
     }
 
-    public static CanonicalItem WithComputedHash(CanonicalItem item)
+    public static TItem WithComputedHash<TItem>(TItem item) where TItem : CanonicalItem
     {
-        item.ContentHash ??= ComputeContentHash(item.Payload);
+        item.Provenance.ContentHash ??= ComputeContentHash(item);
         return item;
     }
 
@@ -36,15 +36,15 @@ internal static class CanonicalItemSerializer
     /// Returns <c>true</c> if <paramref name="a"/> and <paramref name="b"/> carry the same canonical
     /// payload (photo is excluded from this comparison).
     /// </summary>
-    public static bool HaveIdenticalContent(CanonicalItem a, CanonicalItem b)
+    public static bool HaveIdenticalContent<TItem>(TItem a, TItem b) where TItem : CanonicalItem
     {
-        if (a.ContentHash is not null && b.ContentHash is not null)
+        if (a.Provenance.ContentHash is not null && b.Provenance.ContentHash is not null)
         {
-            return a.ContentHash == b.ContentHash;
+            return a.Provenance.ContentHash == b.Provenance.ContentHash;
         }
 
         WithComputedHash(a);
         WithComputedHash(b);
-        return a.ContentHash == b.ContentHash;
+        return a.Provenance.ContentHash == b.Provenance.ContentHash;
     }
 }
