@@ -155,8 +155,8 @@ public sealed class SyncHostTests : IDisposable
             new Planner(NullLogger<Planner>.Instance),
             new LinkStateRepository(db),
             new EndpointCursorRepository(db),
-            new OperationLogRepository(db),
             new LeaseRepository(db),
+            new SyncActionExecutor(new LinkStateRepository(db), new OperationLogRepository(db), NullLogger<SyncActionExecutor>.Instance),
             NullLogger<JobExecutor>.Instance);
 
         return new SyncHost(

@@ -97,12 +97,12 @@ public sealed class JobExecutorTests : IDisposable
         FakeConnector destinationConnector = new();
         sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice Logging"));
 
-        InMemoryLogger<JobExecutor> logger = new();
-        var executor = CreateExecutor(logger);
+        InMemoryLogger<SyncActionExecutor> syncLogger = new();
+        var executor = CreateExecutor(syncLogger: syncLogger);
 
         await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
-        Assert.Contains(logger.Entries, entry => entry.Contains("would create contact 'Alice Logging'", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would create contact 'Alice Logging'", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -112,12 +112,12 @@ public sealed class JobExecutorTests : IDisposable
         FakeConnector destinationConnector = new();
         sourceConnector.Seed(CreateContactItem("a1", "v1", string.Empty, organization: "Contoso Ltd"));
 
-        InMemoryLogger<JobExecutor> logger = new();
-        var executor = CreateExecutor(logger);
+        InMemoryLogger<SyncActionExecutor> syncLogger = new();
+        var executor = CreateExecutor(syncLogger: syncLogger);
 
         await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
-        Assert.Contains(logger.Entries, entry => entry.Contains("would create contact 'Contoso Ltd'", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would create contact 'Contoso Ltd'", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -128,41 +128,99 @@ public sealed class JobExecutorTests : IDisposable
         sourceConnector.Seed(CreateContactItem("a1", "v1", "Ada Langenfeld", email: "ada@example.com"));
         destinationConnector.Seed(CreateContactItem("b1", "v1", "Ada Langenfeld", email: " ADA@example.com "));
 
-        InMemoryLogger<JobExecutor> logger = new();
-        var executor = CreateExecutor(logger);
+        InMemoryLogger<SyncActionExecutor> syncLogger = new();
+        var executor = CreateExecutor(syncLogger: syncLogger);
 
         await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, conflictPolicy: ConflictPolicy.SourceWins),
             true);
 
-        Assert.Contains(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' in direction SourceToDestination", StringComparison.Ordinal));
-        Assert.DoesNotContain(logger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' in direction DestinationToSource", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' in direction SourceToDestination", StringComparison.Ordinal));
+        Assert.DoesNotContain(syncLogger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' in direction DestinationToSource", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task ApplyActionsAsync_SingleContactFailure_ContinuesToNextContact()
+    public async Task PermanentPerItemFailure_ContinuesRemainingActionsButPreventsCursorAdvancement()
     {
         FakeConnector sourceConnector = new();
         FailingCreateConnector destinationConnector = new(throwForSourceId: "a1");
         sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
         sourceConnector.Seed(CreateContactItem("a2", "v1", "Bob", email: "bob@example.com"));
 
-        InMemoryLogger<JobExecutor> logger = new();
-        var executor = CreateExecutor(logger);
+        // Pre-seed a cursor so we can verify it does not advance
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, "old-cursor", CancellationToken.None);
+
+        InMemoryLogger<SyncActionExecutor> syncLogger = new();
+        var executor = CreateExecutor(syncLogger: syncLogger);
+
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+
+        // Run is faulted: succeeded must be false
+        Assert.False(result.Succeeded);
+        // Remaining items (Bob) were still processed
+        Assert.Contains(destinationConnector.Items, i => i.DisplayName == "Bob" && !i.IsDeleted);
+        // An error was logged for the failing item (permanent failure → "continuing", not "aborting run")
+        Assert.Contains(syncLogger.Entries, e =>
+            e.Contains("a1", StringComparison.Ordinal) &&
+            e.Contains("failed", StringComparison.Ordinal) &&
+            e.Contains("continuing", StringComparison.Ordinal));
+        // Cursor must NOT have advanced
+        var cursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None);
+        Assert.Equal("old-cursor", cursor?.Cursor);
+    }
+
+    [Theory]
+    [InlineData(429)]
+    [InlineData(500)]
+    [InlineData(503)]
+    public async Task TransientFailure_AbortsRunImmediatelyAndPreventsCursorAdvancement(int statusCode)
+    {
+        FakeConnector sourceConnector = new();
+        TransientlyFailingConnector destinationConnector = new((System.Net.HttpStatusCode)statusCode);
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+        sourceConnector.Seed(CreateContactItem("a2", "v1", "Bob", email: "bob@example.com"));
+
+        // Pre-seed a cursor so we can verify it does not advance
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, "old-cursor", CancellationToken.None);
+
+        var executor = CreateExecutor();
+
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+
+        // Run is faulted: succeeded must be false
+        Assert.False(result.Succeeded);
+        // Second item must NOT have been processed (run aborted on transient failure)
+        Assert.DoesNotContain(destinationConnector.Items, i => i.DisplayName == "Bob" && !i.IsDeleted);
+        // Cursor must NOT have advanced
+        var cursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None);
+        Assert.Equal("old-cursor", cursor?.Cursor);
+    }
+
+    [Fact]
+    public async Task SuccessfulRun_AdvancesCursor()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+
+        // No pre-existing cursor
+        var executor = CreateExecutor();
 
         var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
 
         Assert.True(result.Succeeded);
-        Assert.Contains(destinationConnector.Items, i => i.DisplayName == "Bob" && !i.IsDeleted);
-        Assert.Contains(logger.Entries, e => e.Contains("a1", StringComparison.Ordinal) && e.Contains("failed", StringComparison.Ordinal));
+
+        // Cursor must have been written after a successful run
+        var cursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None);
+        Assert.NotNull(cursor);
     }
 
-    private JobExecutor CreateExecutor(ILogger<JobExecutor>? logger = null) =>
+    private JobExecutor CreateExecutor(ILogger<JobExecutor>? logger = null, ILogger<SyncActionExecutor>? syncLogger = null) =>
         new(
             new Planner(NullLogger<Planner>.Instance),
             linkStateRepository,
             endpointCursorRepository,
-            operationLogRepository,
             leaseRepository,
+            new SyncActionExecutor(linkStateRepository, operationLogRepository, syncLogger ?? NullLogger<SyncActionExecutor>.Instance),
             logger ?? NullLogger<JobExecutor>.Instance);
 
     private static Job<CanonicalContact> CreateJob(string jobKey, IConnector<CanonicalContact> sourceConnector, IConnector<CanonicalContact> destinationConnector, ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins)
