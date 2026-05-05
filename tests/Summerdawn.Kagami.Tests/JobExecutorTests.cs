@@ -44,8 +44,7 @@ public sealed class JobExecutorTests : IDisposable
 
         await linkStateRepository.UpsertAsync(new LinkStateRow
         {
-            JobKey = "job-1",
-            EntityType = EntityType.Contact,
+            PartitionKey = "contact:endpointA:endpointB",
             SourceId = "a1",
             DestinationId = "b1",
             SourceVersion = "v1",

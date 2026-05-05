@@ -601,8 +601,7 @@ public sealed class SyncActionPlannerTests
         string entityType = EntityType.CalendarEvent) =>
         new()
         {
-            JobKey = "job-1",
-            EntityType = entityType,
+            PartitionKey = $"{entityType}:endpointA:endpointB",
             SourceId = sourceId,
             DestinationId = destinationId,
             SourceVersion = sourceVersion,

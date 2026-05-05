@@ -89,7 +89,7 @@ public sealed class SyncHostTests : IDisposable
         Assert.Empty(targetA.Items);
 
         LinkStateRepository linkStateRepository = new(db);
-        Assert.Empty(await linkStateRepository.GetByJobAsync("job-a"));
+        Assert.Empty(await linkStateRepository.GetByPartitionAsync("contact:endpointA1:endpointB1"));
     }
 
     [Fact]
