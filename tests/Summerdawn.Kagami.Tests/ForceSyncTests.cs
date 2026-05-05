@@ -69,6 +69,30 @@ public sealed class ForceSyncTests : IDisposable
     }
 
     [Fact]
+    public async Task SecondRunWithCursorAtEnd_ProducesZeroActionsAndNoSkips()
+    {
+        // Seed one contact and run a first sync to establish cursors and link state.
+        sourceConnector.Seed(CreateContact("a1", "Alice"));
+        var firstResult = await executor.ExecuteAsync(CreateJob("job-1"));
+        Assert.True(firstResult.Succeeded);
+        Assert.Equal(1, firstResult.ActionsPlanned);
+
+        // Record how many times GetInitialPageAsync was called during the first run.
+        int initialPageCallsAfterFirstRun = sourceConnector.GetInitialPageCallCount;
+
+        // Second run with no changes: the cursor is at the end of all items so the
+        // incremental read returns an empty delta. The planner sees no items and produces
+        // zero actions — including zero Skip actions.
+        var secondResult = await executor.ExecuteAsync(CreateJob("job-1"));
+        Assert.True(secondResult.Succeeded);
+        Assert.Equal(0, secondResult.ActionsPlanned);
+
+        // The source connector's initial-page endpoint must not have been called again;
+        // only the incremental (delta) endpoint should be used on this run.
+        Assert.Equal(initialPageCallsAfterFirstRun, sourceConnector.GetInitialPageCallCount);
+    }
+
+    [Fact]
     public async Task Force_WhatIf_LogsActionsWithoutWriting()
     {
         sourceConnector.Seed(CreateContact("a1", "Alice"));
