@@ -1,22 +1,27 @@
 namespace Summerdawn.Kagami.Models;
 
+/// <summary>
+/// Represents provider-assigned identity and change-tracking metadata for a canonical item.
+/// </summary>
 public sealed class ItemProvenance
 {
     /// <summary>
-    /// Provider-assigned identifier on the source side.
+    /// Gets or sets the provider-assigned item identifier.
     /// </summary>
     public string ProviderId { get; set; } = string.Empty;
 
     /// <summary>
-    /// Provider-assigned version/etag.
+    /// Gets or sets the provider-assigned version or ETag, used for optimistic change detection.
     /// </summary>
     public string? Version { get; set; }
 
     /// <summary>
-    /// Content hash for change detection.
+    /// Gets or sets the SHA-256 content hash, used for change detection when a version/ETag is unavailable.
     /// </summary>
     public string? ContentHash { get; set; }
 
-    /// <summary>Last modified time (UTC).</summary>
+    /// <summary>
+    /// Gets or sets the UTC timestamp of the last modification on the provider side.
+    /// </summary>
     public DateTimeOffset? LastModified { get; set; }
 }

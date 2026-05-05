@@ -5,7 +5,10 @@ namespace Summerdawn.Kagami.Persistence;
 /// </summary>
 public sealed class LeaseRepository(StateDatabase db)
 {
-    /// <summary>Attempts to acquire a lease for the given job. Returns true if acquired.</summary>
+    /// <summary>
+    /// Attempts to acquire a lease for the given job.
+    /// </summary>
+    /// <returns><c>true</c> when the lease was acquired; <c>false</c> when another holder's unexpired lease prevents acquisition.</returns>
     public async Task<bool> TryAcquireAsync(string jobKey, string holderId, TimeSpan leaseDuration, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -39,7 +42,9 @@ public sealed class LeaseRepository(StateDatabase db)
         return affected > 0;
     }
 
-    /// <summary>Releases the lease for the given job and holder.</summary>
+    /// <summary>
+    /// Releases the lease for the given job and holder.
+    /// </summary>
     public async Task ReleaseAsync(string jobKey, string holderId, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -50,7 +55,10 @@ public sealed class LeaseRepository(StateDatabase db)
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    /// <summary>Force-releases all job leases regardless of holder or expiry. Returns the number of locks cleared.</summary>
+    /// <summary>
+    /// Force-releases all job leases regardless of holder or expiry.
+    /// </summary>
+    /// <returns>The number of leases cleared.</returns>
     public async Task<int> ForceReleaseAllAsync(CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -59,7 +67,9 @@ public sealed class LeaseRepository(StateDatabase db)
         return await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    /// <summary>Checks whether a valid (unexpired) lease exists for a job.</summary>
+    /// <summary>
+    /// Determines whether a valid, unexpired lease exists for the given job.
+    /// </summary>
     public async Task<bool> IsLockedAsync(string jobKey, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();

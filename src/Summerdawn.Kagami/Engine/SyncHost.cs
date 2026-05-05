@@ -8,7 +8,7 @@ using Summerdawn.Kagami.Persistence;
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
-/// Orchestrates multiple sync jobs: builds connectors, manages concurrency, and dispatches to JobExecutor.
+/// Orchestrates multiple sync jobs, managing concurrency and dispatching each job to <see cref="JobExecutor"/>.
 /// </summary>
 public sealed class SyncHost(
     KagamiOptions options,
@@ -17,7 +17,9 @@ public sealed class SyncHost(
     StateDatabase stateDb,
     ILogger<SyncHost> logger)
 {
-    /// <summary>Runs the enabled jobs once and returns, optionally filtered to a single job.</summary>
+    /// <summary>
+    /// Runs the enabled jobs once and returns.
+    /// </summary>
     public async Task RunOnceAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
     {
         await stateDb.InitializeAsync(cancellationToken);
@@ -26,7 +28,13 @@ public sealed class SyncHost(
         await ExecuteJobsAsync(jobs, whatIf, cancellationToken);
     }
 
-    /// <summary>Runs continuously, polling the enabled jobs on their configured schedules.</summary>
+    /// <summary>
+    /// Runs continuously, polling the enabled jobs on their configured schedules.
+    /// </summary>
+    /// <remarks>
+    /// The scheduler loop checks at most every <see cref="KagamiHostOptions.SchedulerIntervalSeconds"/>
+    /// seconds for jobs whose interval has elapsed since their last run.
+    /// </remarks>
     public async Task RunContinuousAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
     {
         await stateDb.InitializeAsync(cancellationToken);
@@ -57,6 +65,9 @@ public sealed class SyncHost(
         }
     }
 
+    /// <summary>
+    /// Dispatches each job to <see cref="JobExecutor"/> concurrently, bounded by <see cref="KagamiHostOptions.MaxConcurrentJobs"/>.
+    /// </summary>
     private async Task ExecuteJobsAsync(
         IReadOnlyList<KeyValuePair<string, JobOptions>> jobs,
         bool whatIf,
@@ -78,7 +89,9 @@ public sealed class SyncHost(
         await Task.WhenAll(tasks);
     }
 
-    /// <summary>Force-releases all job leases. Returns the number of locks cleared.</summary>
+    /// <summary>
+    /// Force-releases all job leases and returns the number cleared.
+    /// </summary>
     public async Task<int> UnlockAllJobsAsync(CancellationToken cancellationToken = default)
     {
         await stateDb.InitializeAsync(cancellationToken);
@@ -88,7 +101,9 @@ public sealed class SyncHost(
         return cleared;
     }
 
-    /// <summary>Resets the sync state for the given job key.</summary>
+    /// <summary>
+    /// Resets the sync state for the specified job, clearing its link rows and saved cursors.
+    /// </summary>
     public async Task ResetJobAsync(string jobKey, CancellationToken cancellationToken = default)
     {
         await stateDb.InitializeAsync(cancellationToken);
@@ -105,6 +120,9 @@ public sealed class SyncHost(
         logger.LogInformation("Reset job {JobKey}: link state and cursors cleared", jobKey);
     }
 
+    /// <summary>
+    /// Dispatches the job to the correct typed <see cref="ExecuteJobAsync{TItem}"/> overload based on <see cref="JobOptions.EntityType"/>.
+    /// </summary>
     private Task ExecuteJobAsync(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken)
     {
         try
@@ -124,6 +142,9 @@ public sealed class SyncHost(
         }
     }
 
+    /// <summary>
+    /// Resolves the connectors for a typed job and delegates execution to <see cref="JobExecutor.ExecuteAsync{TItem}"/>.
+    /// </summary>
     private async Task ExecuteJobAsync<TItem>(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         try
@@ -142,11 +163,18 @@ public sealed class SyncHost(
         }
     }
 
+    /// <summary>
+    /// Returns the enabled jobs, optionally filtered to a single job key.
+    /// </summary>
     private List<KeyValuePair<string, JobOptions>> GetEnabledJobs(string? jobKeyFilter) =>
         options.Jobs
             .Where(kvp => kvp.Value.Enabled && (jobKeyFilter is null || kvp.Key == jobKeyFilter))
             .ToList();
 
+    /// <summary>
+    /// Parses a simplified ISO 8601 duration string (e.g. <c>PT15M</c>, <c>PT2H</c>, <c>PT30S</c>)
+    /// into a <see cref="TimeSpan"/>. Returns 15 minutes for unrecognised formats.
+    /// </summary>
     private static TimeSpan ParseInterval(string schedule)
     {
         if (schedule.StartsWith("PT", StringComparison.OrdinalIgnoreCase))

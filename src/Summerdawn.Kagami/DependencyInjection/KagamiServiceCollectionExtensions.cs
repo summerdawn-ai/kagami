@@ -26,7 +26,9 @@ public static class KagamiServiceCollectionExtensions
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Summerdawn.ai", "Kagami");
 
-    /// <summary>Adds Kagami core services to the DI container.</summary>
+    /// <summary>
+    /// Adds Kagami core services to the DI container.
+    /// </summary>
     public static IServiceCollection AddKagami(this IServiceCollection services, IConfiguration configuration)
     {
         var options = new KagamiOptions();
@@ -102,6 +104,9 @@ public static class KagamiServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Returns the OAuth scopes required for the named endpoint type.
+    /// </summary>
     private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType switch
     {
         EndpointOptions.GoogleContacts => ["https://www.googleapis.com/auth/contacts"],
@@ -109,6 +114,9 @@ public static class KagamiServiceCollectionExtensions
         _ => []
     };
 
+    /// <summary>
+    /// Registers a named <see cref="HttpClient"/> for the endpoint, configured with a resilience pipeline that honours <c>Retry-After</c> headers.
+    /// </summary>
     private static void RegisterEndpointHttpClient(IServiceCollection services, string endpointName, string endpointType)
     {
         var builder = services.AddHttpClient($"kagami-{endpointName}", client =>

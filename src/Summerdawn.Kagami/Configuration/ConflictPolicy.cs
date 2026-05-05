@@ -1,16 +1,27 @@
 namespace Summerdawn.Kagami.Configuration;
 
 /// <summary>
-/// Conflict resolution policy for a job.
+/// Specifies how conflicts between source and destination are resolved.
 /// </summary>
 public enum ConflictPolicy
 {
-    /// <summary>Most recently modified item wins.</summary>
+    /// <summary>
+    /// Specifies that the item with the most recent modification timestamp wins.
+    /// </summary>
     LastWriteWins,
-    /// <summary>Source side always wins.</summary>
+
+    /// <summary>
+    /// Specifies that the source side always wins, regardless of modification time.
+    /// </summary>
     SourceWins,
-    /// <summary>Destination side always wins.</summary>
+
+    /// <summary>
+    /// Specifies that the destination side always wins, regardless of modification time.
+    /// </summary>
     DestinationWins,
-    /// <summary>Flag the conflict and skip the update.</summary>
+
+    /// <summary>
+    /// Specifies that conflicting items are skipped without writing either side.
+    /// </summary>
     Skip,
 }

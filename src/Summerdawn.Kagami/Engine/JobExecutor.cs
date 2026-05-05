@@ -8,7 +8,8 @@ using static Summerdawn.Kagami.Engine.SyncDirection;
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
-/// Executes a single sync job using two connectors and the planner.
+/// Executes a single sync job: acquires a lease, reads both sides, plans actions,
+/// and applies them.
 /// </summary>
 public sealed class JobExecutor(
     Planner planner,
@@ -21,11 +22,14 @@ public sealed class JobExecutor(
     private static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(10);
 
     /// <summary>
-    /// Executes a sync job. If <paramref name="whatIf"/> is true, no writes are performed.
+    /// Executes a sync job.
     /// </summary>
-    /// <param name="job">The job to execute.</param>
-    /// <param name="whatIf">When <c>true</c>, no writes are performed; planned actions are logged.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <remarks>
+    /// Acquires a per-job lease before running; if another instance already holds the lease the
+    /// job is skipped and <see cref="JobExecutionResult.Skipped"/> is set to <c>true</c>.
+    /// The lease is always released in a <c>finally</c> block.
+    /// </remarks>
+
     public async Task<JobExecutionResult> ExecuteAsync<TItem>(Job<TItem> job, bool whatIf = false, CancellationToken cancellationToken = default) where TItem : CanonicalItem
     {
         string holderId = Guid.NewGuid().ToString("N");
@@ -46,6 +50,27 @@ public sealed class JobExecutor(
         }
     }
 
+    /// <summary>
+    /// Authenticates both connectors, reads current state, plans actions, and applies them.
+    /// </summary>
+    /// <remarks>
+    /// The method makes two distinct read passes per connector:
+    /// <list type="number">
+    ///   <item>
+    ///     <term>Full current snapshot</term>
+    ///     <description>Always fetched from the initial page (no cursor). Used by the planner to
+    ///     reason about all live items, independent of what changed since the last run.</description>
+    ///   </item>
+    ///   <item>
+    ///     <term>Incremental page</term>
+    ///     <description>Fetched with a stored cursor when available, or as a full re-fetch when
+    ///     <c>Full</c> or <c>Force</c> is set. The resulting cursor is persisted after a successful
+    ///     write pass so the next run can fetch only new changes.</description>
+    ///   </item>
+    /// </list>
+    /// Actions are applied source→destination first; link state is refreshed before the
+    /// destination→source pass so that newly created destination IDs are visible.
+    /// </remarks>
     private async Task<JobExecutionResult> RunJobAsync<TItem>(Job<TItem> job, bool whatIf, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         logger.LogInformation("Starting job {job.Key} (whatIf={WhatIf}, force={Force})", job.Key, whatIf, job.Options.Force);
@@ -63,13 +88,17 @@ public sealed class JobExecutor(
         string filterScope = filter?.Scope ?? string.Empty;
 
         // --- Read current snapshots from both sides ---
+        // Full initial-page reads (ignoring cursors) give the planner a complete picture of
+        // what items actually exist right now, not just what changed since the last run.
         var currentSourcePageSet = await ReadCurrentPagesAsync(sourceConnector, job.Options.Source, cancellationToken);
         var currentSourceItems = filter is not null ? filter.Apply(currentSourcePageSet.Items) : currentSourcePageSet.Items;
 
         var currentDestinationPageSet = await ReadCurrentPagesAsync(destinationConnector, job.Options.Destination, cancellationToken);
         var currentDestinationItems = filter is not null ? filter.Apply(currentDestinationPageSet.Items) : currentDestinationPageSet.Items;
 
-        // --- Poll incremental changes (for cursor tracking) ---
+        // --- Poll incremental changes (for cursor advancement only) ---
+        // These reads are solely for advancing the per-endpoint cursor so that the next run
+        // only sees new deltas. The resulting items are NOT passed to the planner.
         var sourceCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Source, cancellationToken);
         string? sourceCursor = GetApplicableCursor(job.Key, job.Options.Source, sourceCursorState, filterScope);
         var sourcePageSet = await ReadAllPagesAsync(sourceConnector, job.Options.Source, sourceCursor, job.Options.Full || job.Options.Force, cancellationToken);
@@ -95,13 +124,21 @@ public sealed class JobExecutor(
 
         if (!whatIf)
         {
+            // --- Apply source→destination ---
             await EnsureActionItemsLoadedAsync(actionsToDestination, cancellationToken);
             await ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job: job, existingLinks: existingLinks, cancellationToken: cancellationToken);
+
+            // Refresh link state so that IDs created in the previous pass are visible when
+            // applying destination→source actions.
             existingLinks = await linkStateRepo.GetByJobAsync(job.Key, cancellationToken);
 
+            // --- Apply destination→source ---
             await EnsureActionItemsLoadedAsync(actionsToSource, cancellationToken);
             await ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job: job, existingLinks: existingLinks, cancellationToken: cancellationToken);
 
+            // --- Record links for matched-but-unchanged pairs ---
+            // Skip actions that carry both sides (i.e. a matched pair whose content was identical)
+            // still need a link row so subsequent runs can track versions correctly.
             var skipsWithMatches = actionsSkip.Where(a => a.Item is not null && a.MatchedTargetItem is not null).ToList();
             if (skipsWithMatches.Count > 0)
             {
@@ -124,6 +161,7 @@ public sealed class JobExecutor(
                 }
             }
 
+            // --- Persist cursors ---
             if (sourcePageSet.Cursor is not null)
             {
                 await cursorRepo.SetCursorAsync(job.Key, job.Options.Source, filterScope, sourcePageSet.Cursor, cancellationToken);
@@ -140,6 +178,19 @@ public sealed class JobExecutor(
         return result;
     }
 
+    /// <summary>
+    /// Applies a list of planned sync actions against the target connector for the given direction.
+    /// </summary>
+    /// <remarks>
+    /// Each action is executed independently; a failure logs the error and continues to the next
+    /// action rather than aborting the whole pass. <see cref="OperationCanceledException"/> is
+    /// always re-thrown.
+    /// <para>
+    /// For Update actions that have no existing link row (matched via the planner's duplicate
+    /// detection rather than a persisted link), the method constructs a target item from the
+    /// matched target and creates a new link row after the remote write succeeds.
+    /// </para>
+    /// </remarks>
     private async Task ApplyActionsAsync<TItem>(
         IReadOnlyList<SyncAction<TItem>> actions,
         SyncDirection direction,
@@ -303,6 +354,11 @@ public sealed class JobExecutor(
         }
     }
 
+    /// <summary>
+    /// Reads all incremental pages for an endpoint, starting from <paramref name="cursor"/> when
+    /// available, or from the initial page when cursor is absent or <paramref name="force"/> is set.
+    /// </summary>
+
     private async Task<PageSet<TItem>> ReadAllPagesAsync<TItem>(
         IConnector<TItem> connector,
         string endpointName,
@@ -347,6 +403,14 @@ public sealed class JobExecutor(
         return new PageSet<TItem>(items, finalCursor);
     }
 
+    /// <summary>
+    /// Returns the stored cursor for the given endpoint, or <c>null</c> when no cursor is
+    /// available or when the stored scope differs from the current filter scope.
+    /// </summary>
+    /// <remarks>
+    /// A scope mismatch means the filter expression has changed since the cursor was captured;
+    /// using a stale cursor against a different scope would yield incorrect incremental results.
+    /// </remarks>
     private string? GetApplicableCursor(
         string jobKey,
         string endpointName,
@@ -373,6 +437,11 @@ public sealed class JobExecutor(
         return null;
     }
 
+    /// <summary>
+    /// Reads all pages of a full current snapshot from the connector using the initial-page call.
+    /// Unlike <see cref="ReadAllPagesAsync{TItem}"/>, this always starts from scratch and is used
+    /// to give the planner a complete, cursor-independent view of what currently exists.
+    /// </summary>
     private async Task<PageSet<TItem>> ReadCurrentPagesAsync<TItem>(
         IConnector<TItem> connector,
         string endpointName,
@@ -397,6 +466,10 @@ public sealed class JobExecutor(
         return new PageSet<TItem>(items, finalCursor);
     }
 
+    /// <summary>
+    /// Logs the full list of planned actions for a what-if run so the user can review what
+    /// would be done without actually performing any writes.
+    /// </summary>
     private void LogPlannedActions<TItem>(string jobKey, IReadOnlyList<SyncAction<TItem>> actions) where TItem : CanonicalItem
     {
         foreach (var action in actions)
@@ -412,6 +485,9 @@ public sealed class JobExecutor(
         }
     }
 
+    /// <summary>
+    /// Returns a human-readable log description of the target item in <paramref name="action"/>.
+    /// </summary>
     private static string DescribeActionTarget<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem
     {
         if (action.Item is CanonicalContact contact)
@@ -433,6 +509,9 @@ public sealed class JobExecutor(
         return $"item '{action.DeleteId}'";
     }
 
+    /// <summary>
+    /// Finds the persisted link row for an update action, or returns <c>null</c> on the first run when no link yet exists.
+    /// </summary>
     private static LinkStateRow? FindLinkForUpdate(
         IReadOnlyList<LinkStateRow> existingLinks,
         SyncDirection direction,
@@ -443,6 +522,10 @@ public sealed class JobExecutor(
             : existingLinks.FirstOrDefault(link => link.DestinationId == providerId);
     }
 
+    /// <summary>
+    /// Triggers lazy photo loading for all contacts involved in create or update actions.
+    /// Photos are loaded before the write pass so that connectors receive the full payload.
+    /// </summary>
     private static async Task EnsureActionItemsLoadedAsync<TItem>(IReadOnlyList<SyncAction<TItem>> actions, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         foreach (var action in actions)
@@ -459,6 +542,14 @@ public sealed class JobExecutor(
         }
     }
 
+    /// <summary>
+    /// Builds the target item for an update by copying <paramref name="sourceItem"/> and
+    /// overwriting the provenance with the target-side provider ID and version.
+    /// </summary>
+    /// <remarks>
+    /// When <paramref name="matchedTargetItem"/> is available (first-run match, no persisted link),
+    /// its ID and version are used. Otherwise the values are taken from the persisted link row.
+    /// </remarks>
     private static TItem CreateTargetItem<TItem>(
         TItem sourceItem,
         LinkStateRow? link,
@@ -479,6 +570,15 @@ public sealed class JobExecutor(
         return targetItem;
     }
 
+    /// <summary>
+    /// Removes photo metadata from <paramref name="matchedTarget"/> when the photo hashes of
+    /// the action's source and matched target items are equal.
+    /// </summary>
+    /// <remarks>
+    /// Detaching the photo avoids re-uploading an unchanged binary payload during an update,
+    /// which reduces bandwidth and prevents spurious version bumps on connectors that track
+    /// photo changes separately from contact data.
+    /// </remarks>
     private static void DetachPhotoIfUnchanged<TItem>(SyncAction<TItem> action, TItem matchedTarget) where TItem : CanonicalItem
     {
         if (typeof(TItem) != typeof(CanonicalContact))
@@ -493,9 +593,13 @@ public sealed class JobExecutor(
     }
 
     /// <summary>
-    /// Records or updates link rows for Skip actions where the content was already identical
-    /// on both sides, so the planner did not emit an Update action.
+    /// Records or updates link rows for Skip actions where both matched items were already
+    /// content-identical, so no write action was emitted by the planner.
     /// </summary>
+    /// <remarks>
+    /// Ensures that the link table always reflects the latest observed IDs and hashes even when
+    /// nothing changed, so subsequent runs can short-circuit correctly via <c>HasChanged</c>.
+    /// </remarks>
     private async Task RecordUnchangedLinksAsync<TItem>(
         string jobKey,
         string entityType,
@@ -531,5 +635,8 @@ public sealed class JobExecutor(
         }
     }
 
+    /// <summary>
+    /// Represents a collected set of paged items and the final cursor to persist for the next run.
+    /// </summary>
     private sealed record PageSet<TItem>(IReadOnlyList<TItem> Items, string? Cursor) where TItem : CanonicalItem;
 }

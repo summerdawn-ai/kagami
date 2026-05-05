@@ -3,12 +3,27 @@ using System.Security.Cryptography;
 
 namespace Summerdawn.Kagami.Models;
 
+/// <summary>
+/// Manages contact photo data stored in the metadata bag of a <see cref="CanonicalContact"/>.
+/// </summary>
+/// <remarks>
+/// Photos are encoded as Base64 strings under well-known metadata keys. Three states are tracked:
+/// <list type="bullet">
+///   <item><b>Present</b> — photo bytes and content-type are stored.</item>
+///   <item><b>Absent</b> — the contact is confirmed to have no photo.</item>
+///   <item><b>Unknown</b> — the presence key is missing; connectors treat this as a no-op.</item>
+/// </list>
+/// </remarks>
 internal static class ContactPhotoMetadataHelper
 {
     private const string PhotoPresenceKey = "contact.photo.presence";
     private const string PhotoBytesKey = "contact.photo.bytes";
     private const string PhotoContentTypeKey = "contact.photo.contentType";
 
+    /// <summary>
+    /// Stores <paramref name="photoBytes"/> and <paramref name="contentType"/> in the contact's
+    /// metadata and marks the photo as present.
+    /// </summary>
     public static void SetPhoto(CanonicalContact contact, byte[] photoBytes, string? contentType)
     {
         contact.Metadata[PhotoPresenceKey] = "present";
@@ -16,6 +31,10 @@ internal static class ContactPhotoMetadataHelper
         contact.Metadata[PhotoContentTypeKey] = NormalizeContentType(contentType, photoBytes);
     }
 
+    /// <summary>
+    /// Marks the contact as having no photo (absent state), removing any previously stored
+    /// photo bytes and content-type.
+    /// </summary>
     public static void SetNoPhoto(CanonicalContact contact)
     {
         contact.Metadata[PhotoPresenceKey] = "absent";
@@ -23,14 +42,17 @@ internal static class ContactPhotoMetadataHelper
         contact.Metadata.Remove(PhotoContentTypeKey);
     }
 
+    /// <summary>
+    /// Determines whether the contact's metadata confirms that no photo exists.
+    /// Returns <c>false</c> in both the present and unknown states.
+    /// </summary>
     public static bool HasKnownAbsence(CanonicalContact contact) =>
         contact.Metadata.TryGetValue(PhotoPresenceKey, out string? presence)
         && string.Equals(presence, "absent", StringComparison.Ordinal);
 
     /// <summary>
-    /// Returns a deterministic hash of the photo on <paramref name="contact"/>.
-    /// Returns <c>null</c> when photo presence has not yet been determined (loader not yet run).
-    /// Returns a fixed sentinel string when the contact is known to have no photo.
+    /// Computes a deterministic hash of the contact's photo, or returns <c>null</c> when photo
+    /// presence is unknown, or a fixed sentinel string when the contact has no photo.
     /// </summary>
     public static string? ComputePhotoHash(CanonicalContact contact)
     {
@@ -52,6 +74,10 @@ internal static class ContactPhotoMetadataHelper
         return Convert.ToHexString(SHA256.HashData(photoBytes));
     }
 
+    /// <summary>
+    /// Reads the photo bytes and content type from the contact's metadata.
+    /// Returns <c>false</c> when no photo is present or the stored bytes are corrupt.
+    /// </summary>
     public static bool TryGetPhoto(CanonicalContact contact, out byte[] photoBytes, out string contentType)
     {
         photoBytes = [];
@@ -78,7 +104,9 @@ internal static class ContactPhotoMetadataHelper
         return true;
     }
 
-    /// <summary>Returns a content-type string for a given file extension.</summary>
+    /// <summary>
+    /// Returns the MIME content type for the given file extension.
+    /// </summary>
     public static string GetContentTypeFromExtension(string extension) =>
         extension.ToLowerInvariant() switch
         {
@@ -90,7 +118,9 @@ internal static class ContactPhotoMetadataHelper
             _ => "application/octet-stream",
         };
 
-    /// <summary>Explicitly clears any photo metadata from the contact.</summary>
+    /// <summary>
+    /// Clears any stored photo and marks the contact as having no photo.
+    /// </summary>
     public static void ClearPhoto(CanonicalContact contact)
     {
         contact.Metadata.Remove(PhotoBytesKey);
@@ -109,6 +139,11 @@ internal static class ContactPhotoMetadataHelper
         contact.Metadata.Remove(PhotoContentTypeKey);
     }
 
+    /// <summary>
+    /// Returns the appropriate file extension (e.g. <c>.png</c>) for the given
+    /// <paramref name="contentType"/> and <paramref name="photoBytes"/>, using magic-byte
+    /// detection as a fallback when <paramref name="contentType"/> is absent or unrecognised.
+    /// </summary>
     public static string GetFileExtension(string? contentType, ReadOnlySpan<byte> photoBytes)
     {
         string normalized = NormalizeContentType(contentType, photoBytes);
@@ -123,6 +158,11 @@ internal static class ContactPhotoMetadataHelper
         };
     }
 
+    /// <summary>
+    /// Normalises a raw content-type string to a bare media type (e.g. <c>image/jpeg</c>),
+    /// stripping parameters such as <c>; charset=utf-8</c>. Falls back to magic-byte detection
+    /// when <paramref name="contentType"/> is null or empty.
+    /// </summary>
     private static string NormalizeContentType(string? contentType, ReadOnlySpan<byte> photoBytes)
     {
         if (!string.IsNullOrWhiteSpace(contentType))

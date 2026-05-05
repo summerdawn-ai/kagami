@@ -11,8 +11,7 @@ using static Summerdawn.Kagami.Engine.SyncDirection;
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
-/// Derives sync actions from current job config, observed remote state, and link state.
-/// Does not store or depend on mutable job policy per item row.
+/// Derives sync actions from current job configuration, observed remote state, and persisted link state.
 /// </summary>
 public sealed class Planner(ILogger<Planner> logger)
 {
@@ -29,17 +28,14 @@ public sealed class Planner(ILogger<Planner> logger)
     /// </list>
     /// The returned list never contains two actions that share the same source item or the same
     /// target item.
-    /// </remarks>
-    /// <param name="jobOptions">The job configuration.</param>
-    /// <param name="sourceItems">Current items observed on source.</param>
-    /// <param name="destinationItems">Current items observed on destination.</param>
-    /// <param name="existingLinks">Current link state rows for this job.</param>
-    /// <remarks>
+    /// <para>
     /// <see cref="JobOptions.Force"/> bypasses both HasChanged and the content-sameness check,
     /// causing every in-scope item to be written unconditionally.
     /// <see cref="JobOptions.Full"/> only affects cursor behavior in the executor; the planner
     /// treats it identically to a normal run.
+    /// </para>
     /// </remarks>
+
     public IReadOnlyList<SyncAction<TItem>> PlanActions<TItem>(
         JobOptions jobOptions,
         IReadOnlyList<TItem> sourceItems,
@@ -317,19 +313,6 @@ public sealed class Planner(ILogger<Planner> logger)
     /// <summary>
     /// Plans actions for unlinked source items against the eligible pool of target items.
     /// </summary>
-    /// <param name="jobOptions">Job configuration.</param>
-    /// <param name="sourceItems">All items on the source side.</param>
-    /// <param name="targetItems">All items on the target side.</param>
-    /// <param name="direction">Which side is the target.</param>
-    /// <param name="linkedSourceIds">Source-side ids that are already part of an existing link.</param>
-    /// <param name="linkedTargetIds">Target-side ids that are already part of an existing link.</param>
-    /// <param name="reservedSourceIds">
-    /// Source ids already claimed by a planned action; updated in place as new actions are added.
-    /// </param>
-    /// <param name="reservedTargetIds">
-    /// Target ids already claimed by a planned action; updated in place as new actions are added.
-    /// </param>
-    /// <param name="actions">Accumulator list for planned actions.</param>
     private void PlanUnlinkedItems<TItem>(
         JobOptions jobOptions,
         IReadOnlyList<TItem> sourceItems,
@@ -466,6 +449,14 @@ public sealed class Planner(ILogger<Planner> logger)
         }
     }
 
+    /// <summary>
+    /// Determines whether <paramref name="item"/> has changed relative to the version or hash recorded in <paramref name="link"/>.
+    /// </summary>
+    /// <remarks>
+    /// Version is checked first; content hash is used as a fallback when version is unavailable.
+    /// When neither is present for either the item or the link, the method conservatively
+    /// returns <c>true</c> (assume changed) to avoid silently dropping updates.
+    /// </remarks>
     private static bool HasChanged(CanonicalItem item, LinkStateRow link, SyncDirection direction)
     {
         if (direction == DestinationToSource)
@@ -497,6 +488,14 @@ public sealed class Planner(ILogger<Planner> logger)
         return true;
     }
 
+    /// <summary>
+    /// Resolves a conflict using the configured <see cref="JobOptions.ConflictPolicy"/>.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ConflictPolicy.LastWriteWins"/> is the default fallback and delegates to
+    /// <see cref="ResolveLastWriteWinsConflict{TItem}"/>. All other policies are handled inline
+    /// via a switch expression and never call that helper.
+    /// </remarks>
     private static SyncAction<TItem> ResolveConflict<TItem>(
         TItem? sourceItem,
         TItem? destinationItem,
@@ -544,6 +543,18 @@ public sealed class Planner(ILogger<Planner> logger)
             _ => ResolveLastWriteWinsConflict(sourceItem, destinationItem, direction),
         };
 
+    /// <summary>
+    /// Resolves a conflict using last-write-wins: the item with the more recent <see cref="ItemProvenance.LastModified"/> timestamp wins.
+    /// </summary>
+    /// <remarks>
+    /// Tie-breaking rules when timestamps are equal or unavailable:
+    /// <list type="bullet">
+    ///   <item>Equal timestamps favour the natural <paramref name="direction"/> (source).</item>
+    ///   <item>When only the source has a timestamp, source wins.</item>
+    ///   <item>When destination wins but the sync mode does not allow a reverse write, a Skip is
+    ///   emitted instead.</item>
+    /// </list>
+    /// </remarks>
     private static SyncAction<TItem> ResolveLastWriteWinsConflict<TItem>(
         TItem? sourceItem,
         TItem? destinationItem,

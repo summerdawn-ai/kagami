@@ -1,59 +1,93 @@
 namespace Summerdawn.Kagami.Persistence;
 
 /// <summary>
-/// Represents a correspondence/link record between two provider items.
-/// Stores historical facts; job policy is NOT stored here.
+/// Represents a link record that tracks the correspondence between a source item and its synced
+/// destination counterpart. Stores observed facts only; job policy is not stored here.
 /// </summary>
 public sealed class LinkStateRow
 {
-    /// <summary>Auto-increment primary key.</summary>
+    /// <summary>
+    /// Gets or sets the auto-increment primary key.
+    /// </summary>
     public long Id { get; set; }
 
-    /// <summary>Stable configured job key (partition key).</summary>
+    /// <summary>
+    /// Gets or sets the job key that partitions this record.
+    /// </summary>
     public string JobKey { get; set; } = string.Empty;
 
-    /// <summary>Entity type (e.g., "calendar-event", "contact").</summary>
+    /// <summary>
+    /// Gets or sets the entity type (e.g., <c>"calendar-event"</c>, <c>"contact"</c>).
+    /// </summary>
     public string EntityType { get; set; } = string.Empty;
 
-    /// <summary>Provider ID on the source side.</summary>
+    /// <summary>
+    /// Gets or sets the provider-assigned ID of the source item.
+    /// </summary>
     public string SourceId { get; set; } = string.Empty;
 
-    /// <summary>Provider ID on the destination side (null before first successful sync).</summary>
+    /// <summary>
+    /// Gets or sets the provider-assigned ID of the destination item, or <c>null</c> before the first successful sync.
+    /// </summary>
     public string? DestinationId { get; set; }
 
-    /// <summary>Version/etag on the source side.</summary>
+    /// <summary>
+    /// Gets or sets the source version or ETag at the time of the last sync.
+    /// </summary>
     public string? SourceVersion { get; set; }
 
-    /// <summary>Version/etag on the destination side.</summary>
+    /// <summary>
+    /// Gets or sets the destination version or ETag at the time of the last sync.
+    /// </summary>
     public string? DestinationVersion { get; set; }
 
-    /// <summary>Content hash on the source side.</summary>
+    /// <summary>
+    /// Gets or sets the source content hash at the time of the last sync.
+    /// </summary>
     public string? SourceHash { get; set; }
 
-    /// <summary>Content hash on the destination side.</summary>
+    /// <summary>
+    /// Gets or sets the destination content hash at the time of the last sync.
+    /// </summary>
     public string? DestinationHash { get; set; }
 
-    /// <summary>Whether the source side has deleted this item.</summary>
+    /// <summary>
+    /// Gets or sets a value indicating whether the source item has been deleted.
+    /// </summary>
     public bool SourceDeleted { get; set; }
 
-    /// <summary>Whether the destination side has deleted this item.</summary>
+    /// <summary>
+    /// Gets or sets a value indicating whether the destination item has been deleted.
+    /// </summary>
     public bool DestinationDeleted { get; set; }
 
-    /// <summary>Last time the source side was observed.</summary>
+    /// <summary>
+    /// Gets or sets the UTC timestamp when the source item was last observed.
+    /// </summary>
     public DateTimeOffset? SourceLastSeen { get; set; }
 
-    /// <summary>Last time the destination side was observed.</summary>
+    /// <summary>
+    /// Gets or sets the UTC timestamp when the destination item was last observed.
+    /// </summary>
     public DateTimeOffset? DestinationLastSeen { get; set; }
 
-    /// <summary>Which side originally created the item ("Source" or "Destination").</summary>
+    /// <summary>
+    /// Gets or sets which side originally created the item (<c>"Source"</c> or <c>"Destination"</c>).
+    /// </summary>
     public string? OriginSide { get; set; }
 
-    /// <summary>When the item was last successfully synchronized.</summary>
+    /// <summary>
+    /// Gets or sets the UTC timestamp of the last successful sync.
+    /// </summary>
     public DateTimeOffset? LastSyncedAt { get; set; }
 
-    /// <summary>Result of the last sync operation.</summary>
+    /// <summary>
+    /// Gets or sets the result of the last sync operation (e.g. <c>"created"</c>, <c>"updated"</c>, <c>"unchanged"</c>).
+    /// </summary>
     public string? LastSyncResult { get; set; }
 
-    /// <summary>Current conflict state, if any.</summary>
+    /// <summary>
+    /// Gets or sets the current conflict state, if any.
+    /// </summary>
     public string? ConflictState { get; set; }
 }

@@ -1,14 +1,17 @@
 using Microsoft.Data.Sqlite;
 
 namespace Summerdawn.Kagami.Persistence;
+
 /// <summary>
-/// Initializes and manages the internal Kagami SQLite state database.
+/// Manages the internal Kagami SQLite state database, including schema initialization.
 /// </summary>
 public sealed class StateDatabase(string databasePath, ILogger<StateDatabase> logger)
 {
     private readonly string connectionString = $"Data Source={databasePath}";
 
-    /// <summary>Gets a new open connection to the state database.</summary>
+    /// <summary>
+    /// Opens and returns a new connection to the state database.
+    /// </summary>
     internal SqliteConnection OpenConnection()
     {
         var conn = new SqliteConnection(connectionString);
@@ -17,7 +20,7 @@ public sealed class StateDatabase(string databasePath, ILogger<StateDatabase> lo
     }
 
     /// <summary>
-    /// Ensures the schema exists, creating tables if necessary.
+    /// Initializes the database schema, creating tables if they do not yet exist.
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {

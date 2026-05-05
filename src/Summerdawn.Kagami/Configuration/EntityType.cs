@@ -1,13 +1,17 @@
 namespace Summerdawn.Kagami.Configuration;
 
 /// <summary>
-/// Well-known entity type identifiers.
+/// Provides well-known entity type identifier constants.
 /// </summary>
 public static class EntityType
 {
-    /// <summary>Calendar event entity type.</summary>
+    /// <summary>
+    /// The entity type identifier for calendar events.
+    /// </summary>
     public const string CalendarEvent = "calendar-event";
 
-    /// <summary>Contact entity type.</summary>
+    /// <summary>
+    /// The entity type identifier for contacts.
+    /// </summary>
     public const string Contact = "contact";
 }

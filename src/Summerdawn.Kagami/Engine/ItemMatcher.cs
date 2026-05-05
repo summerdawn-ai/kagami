@@ -3,7 +3,7 @@ using Summerdawn.Kagami.Models;
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
-/// Two-step matcher for canonical contacts.
+/// Provides a two-step matching strategy for canonical contacts.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -101,16 +101,13 @@ public static class ItemMatcher
     }
 
     /// <summary>
-    /// Returns whether the two items represent the same contact: name identity plus at least one
-    /// overlapping identifier (email or phone).
-    /// Equivalent to <c>HasNameMatch(left, right) &amp;&amp; HasDetailMatch(left, right)</c>.
+    /// Determines whether two items represent the same contact, requiring both name identity and at least one overlapping identifier (email or phone).
     /// </summary>
     public static bool IsMatch(CanonicalItem leftItem, CanonicalItem rightItem) =>
         HasNameMatch(leftItem, rightItem) && HasDetailMatch(leftItem, rightItem);
 
     /// <summary>
-    /// Returns whether the two contacts share the same primary name identity (display name,
-    /// or organisation when display name is absent on both sides).
+    /// Determines whether two contacts share the same primary name identity.
     /// </summary>
     public static bool HasNameMatch(CanonicalItem leftItem, CanonicalItem rightItem)
     {
@@ -140,8 +137,7 @@ public static class ItemMatcher
     }
 
     /// <summary>
-    /// Returns whether the two contacts share at least one overlapping identifier
-    /// (email address or phone number).
+    /// Determines whether two contacts share at least one overlapping identifier (email address or phone number).
     /// </summary>
     public static bool HasDetailMatch(CanonicalItem leftItem, CanonicalItem rightItem)
     {
@@ -155,9 +151,7 @@ public static class ItemMatcher
     }
 
     /// <summary>
-    /// Returns the normalised primary name key used for name-group bucketing during duplicate
-    /// detection. If the display name is non-empty it is returned; otherwise the organisation
-    /// name is used.
+    /// Returns the normalised primary name key used for name-group bucketing: display name when non-empty, otherwise organisation name.
     /// </summary>
     internal static string GetNormalizedName(CanonicalItem item)
     {
@@ -187,8 +181,7 @@ public static class ItemMatcher
             : new string(value.Where(char.IsDigit).ToArray());
 
     /// <summary>
-    /// Matches an import item against a destination item using ContactMatchComparer,
-    /// with a fallback to display-name-only matching when neither side has contactable information.
+    /// Determines whether an import item matches a destination item, with a fallback to display-name-only matching when neither side has contactable identifiers.
     /// </summary>
     public static bool IsImportMatch(CanonicalItem importItem, CanonicalItem destItem)
     {

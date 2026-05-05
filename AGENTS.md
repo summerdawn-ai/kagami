@@ -36,6 +36,41 @@
   // ...
   ```
 
+## Code Comments
+
+### XML documentation comments
+
+- DO add XML documentation to public types and public members when it improves clarity; document non-public members only when they are especially central, reused, or non-obvious.
+- DO use multi-line XML doc tags with the opening and closing tags on their own lines:
+  ```csharp
+  /// <summary>
+  /// Summary text.
+  /// </summary>
+  ```
+- DO NOT use single-line summary tags (`/// <summary>Text.</summary>`).
+- DO follow standard wording conventions in summary text:
+  - Data/model types: **Represents …**
+  - Enums and enum members: **Specifies …** or **Indicates …**
+  - Mutable properties: **Gets or sets the …**
+  - Read-only properties: **Gets the …**
+  - Methods and behavioral types: a concise verb that matches their role (e.g. *Computes …*, *Fetches …*, *Determines whether …*)
+- DO use third-person, present tense, complete sentences that describe purpose rather than implementation. Avoid repeating the member name or obvious type information.
+- DO add `<param>` and `<returns>` when they add meaningful value. Avoid documenting parameters on non-public members unless especially useful; avoid documenting exceptions unless they are particularly relevant to callers.
+- DO add `<remarks>` when a summary alone is insufficient to describe important behavior, constraints, or multi-step protocols.
+- DO NOT duplicate inherited documentation. Prefer automatic inheritance where available; use `<inheritdoc>` only when required by build warnings or tooling.
+
+### Inline comments
+
+- DO use inline comments inside method bodies to explain *intent*, *rationale*, invariants, and non-obvious protocol decisions — not to restate what the code already says clearly.
+- DO add inline comments in larger methods to delineate logical phases or steps (e.g. `// --- Phase 1: read snapshots ---`).
+- DO NOT add comments that simply repeat the method name or the type of statement being executed.
+
+### General
+
+- DO keep all comments accurate, concise, and non-redundant.
+- DO update comments whenever the behavior they describe changes.
+- DO NOT leave comments describing old behavior after a refactor.
+
 ## Agentic working
 
 - When you get a task, DO be diligent about it and do a build, run tests, get a code review etc. if appropriate.

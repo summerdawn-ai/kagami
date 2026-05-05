@@ -1,11 +1,13 @@
 namespace Summerdawn.Kagami.Persistence;
 
 /// <summary>
-/// Stores and retrieves endpoint sync cursors / tokens.
+/// Provides storage and retrieval of per-job, per-endpoint sync cursors.
 /// </summary>
 public sealed class EndpointCursorRepository(StateDatabase db)
 {
-    /// <summary>Retrieves the cursor state for a named endpoint in a job, or null if none exists.</summary>
+    /// <summary>
+    /// Returns the cursor state for the named endpoint in a job, or <c>null</c> when none exists.
+    /// </summary>
     public async Task<EndpointCursorState?> GetCursorAsync(string jobKey, string endpointName, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -28,7 +30,9 @@ public sealed class EndpointCursorRepository(StateDatabase db)
             reader.GetString(reader.GetOrdinal("scope")));
     }
 
-    /// <summary>Upserts the cursor for a named endpoint in a job.</summary>
+    /// <summary>
+    /// Saves the cursor for the named endpoint in a job, inserting or replacing any existing value.
+    /// </summary>
     public async Task SetCursorAsync(string jobKey, string endpointName, string scope, string cursor, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -48,7 +52,9 @@ public sealed class EndpointCursorRepository(StateDatabase db)
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    /// <summary>Deletes the cursor for a named endpoint in a job.</summary>
+    /// <summary>
+    /// Deletes the cursor for the named endpoint in a job.
+    /// </summary>
     public async Task DeleteCursorAsync(string jobKey, string endpointName, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
@@ -61,8 +67,6 @@ public sealed class EndpointCursorRepository(StateDatabase db)
 }
 
 /// <summary>
-/// Persisted cursor value and the filter scope it belongs to.
+/// Represents a persisted cursor value and the filter scope it was saved under.
 /// </summary>
-/// <param name="Cursor">The stored incremental cursor.</param>
-/// <param name="Scope">The raw filter scope string, or empty when unfiltered.</param>
 public sealed record EndpointCursorState(string Cursor, string Scope);

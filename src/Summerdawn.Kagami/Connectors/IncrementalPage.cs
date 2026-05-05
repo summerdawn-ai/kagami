@@ -3,16 +3,22 @@ using Summerdawn.Kagami.Models;
 namespace Summerdawn.Kagami.Connectors;
 
 /// <summary>
-/// A page of incremental changes returned by a connector.
+/// Represents a page of incremental changes returned by a connector.
 /// </summary>
 public sealed class IncrementalPage<TItem> where TItem : CanonicalItem
 {
-    /// <summary>Items returned in this page.</summary>
+    /// <summary>
+    /// Gets or sets the items returned in this page.
+    /// </summary>
     public IReadOnlyList<TItem> Items { get; set; } = [];
 
-    /// <summary>New cursor/sync token to persist for the next incremental poll.</summary>
+    /// <summary>
+    /// Gets or sets the cursor to persist for the next incremental poll.
+    /// </summary>
     public string? NextCursor { get; set; }
 
-    /// <summary>Whether there are more pages to fetch.</summary>
+    /// <summary>
+    /// Gets or sets a value indicating whether more pages are available via <see cref="NextCursor"/>.
+    /// </summary>
     public bool HasMore { get; set; }
 }

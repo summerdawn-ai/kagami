@@ -1,14 +1,22 @@
 namespace Summerdawn.Kagami.Configuration;
 
 /// <summary>
-/// Delete handling policy for a job.
+/// Specifies how deletes are propagated during a sync job.
 /// </summary>
 public enum DeletePolicy
 {
-    /// <summary>Mirror deletes to the other side.</summary>
+    /// <summary>
+    /// Specifies that deletes are mirrored to the other side.
+    /// </summary>
     Mirror,
-    /// <summary>Ignore deletes — do not propagate them.</summary>
+
+    /// <summary>
+    /// Specifies that deletes are not propagated.
+    /// </summary>
     Ignore,
-    /// <summary>Tombstone (soft-delete) the other side.</summary>
+
+    /// <summary>
+    /// Specifies that the other side is soft-deleted rather than hard-deleted.
+    /// </summary>
     Tombstone,
 }

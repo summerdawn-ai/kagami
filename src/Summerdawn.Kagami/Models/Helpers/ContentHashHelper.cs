@@ -7,9 +7,23 @@ using Summerdawn.Kagami.Serialization;
 
 namespace Summerdawn.Kagami.Models;
 
+/// <summary>
+/// Provides SHA-256 content hashing for canonical items.
+/// </summary>
+/// <remarks>
+/// Hashes are derived from the serialized canonical payload, excluding provenance fields,
+/// so that two items with the same content but different provider IDs hash identically.
+/// </remarks>
 internal static class ContentHashHelper
 {
-
+    /// <summary>
+    /// Computes a hex-encoded SHA-256 hash of <paramref name="item"/>'s canonical payload.
+    /// </summary>
+    /// <remarks>
+    /// The hash is computed from a JSON serialization that uses the hash-specific serializer
+    /// context, which excludes provenance data and other non-canonical fields so the hash is
+    /// stable across providers.
+    /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "KagamiJsonContext supports all possible types of item")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "KagamiJsonContext supports all possible types of item")]
     public static string ComputeContentHash(CanonicalItem item)
@@ -25,6 +39,10 @@ internal static class ContentHashHelper
         return Convert.ToHexString(hash);
     }
 
+    /// <summary>
+    /// Ensures <see cref="ItemProvenance.ContentHash"/> is populated on <paramref name="item"/>,
+    /// computing it if absent, then returns <paramref name="item"/>.
+    /// </summary>
     public static TItem WithComputedHash<TItem>(TItem item) where TItem : CanonicalItem
     {
         item.Provenance.ContentHash ??= ComputeContentHash(item);
@@ -32,8 +50,8 @@ internal static class ContentHashHelper
     }
 
     /// <summary>
-    /// Returns <c>true</c> if <paramref name="a"/> and <paramref name="b"/> carry the same canonical
-    /// payload (photo is excluded from this comparison).
+    /// Determines whether <paramref name="a"/> and <paramref name="b"/> carry identical canonical
+    /// content (photo data is excluded from this comparison).
     /// </summary>
     public static bool HaveIdenticalContent<TItem>(TItem a, TItem b) where TItem : CanonicalItem
     {
