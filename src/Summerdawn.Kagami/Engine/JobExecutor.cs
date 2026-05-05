@@ -223,6 +223,13 @@ public sealed class JobExecutor(
         return result;
     }
 
+    /// <summary>
+    /// Reconstructs a typed filter from the scope string stored in <see cref="JobOptions.Filter"/>.
+    /// </summary>
+    /// <remarks>
+    /// Returns <c>null</c> when no filter scope is configured. Throws when a filter scope is
+    /// configured for an unsupported item type.
+    /// </remarks>
     private static IFilter<TItem>? CreateFilter<TItem>(string? filterScope) where TItem : CanonicalItem
     {
         if (string.IsNullOrWhiteSpace(filterScope))
@@ -232,7 +239,7 @@ public sealed class JobExecutor(
 
         if (typeof(TItem) == typeof(CanonicalContact))
         {
-            return (IFilter<TItem>?)(object?)ContactFilter.Parse(filterScope);
+            return (IFilter<TItem>)(object)ContactFilter.Parse(filterScope)!;
         }
 
         throw new NotSupportedException($"Filters are not supported for item type '{typeof(TItem).Name}'.");
