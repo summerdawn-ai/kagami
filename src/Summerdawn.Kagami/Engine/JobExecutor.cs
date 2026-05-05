@@ -217,6 +217,10 @@ public sealed class JobExecutor(
     /// semantics even though the user did not explicitly request a full run (e.g. no cursor is
     /// available or the filter scope changed).
     /// </summary>
+    /// <remarks>
+    /// This method must be kept in sync with <see cref="JobOptions"/> — any new property added
+    /// to <see cref="JobOptions"/> must also be copied here.
+    /// </remarks>
     private static JobOptions AsFullRun(JobOptions options) =>
         options.Full
             ? options

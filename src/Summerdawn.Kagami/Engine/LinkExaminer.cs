@@ -126,9 +126,11 @@ public static class LinkExaminer
         if (!passesFilter)
         {
             // Item is visible but outside the current filter scope.
-            // Return MovedOutOfScope only when there is a prior persisted record (i.e. the item
-            // was previously in scope); otherwise the caller sets IsRelevantToCurrentScope=false.
-            return hadId ? MovedOutOfScope : Created;
+            // MovedOutOfScope only applies when there is a prior persisted record (the item was
+            // previously in scope and has now left it).  Without a prior record, the item has
+            // never been part of this job's sync set, so it is treated as Absent — the caller
+            // will also set IsRelevantToCurrentScope=false so the planner ignores it silently.
+            return hadId ? MovedOutOfScope : Absent;
         }
 
         // Item is present and in scope. No prior persisted record → first time we see it.
