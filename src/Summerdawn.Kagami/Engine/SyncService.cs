@@ -204,10 +204,9 @@ public sealed class SyncService<TItem>(
             ConflictPolicy = conflictPolicy,
             Full = full,
             Force = force,
-            Filter = filter?.Scope,
         };
 
-        return await jobExecutor.ExecuteAsync(new Job<TItem>(jobKey, jobOptions, sourceConnector, destinationConnector),
+        return await jobExecutor.ExecuteAsync(new Job<TItem>(jobKey, jobOptions, sourceConnector, destinationConnector, filter),
             whatIf,
             cancellationToken);
     }

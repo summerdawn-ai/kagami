@@ -24,17 +24,6 @@ public sealed class ExaminedLink<TItem> where TItem : CanonicalItem
     public required SideActivity DestinationActivity { get; init; }
 
     /// <summary>
-    /// Gets a value indicating whether this link is relevant to the current filter scope.
-    /// </summary>
-    /// <remarks>
-    /// When <c>false</c>, at least one side of the link is observable in this run but falls
-    /// entirely outside the active filter scope and has no prior persisted record.  The planner
-    /// should silently ignore this link — no action and no skip — to avoid noisy logs for items
-    /// that were never part of the synced set.
-    /// </remarks>
-    public bool IsRelevantToCurrentScope { get; init; } = true;
-
-    /// <summary>
     /// Returns a human-readable description of the examined link.
     /// </summary>
     public override string ToString() =>

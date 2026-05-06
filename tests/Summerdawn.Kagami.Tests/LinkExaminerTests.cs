@@ -1,4 +1,3 @@
-using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
@@ -255,149 +254,11 @@ public sealed class LinkExaminerTests
     }
 
     // -------------------------------------------------------------------------
-    // Delta-run semantics (absent from delta ≠ deleted)
-    // -------------------------------------------------------------------------
-
-    [Fact]
-    public void Examine_SourceUnchanged_WhenSourceNullAndDeltaRun()
-    {
-        // On a delta run, absence of source means "did not change", not "deleted".
-        var link = PersistedLink(
-            sourceItem: null,
-            destinationItem: Item("b1", version: "v1"),
-            sourceVersion: "v1", destinationVersion: "v1");
-
-        var result = LinkExaminer.Examine(link, deltaJobOptions);
-
-        Assert.Equal(SideActivity.Unchanged, result.SourceActivity);
-    }
-
-    [Fact]
-    public void Examine_SourceDeleted_WhenSourceNullAndFullRun()
-    {
-        // On a full-scan run, absence of source means "deleted / gone from endpoint".
-        var link = PersistedLink(
-            sourceItem: null,
-            destinationItem: Item("b1", version: "v1"),
-            sourceVersion: "v1", destinationVersion: "v1");
-
-        var result = LinkExaminer.Examine(link, fullJobOptions);
-
-        Assert.Equal(SideActivity.Deleted, result.SourceActivity);
-    }
-
-    [Fact]
-    public void Examine_SourceDeleted_WhenExplicitDeletionTombstoneAndDeltaRun()
-    {
-        // An explicit IsDeleted=true tombstone always means Deleted, even on a delta run.
-        var link = PersistedLink(
-            sourceItem: new CanonicalContact { IsDeleted = true, Provenance = { ProviderId = "a1" } },
-            destinationItem: Item("b1", version: "v1"),
-            sourceVersion: "v1", destinationVersion: "v1");
-
-        var result = LinkExaminer.Examine(link, deltaJobOptions);
-
-        Assert.Equal(SideActivity.Deleted, result.SourceActivity);
-    }
-
-    // -------------------------------------------------------------------------
-    // Filter scope semantics (MovedOutOfScope and IsRelevantToCurrentScope)
-    // -------------------------------------------------------------------------
-
-    [Fact]
-    public void Examine_SourceMovedOutOfScope_WhenItemFailsFilterAndLinkExists()
-    {
-        // a1 is visible in the current scan but fails the filter ("Alice" filter, a1 is "Bob").
-        // A persisted link exists → activity should be MovedOutOfScope.
-        var link = PersistedLink(
-            sourceItem: Item("a1", version: "v2", displayName: "Bob"),
-            destinationItem: Item("b1", version: "v1"),
-            sourceVersion: "v1", destinationVersion: "v1");
-
-        var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
-        var result = LinkExaminer.Examine(link, fullJobOptions, filter);
-
-        Assert.Equal(SideActivity.MovedOutOfScope, result.SourceActivity);
-        Assert.True(result.IsRelevantToCurrentScope);
-    }
-
-    [Fact]
-    public void Examine_IsNotRelevantToCurrentScope_WhenItemFailsFilterAndNoLinkExists()
-    {
-        // c1 "Charlie" fails the filter and has no persisted link row — it was never in scope.
-        // The link should be marked as not relevant so the planner silently ignores it.
-        var link = new Link<CanonicalContact>
-        {
-            Kind = LinkKind.Unmatched,
-            SourceItem = Item("c1", version: "v1", displayName: "Charlie"),
-            DestinationItem = null,
-            PersistedState = null,
-        };
-
-        var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
-        var result = LinkExaminer.Examine(link, fullJobOptions, filter);
-
-        Assert.False(result.IsRelevantToCurrentScope);
-    }
-
-    [Fact]
-    public void Examine_IsRelevantToCurrentScope_WhenItemPassesFilter()
-    {
-        var link = new Link<CanonicalContact>
-        {
-            Kind = LinkKind.Unmatched,
-            SourceItem = Item("a1", version: "v1", displayName: "Alice"),
-            DestinationItem = null,
-            PersistedState = null,
-        };
-
-        var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
-        var result = LinkExaminer.Examine(link, fullJobOptions, filter);
-
-        Assert.True(result.IsRelevantToCurrentScope);
-        Assert.Equal(SideActivity.Created, result.SourceActivity);
-    }
-
-    [Fact]
-    public void Examine_IsRelevantToCurrentScope_WhenLinkExistsEvenIfItemFailsFilter()
-    {
-        // Even though "Bob" fails the filter, the link exists → relevant (MovedOutOfScope).
-        var link = PersistedLink(
-            sourceItem: Item("a1", version: "v2", displayName: "Bob"),
-            destinationItem: Item("b1", version: "v1"),
-            sourceVersion: "v1", destinationVersion: "v1");
-
-        var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
-        var result = LinkExaminer.Examine(link, fullJobOptions, filter);
-
-        Assert.True(result.IsRelevantToCurrentScope);
-    }
-
-    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
-    private static readonly JobOptions fullJobOptions = new()
-    {
-        Enabled = true,
-        EntityType = "contact",
-        Source = "endpointA",
-        Destination = "endpointB",
-        Full = true,
-    };
-
-    private static readonly JobOptions deltaJobOptions = new()
-    {
-        Enabled = true,
-        EntityType = "contact",
-        Source = "endpointA",
-        Destination = "endpointB",
-        Full = false,
-        Force = false,
-    };
-
-    private static CanonicalContact Item(string id, string? version = null, string? displayName = null) =>
-        new() { DisplayName = displayName ?? string.Empty, Provenance = { ProviderId = id, Version = version } };
+    private static CanonicalContact Item(string id, string? version = null) =>
+        new() { Provenance = { ProviderId = id, Version = version } };
 
     private static Link<CanonicalContact> PersistedLink(
         CanonicalContact? sourceItem,

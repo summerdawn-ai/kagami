@@ -7,7 +7,7 @@ namespace Summerdawn.Kagami.Engine;
 /// <summary>
 /// Represents a sync job between a source and destination connector.
 /// </summary>
-public record Job<TItem>(string Key, JobOptions Options, IConnector<TItem> SourceConnector, IConnector<TItem> DestinationConnector) where TItem : CanonicalItem
+public record Job<TItem>(string Key, JobOptions Options, IConnector<TItem> SourceConnector, IConnector<TItem> DestinationConnector, IFilter<TItem>? Filter = null) where TItem : CanonicalItem
 {
     /// <summary>
     /// Gets the partition key used to group link-state rows for this endpoint pair.

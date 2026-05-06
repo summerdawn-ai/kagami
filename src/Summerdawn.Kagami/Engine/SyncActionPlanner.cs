@@ -49,31 +49,18 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     /// <summary>
     /// Computes the full set of sync actions from current snapshots of both sides and existing links.
     /// </summary>
-    /// <param name="jobOptions">Options governing the current sync run.</param>
-    /// <param name="sourceItems">
-    /// Raw (unfiltered) items observed on the source side in this run.  When a cursor is
-    /// available these are the delta items only; when performing a full scan they are all items.
-    /// </param>
-    /// <param name="destinationItems">Raw (unfiltered) items observed on the destination side.</param>
-    /// <param name="existingLinks">Persisted link-state rows for the current job partition.</param>
-    /// <param name="filter">
-    /// Optional filter that scopes which items are relevant to this job.  Passed to
-    /// <see cref="LinkExaminer"/> so it can distinguish items that moved out of scope from items
-    /// that are genuinely unchanged.
-    /// </param>
     public IReadOnlyList<SyncAction<TItem>> PlanActions<TItem>(
         JobOptions jobOptions,
         IReadOnlyList<TItem> sourceItems,
         IReadOnlyList<TItem> destinationItems,
-        IReadOnlyList<LinkStateRow> existingLinks,
-        IFilter<TItem>? filter = null) where TItem : CanonicalItem
+        IReadOnlyList<LinkStateRow> existingLinks) where TItem : CanonicalItem
     {
         var links = linkCreator.BuildLinks(sourceItems, destinationItems, existingLinks);
         var actions = new List<SyncAction<TItem>>(links.Count);
 
         foreach (var link in links)
         {
-            var examined = LinkExaminer.Examine(link, jobOptions, filter);
+            var examined = LinkExaminer.Examine(link);
             var action = MapToAction(examined, jobOptions);
             if (action != null)
             {
@@ -89,17 +76,8 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     // -----------------------------------------------------------------------
 
     private static SyncAction<TItem>? MapToAction<TItem>(ExaminedLink<TItem> examined, JobOptions jobOptions)
-        where TItem : CanonicalItem
-    {
-        // Items that are observable in this run but fall entirely outside the current filter scope
-        // and have no prior persisted record are silently ignored — no action, no skip — to avoid
-        // noisy logs for contacts that were never part of the synced set.
-        if (!examined.IsRelevantToCurrentScope)
-        {
-            return null;
-        }
-
-        return examined.Link.Kind switch
+        where TItem : CanonicalItem =>
+        examined.Link.Kind switch
         {
             LinkKind.Persisted => PlanPersistedLink(examined, jobOptions),
             LinkKind.Inferred => PlanInferredLink(examined, jobOptions),
@@ -107,7 +85,6 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             LinkKind.Ambiguous => PlanAmbiguousLink(examined, jobOptions),
             _ => null,
         };
-    }
 
     // -----------------------------------------------------------------------
     // Persisted link planning
@@ -123,10 +100,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
         var row = link.PersistedState!;
         bool force = jobOptions.Force;
 
-        // MovedOutOfScope is treated the same as Deleted for delete propagation: the item no
-        // longer belongs to the mirrored sync set, so we should remove the mirrored copy.
-        // Crucially, the persisted link state must NOT encode this as a source deletion.
-        bool sourceIsGone = examined.SourceActivity is Deleted or MovedOutOfScope;
+        bool sourceIsGone = examined.SourceActivity == Deleted;
 
         // DestinationGone covers both "tracked and now absent" (Deleted) and
         // "was never created" (Absent, i.e. DestinationId was null).
@@ -245,8 +219,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
         bool destinationChanged = force || examined.DestinationActivity == Modified;
 
         if (!force && (sourceChanged || destinationChanged)
-            && link.SourceItem is not null && link.DestinationItem is not null
-            && ContentHashHelper.HaveIdenticalContent(link.SourceItem, link.DestinationItem))
+            && ContentHashHelper.HaveIdenticalContent(link.SourceItem!, link.DestinationItem!))
         {
             var skipDirection = jobOptions.SyncMode == Reverse ? DestinationToSource : SourceToDestination;
             return new SyncAction<TItem>

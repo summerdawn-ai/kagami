@@ -55,14 +55,4 @@ public sealed class JobOptions
     /// Gets or sets a value indicating whether to unconditionally write all in-scope items, bypassing change-detection and content-sameness checks.
     /// </summary>
     public bool Force { get; set; }
-
-    /// <summary>
-    /// Gets or sets the filter expression that scopes synchronization to a subset of items (e.g.
-    /// <c>"startswith(name,'A')"</c>).  An empty or <c>null</c> value means no filter is applied.
-    /// </summary>
-    /// <remarks>
-    /// This string also acts as the cursor scope identifier: if the filter expression changes
-    /// between runs the stored cursor is discarded and the next run performs a full re-enumeration.
-    /// </remarks>
-    public string? Filter { get; set; }
 }
