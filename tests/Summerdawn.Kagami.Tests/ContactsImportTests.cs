@@ -186,7 +186,7 @@ public sealed class ContactsImportTests : IDisposable
 
         var result = await failingService.ImportAsync(importDir, "Destination");
 
-        // Job faults because alice_smith failed, but processing continued for bob_jones
+        // Job faults because alice_smith's create threw, but processing continued for bob_jones
         Assert.False(result.Succeeded);
         Assert.Contains(failingConnector.Items, i => i is { DisplayName: "Bob Jones", IsDeleted: false });
     }
