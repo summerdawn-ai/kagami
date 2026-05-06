@@ -1,3 +1,4 @@
+using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
@@ -69,6 +70,7 @@ public sealed class JobExecutor(
     /// Authenticates both connectors, reads the current delta for each side, plans actions, and applies them.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A single cursor-based read pass is performed per endpoint on each run. When a valid cursor
     /// exists and the filter scope is unchanged, only items that changed since the last run are
     /// fetched; <see cref="LinkCreator"/> skips persisted-link rows where neither side appears in
@@ -88,8 +90,15 @@ public sealed class JobExecutor(
     /// affected side to advance the stored cursor past writes that Kagami itself introduced in
     /// this run. Runs that produce zero writes skip the drain entirely.
     /// </para>
+    /// <para>
+    /// Raw (unfiltered) items are passed directly to the planner so that
+    /// <see cref="LinkExaminer"/> can detect items that moved out of the filter scope and
+    /// classify them as <see cref="SideActivity.MovedOutOfScope"/> rather than silently
+    /// dropping them.
+    /// </para>
     /// Actions are applied source→destination first; link state is refreshed before the
     /// destination→source pass so that newly created destination IDs are visible.
+    /// </para>
     /// </remarks>
     private async Task<JobExecutionResult> RunJobAsync<TItem>(Job<TItem> job, bool whatIf, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
@@ -98,22 +107,40 @@ public sealed class JobExecutor(
         var sourceConnector = job.SourceConnector;
         var destinationConnector = job.DestinationConnector;
 
-        var filter = job.Filter;
+        var filter = CreateFilter<TItem>(job.Options.Filter);
 
         await sourceConnector.AuthenticateAsync(cancellationToken);
         await destinationConnector.AuthenticateAsync(cancellationToken);
 
         var existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
         JobExecutionResult result = new() { JobKey = job.Key };
-        string filterScope = filter?.Scope ?? string.Empty;
+
+        string filterScope = job.Options.Filter ?? string.Empty;
 
         // --- Read delta (or full re-enumeration when no cursor / --full / --force) ---
         var sourceCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Source, cancellationToken);
         string? sourceCursor = GetApplicableCursor(job.Key, job.Options.Source, sourceCursorState, filterScope);
-        var sourcePageSet = await ReadAllPagesAsync(sourceConnector, job.Options.Source, sourceCursor, job.Options.Full || job.Options.Force, cancellationToken);
 
         var destinationCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Destination, cancellationToken);
         string? destinationCursor = GetApplicableCursor(job.Key, job.Options.Destination, destinationCursorState, filterScope);
+
+        // A run is a delta run only when usable cursors are available for both sides and neither
+        // Full nor Force is set.  Any other combination is treated as a full scan so the planner
+        // can use authoritative absence semantics.
+        bool isDeltaRun = !job.Options.Full && !job.Options.Force
+            && sourceCursor != null && destinationCursor != null;
+
+        // When this is not a delta run (first sync, scope changed, or explicit Full/Force), set
+        // Full=true on the job options so the examiner treats absent items as
+        // deleted/out-of-scope rather than implicitly unchanged.
+        bool shouldRestoreFullFlag = !job.Options.Full && !isDeltaRun;
+        if (shouldRestoreFullFlag)
+        {
+            job.Options.Full = true;
+        }
+
+        // --- Single read pass per connector (planning + cursor advancement) ---
+        var sourcePageSet = await ReadAllPagesAsync(sourceConnector, job.Options.Source, sourceCursor, job.Options.Full || job.Options.Force, cancellationToken);
         var destinationPageSet = await ReadAllPagesAsync(destinationConnector, job.Options.Destination, destinationCursor, job.Options.Full || job.Options.Force, cancellationToken);
 
         // --- Supplement delta with targeted lookups for "one-sided" persisted links ---
@@ -155,11 +182,20 @@ public sealed class JobExecutor(
             ? [.. destinationPageSet.Items, .. supplementalDestinationItems]
             : destinationPageSet.Items;
 
-        var sourceItemsForPlanning = filter is not null ? filter.Apply(allSourceItems) : allSourceItems;
-        var destinationItemsForPlanning = filter is not null ? filter.Apply(allDestItems) : allDestItems;
-
-        // --- Plan actions ---
-        var actions = planner.PlanActions(job.Options, sourceItemsForPlanning, destinationItemsForPlanning, existingLinks);
+        // --- Plan actions using raw (unfiltered) items + filter ---
+        // The filter is forwarded to LinkExaminer so it can detect items that moved out of scope.
+        IReadOnlyList<SyncAction<TItem>> actions;
+        try
+        {
+            actions = planner.PlanActions(job.Options, allSourceItems, allDestItems, existingLinks, filter: filter);
+        }
+        finally
+        {
+            if (shouldRestoreFullFlag)
+            {
+                job.Options.Full = false;
+            }
+        }
 
         var actionsSkip = actions.Where(a => a.Kind == Skip).ToList();
         var actionsToDestination = actions.Where(a => a.Direction == SourceToDestination).Except(actionsSkip).ToList();
@@ -247,6 +283,30 @@ public sealed class JobExecutor(
         return result;
     }
 
+    /// <summary>
+    /// Reconstructs a typed filter from the scope string stored in <see cref="JobOptions.Filter"/>.
+    /// </summary>
+    /// <remarks>
+    /// Returns <c>null</c> when no filter scope is configured. Throws when a filter scope is
+    /// configured for an unsupported item type.
+    /// </remarks>
+    private static IFilter<TItem>? CreateFilter<TItem>(string? filterScope) where TItem : CanonicalItem
+    {
+        if (string.IsNullOrWhiteSpace(filterScope))
+        {
+            return null;
+        }
+
+        if (typeof(TItem) == typeof(CanonicalContact))
+        {
+            var filter = ContactFilter.Parse(filterScope)
+                ?? throw new ArgumentException("Filter scope cannot be null, empty, or whitespace.", nameof(filterScope));
+
+            return (IFilter<TItem>)(object)filter;
+        }
+
+        throw new NotSupportedException($"Filters are not supported for item type '{typeof(TItem).Name}'.");
+    }
 
     /// <summary>
     /// Reads all incremental pages for an endpoint, starting from <paramref name="cursor"/> when
@@ -331,19 +391,6 @@ public sealed class JobExecutor(
     }
 
     /// <summary>
-    /// Finds the persisted link row for an update action, or returns <c>null</c> on the first run when no link yet exists.
-    /// </summary>
-    private static LinkStateRow? FindLinkForUpdate(
-        IReadOnlyList<LinkStateRow> existingLinks,
-        SyncDirection direction,
-        string providerId)
-    {
-        return direction == SourceToDestination
-            ? existingLinks.FirstOrDefault(link => link.SourceId == providerId)
-            : existingLinks.FirstOrDefault(link => link.DestinationId == providerId);
-    }
-
-    /// <summary>
     /// Records or updates link rows for Skip actions where both matched items were already
     /// content-identical, so no write action was emitted by the planner.
     /// </summary>
@@ -365,7 +412,7 @@ public sealed class JobExecutor(
                 continue;
             }
 
-            var link = FindLinkForUpdate(existingLinks, direction, action.Item.Provenance.ProviderId)
+            var link = FindLinkForUnchangedRecord(existingLinks, direction, action.Item.Provenance.ProviderId)
                 ?? new LinkStateRow
                 {
                     PartitionKey = partitionKey,
@@ -382,6 +429,20 @@ public sealed class JobExecutor(
             link.LastSyncResult = "unchanged";
             await linkStateRepo.UpsertAsync(link, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Finds the persisted link row for a skip/unchanged action, or returns <c>null</c> when no
+    /// link yet exists.
+    /// </summary>
+    private static LinkStateRow? FindLinkForUnchangedRecord(
+        IReadOnlyList<LinkStateRow> existingLinks,
+        SyncDirection direction,
+        string providerId)
+    {
+        return direction == SourceToDestination
+            ? existingLinks.FirstOrDefault(link => link.SourceId == providerId)
+            : existingLinks.FirstOrDefault(link => link.DestinationId == providerId);
     }
 
     /// <summary>

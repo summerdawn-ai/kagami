@@ -433,7 +433,7 @@ public sealed class SyncActionPlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Forward, deletePolicy: Mirror),
+            CreateJob(SyncMode.Forward, deletePolicy: Mirror, full: true),
             sourceItems: [],
             destinationItems: [CreateItem("b1")],
             existingLinks: [link]);
@@ -467,7 +467,7 @@ public sealed class SyncActionPlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Forward, deletePolicy: Ignore),
+            CreateJob(SyncMode.Forward, deletePolicy: Ignore, full: true),
             sourceItems: [],
             destinationItems: [CreateItem("b1")],
             existingLinks: [link]);
@@ -483,7 +483,7 @@ public sealed class SyncActionPlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Reverse, deletePolicy: Mirror),
+            CreateJob(SyncMode.Reverse, deletePolicy: Mirror, full: true),
             sourceItems: [],
             destinationItems: [CreateItem("b1")],
             existingLinks: [link]);
@@ -498,7 +498,7 @@ public sealed class SyncActionPlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Bidirectional, deletePolicy: Ignore),
+            CreateJob(SyncMode.Bidirectional, deletePolicy: Ignore, full: true),
             sourceItems: [CreateItem("a1")],
             destinationItems: [],
             existingLinks: [link]);
@@ -514,7 +514,7 @@ public sealed class SyncActionPlannerTests
         var link = CreateLink("a1", "b1");
 
         var actions = planner.PlanActions(
-            CreateJob(SyncMode.Forward, deletePolicy: Mirror),
+            CreateJob(SyncMode.Forward, deletePolicy: Mirror, full: true),
             sourceItems: [CreateItem("a1")],
             destinationItems: [],
             existingLinks: [link]);
@@ -540,18 +540,58 @@ public sealed class SyncActionPlannerTests
     [Fact]
     public void PlanActions_DeletesLinkedDestination_WhenSourceItemFilteredOutOfScope()
     {
-        // Source is empty for this filter scope (a1 changed category, no longer in scope).
+        // Source item a1 is PRESENT in the raw delta but does NOT pass the active filter
+        // (it changed category and left scope).  The persisted link row exists, so the
+        // examiner marks it as MovedOutOfScope → planner should delete the mirrored copy.
         var link = CreateLink("a1", "b1");
+        var outOfScopeSource = CreateItem("a1") with { DisplayName = "Other" }; // fails "startswith(name,'A')" filter
+        var filter = ContactFilter.Parse("startswith(name,'A')");
 
         var actions = planner.PlanActions(
             CreateJob(SyncMode.Bidirectional, deletePolicy: Mirror),
-            sourceItems: [],
+            sourceItems: [outOfScopeSource],
             destinationItems: [CreateItem("b1")],
-            existingLinks: [link]);
+            existingLinks: [link],
+            filter: filter);
 
         Assert.Single(actions);
         Assert.Equal(Delete, actions[0].Kind);
         Assert.Equal(SourceToDestination, actions[0].Direction);
+        Assert.Equal("b1", actions[0].DeleteId);
+    }
+
+    [Fact]
+    public void PlanActions_NoAction_WhenSourceItemHasNoLinkAndFailsFilter()
+    {
+        // Source item fails filter and has NO prior link row — it was never part of the synced
+        // set.  The planner must produce no action and no skip to avoid noisy logs.
+        var outOfScopeSource = CreateItem("a1") with { DisplayName = "Other" }; // fails filter
+        var filter = ContactFilter.Parse("startswith(name,'A')");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Forward, deletePolicy: Mirror),
+            sourceItems: [outOfScopeSource],
+            destinationItems: [],
+            existingLinks: [],
+            filter: filter);
+
+        Assert.Empty(actions);
+    }
+
+    [Fact]
+    public void PlanActions_NoAction_WhenLinkedSourceAbsentFromDeltaRun()
+    {
+        // On a cursor-based (delta) run, absence of the source item means it did not change —
+        // it is implicitly still present.  The planner must produce no action.
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Forward, deletePolicy: Mirror, full: false), // delta run
+            sourceItems: [],                     // source absent from delta
+            destinationItems: [CreateItem("b1", "v1")],
+            existingLinks: [link]);
+
+        Assert.Empty(actions);
     }
 
     // -------------------------------------------------------------------------
@@ -562,7 +602,8 @@ public sealed class SyncActionPlannerTests
         SyncMode mode = SyncMode.Bidirectional,
         DeletePolicy deletePolicy = Mirror,
         ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
-        bool force = false) =>
+        bool force = false,
+        bool full = false) =>
         new()
         {
             Enabled = true,
@@ -573,6 +614,7 @@ public sealed class SyncActionPlannerTests
             DeletePolicy = deletePolicy,
             ConflictPolicy = conflictPolicy,
             Force = force,
+            Full = full,
         };
 
     private static CanonicalContact CreateItem(

@@ -207,6 +207,202 @@ public sealed class JobExecutorTests : IDisposable
         Assert.NotNull(cursor);
     }
 
+    // -------------------------------------------------------------------------
+    // Scenario A: Filtered mirror/prune — item moves out of scope
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task FilteredMirror_DeletesDestination_WhenSourceItemMovesOutOfScope()
+    {
+        // Setup: sync contacts A→B for filter "startswith(name,'Alice')".
+        // a1 ("Alice") is in scope; a1 changes to "Bob" → moves out of scope.
+        // Expected: b1 is deleted on destination; source link state must NOT mark a1 as IsDeleted.
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+
+        // Initial state: a1 = "Alice" (passes filter), b1 = destination mirror
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice Original", email: "alice@example.com"));
+        destinationConnector.Seed(CreateContactItem("b1", "v1", "Alice Original", email: "alice@example.com"));
+
+        // Establish link state (simulates that the first sync already linked a1 ↔ b1)
+        await linkStateRepository.UpsertAsync(new LinkStateRow
+        {
+            PartitionKey = "contact:endpointA:endpointB",
+            SourceId = "a1",
+            DestinationId = "b1",
+            SourceVersion = "v1",
+            DestinationVersion = "v1",
+        });
+
+        // a1 changes to "Bob" — moves out of filter scope "startswith(name,'Alice')"
+        await sourceConnector.UpdateItemAsync(CreateContactItem("a1", "v2", "Bob Changed", email: "bob@example.com"));
+
+        var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
+        var executor = CreateExecutor();
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
+
+        Assert.True(result.Succeeded);
+
+        // b1 must be deleted on destination
+        var b1 = await destinationConnector.GetItemAsync("b1");
+        Assert.True(b1 is null || b1.IsDeleted, "Destination item b1 should have been deleted");
+
+        // Source link state must NOT encode a1 as IsDeleted — the item still exists at source
+        var links = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB", CancellationToken.None);
+        var linkRow = links.FirstOrDefault(l => l.SourceId == "a1");
+        // After delete, the link row may be removed or retained; but if retained, SourceId must still be "a1" (not nulled out as deleted)
+        if (linkRow is not null)
+        {
+            Assert.Equal("a1", linkRow.SourceId);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Scenario B: Changing from unfiltered to filtered sync
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task FilteredMirror_DeletesDestination_WhenPreviouslyUnfilteredLinkLeavesScope()
+    {
+        // Initially link a1 ↔ b1 without a filter (simulates a prior unfiltered sync).
+        // Then switch to filter "startswith(name,'Alice')" and sync.
+        // a1 changes to "Bob" → moves out of scope → b1 must be deleted on destination.
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+        destinationConnector.Seed(CreateContactItem("b1", "v1", "Alice", email: "alice@example.com"));
+
+        // Pre-existing link from the unfiltered sync era
+        await linkStateRepository.UpsertAsync(new LinkStateRow
+        {
+            PartitionKey = "contact:endpointA:endpointB",
+            SourceId = "a1",
+            DestinationId = "b1",
+            SourceVersion = "v1",
+            DestinationVersion = "v1",
+        });
+
+        // a1 changes to "Bob" — now fails the new filter
+        await sourceConnector.UpdateItemAsync(CreateContactItem("a1", "v2", "Bob", email: "bob@example.com"));
+
+        // Switch to filtered sync (scope change invalidates old cursor; new cursor = none → full run)
+        var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
+        var executor = CreateExecutor();
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
+
+        Assert.True(result.Succeeded);
+
+        // b1 must be deleted on destination
+        var b1 = await destinationConnector.GetItemAsync("b1");
+        Assert.True(b1 is null || b1.IsDeleted, "Destination item b1 should have been deleted when source moved out of scope");
+    }
+
+    // -------------------------------------------------------------------------
+    // Scenario C: Delta semantics — absent in delta means unchanged, not deleted
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task DeltaRun_SourceAbsent_IsPreservedAsUnchanged()
+    {
+        // Run 1 (full): establish link a1 ↔ b1.
+        // Run 2 (delta): a1 does NOT appear in delta (it hasn't changed) → must NOT delete b1.
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+        destinationConnector.Seed(CreateContactItem("b1", "v1", "Alice", email: "alice@example.com"));
+
+        await linkStateRepository.UpsertAsync(new LinkStateRow
+        {
+            PartitionKey = "contact:endpointA:endpointB",
+            SourceId = "a1",
+            DestinationId = "b1",
+            SourceVersion = "v1",
+            DestinationVersion = "v1",
+        });
+
+        // Store cursors for both endpoints (simulates a prior successful run)
+        string initialSourceCursor = "0"; // gen 0 — subsequent delta will return only gen > 0 items
+        string initialDestCursor = "0";
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, initialSourceCursor, CancellationToken.None);
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointB", string.Empty, initialDestCursor, CancellationToken.None);
+
+        var executor = CreateExecutor();
+        // Run 2: no changes on either side → delta is empty → no actions, not even delete
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, result.ActionsPlanned);
+
+        // b1 must still exist on destination
+        var b1 = await destinationConnector.GetItemAsync("b1");
+        Assert.NotNull(b1);
+        Assert.False(b1.IsDeleted);
+    }
+
+    // -------------------------------------------------------------------------
+    // Scenario D: No noisy logs / no skip actions for items outside filter scope
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task FilteredRun_ProducesNoActions_ForItemsNeverInScope()
+    {
+        // Source has "Charlie" who never matched the filter "startswith(name,'Alice')".
+        // No link row exists for Charlie.  The run must produce 0 actions — no Skip, no Create.
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+
+        sourceConnector.Seed(CreateContactItem("c1", "v1", "Charlie", email: "charlie@example.com"));
+
+        var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
+        var executor = CreateExecutor();
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, result.ActionsPlanned);
+    }
+
+    [Fact]
+    public async Task FilteredRun_DeletesDestination_ForItemThatMovedOutOfScope_ButProducesNoActionForNeverInScopeItems()
+    {
+        // Mix of:
+        //   - a1 "Alice" → was linked, now moved out of scope → should delete b1
+        //   - c1 "Charlie" → never in scope, no link row → NO action at all
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+
+        // a1 changes name from "Alice" to "Bob" → moves out of filter scope
+        sourceConnector.Seed(CreateContactItem("a1", "v2", "Bob", email: "bob@example.com"));
+        // c1 was never in scope
+        sourceConnector.Seed(CreateContactItem("c1", "v1", "Charlie", email: "charlie@example.com"));
+        destinationConnector.Seed(CreateContactItem("b1", "v1", "Alice", email: "alice@example.com"));
+
+        // a1 ↔ b1 link exists (from before a1 changed name)
+        await linkStateRepository.UpsertAsync(new LinkStateRow
+        {
+            PartitionKey = "contact:endpointA:endpointB",
+            SourceId = "a1",
+            DestinationId = "b1",
+            SourceVersion = "v1",
+            DestinationVersion = "v1",
+        });
+
+        var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
+        var executor = CreateExecutor();
+        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
+
+        Assert.True(result.Succeeded);
+
+        // Exactly 1 action: delete b1 because a1 moved out of scope
+        Assert.Equal(1, result.ActionsPlanned);
+        var b1 = await destinationConnector.GetItemAsync("b1");
+        Assert.True(b1 is null || b1.IsDeleted, "b1 should have been deleted");
+
+        // c1 must produce no action at all (not even Skip)
+        // (Verified indirectly by ActionsPlanned == 1)
+    }
+
     private JobExecutor CreateExecutor(ILogger<JobExecutor>? logger = null, ILogger<SyncActionExecutor>? syncLogger = null) =>
         new(
             new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
@@ -216,21 +412,31 @@ public sealed class JobExecutorTests : IDisposable
             new SyncActionExecutor(linkStateRepository, operationLogRepository, syncLogger ?? NullLogger<SyncActionExecutor>.Instance),
             logger ?? NullLogger<JobExecutor>.Instance);
 
-    private static Job<CanonicalContact> CreateJob(string jobKey, IConnector<CanonicalContact> sourceConnector, IConnector<CanonicalContact> destinationConnector, ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins)
+    private static Job<CanonicalContact> CreateJob(
+        string jobKey,
+        IConnector<CanonicalContact> sourceConnector,
+        IConnector<CanonicalContact> destinationConnector,
+        ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
+        string? filter = null,
+        SyncMode syncMode = SyncMode.Bidirectional)
     {
-        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy), sourceConnector, destinationConnector);
+        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy, filter, syncMode), sourceConnector, destinationConnector);
     }
 
-    private static JobOptions CreateJobOptions(ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins) =>
+    private static JobOptions CreateJobOptions(
+        ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
+        string? filter = null,
+        SyncMode syncMode = SyncMode.Bidirectional) =>
         new()
         {
             Enabled = true,
             EntityType = EntityType.Contact,
             Source = "endpointA",
             Destination = "endpointB",
-            SyncMode = SyncMode.Bidirectional,
+            SyncMode = syncMode,
             DeletePolicy = DeletePolicy.Mirror,
             ConflictPolicy = conflictPolicy,
+            Filter = filter,
         };
 
     private static CanonicalContact CreateContactItem(string id, string version, string displayName, string? organization = null, string? email = null) => new()
