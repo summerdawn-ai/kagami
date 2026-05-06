@@ -139,22 +139,26 @@ public sealed class SyncActionExecutor(
                     {
                         var created = await targetConnector.CreateItemAsync(action.Item, cancellationToken);
                         logger.LogInformation("Job {JobKey}: created {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
-                        await opLog.AppendAsync(job.Key, entityType, "create", created.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
-                        var link = new LinkStateRow
+                        if (!job.Options.NoPersistence)
                         {
-                            PartitionKey = job.PartitionKey,
-                            SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : created.Provenance.ProviderId,
-                            DestinationId = direction == SourceToDestination ? created.Provenance.ProviderId : action.Item.Provenance.ProviderId,
-                            SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : created.Provenance.Version,
-                            DestinationVersion = direction == SourceToDestination ? created.Provenance.Version : action.Item.Provenance.Version,
-                            SourceHash = direction == SourceToDestination ? action.Item.Provenance.ContentHash : created.Provenance.ContentHash,
-                            DestinationHash = direction == SourceToDestination ? created.Provenance.ContentHash : action.Item.Provenance.ContentHash,
-                            OriginSide = direction == SourceToDestination ? "Source" : "Destination",
-                            LastSyncedAt = DateTimeOffset.UtcNow,
-                            LastSyncResult = "created",
-                        };
-                        await linkStateRepo.UpsertAsync(link, cancellationToken);
+                            await opLog.AppendAsync(job.Key, entityType, "create", created.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+
+                            var link = new LinkStateRow
+                            {
+                                PartitionKey = job.PartitionKey,
+                                SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : created.Provenance.ProviderId,
+                                DestinationId = direction == SourceToDestination ? created.Provenance.ProviderId : action.Item.Provenance.ProviderId,
+                                SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : created.Provenance.Version,
+                                DestinationVersion = direction == SourceToDestination ? created.Provenance.Version : action.Item.Provenance.Version,
+                                SourceHash = direction == SourceToDestination ? action.Item.Provenance.ContentHash : created.Provenance.ContentHash,
+                                DestinationHash = direction == SourceToDestination ? created.Provenance.ContentHash : action.Item.Provenance.ContentHash,
+                                OriginSide = direction == SourceToDestination ? "Source" : "Destination",
+                                LastSyncedAt = DateTimeOffset.UtcNow,
+                                LastSyncResult = "created",
+                            };
+                            await linkStateRepo.UpsertAsync(link, cancellationToken);
+                        }
                         break;
                     }
 
@@ -174,22 +178,26 @@ public sealed class SyncActionExecutor(
 
                             var matchedUpdate = await targetConnector.UpdateItemAsync(matchedTarget, cancellationToken);
                             logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
-                            await opLog.AppendAsync(job.Key, entityType, "update", matchedUpdate.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
-                            var matchedLink = new LinkStateRow
+                            if (!job.Options.NoPersistence)
                             {
-                                PartitionKey = job.PartitionKey,
-                                SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : matchedUpdate.Provenance.ProviderId,
-                                DestinationId = direction == SourceToDestination ? matchedUpdate.Provenance.ProviderId : action.Item.Provenance.ProviderId,
-                                SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : matchedUpdate.Provenance.Version,
-                                DestinationVersion = direction == SourceToDestination ? matchedUpdate.Provenance.Version : action.Item.Provenance.Version,
-                                SourceHash = direction == SourceToDestination ? action.Item.Provenance.ContentHash : matchedUpdate.Provenance.ContentHash,
-                                DestinationHash = direction == SourceToDestination ? matchedUpdate.Provenance.ContentHash : action.Item.Provenance.ContentHash,
-                                OriginSide = direction == SourceToDestination ? "Source" : "Destination",
-                                LastSyncedAt = DateTimeOffset.UtcNow,
-                                LastSyncResult = "updated",
-                            };
-                            await linkStateRepo.UpsertAsync(matchedLink, cancellationToken);
+                                await opLog.AppendAsync(job.Key, entityType, "update", matchedUpdate.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+
+                                var matchedLink = new LinkStateRow
+                                {
+                                    PartitionKey = job.PartitionKey,
+                                    SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : matchedUpdate.Provenance.ProviderId,
+                                    DestinationId = direction == SourceToDestination ? matchedUpdate.Provenance.ProviderId : action.Item.Provenance.ProviderId,
+                                    SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : matchedUpdate.Provenance.Version,
+                                    DestinationVersion = direction == SourceToDestination ? matchedUpdate.Provenance.Version : action.Item.Provenance.Version,
+                                    SourceHash = direction == SourceToDestination ? action.Item.Provenance.ContentHash : matchedUpdate.Provenance.ContentHash,
+                                    DestinationHash = direction == SourceToDestination ? matchedUpdate.Provenance.ContentHash : action.Item.Provenance.ContentHash,
+                                    OriginSide = direction == SourceToDestination ? "Source" : "Destination",
+                                    LastSyncedAt = DateTimeOffset.UtcNow,
+                                    LastSyncResult = "updated",
+                                };
+                                await linkStateRepo.UpsertAsync(matchedLink, cancellationToken);
+                            }
                             break;
                         }
 
@@ -199,26 +207,30 @@ public sealed class SyncActionExecutor(
 
                         var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
                         logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
-                        await opLog.AppendAsync(job.Key, entityType, "update", updated.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
-                        if (direction == SourceToDestination)
+                        if (!job.Options.NoPersistence)
                         {
-                            link.SourceVersion = action.Item.Provenance.Version;
-                            link.SourceHash = action.Item.Provenance.ContentHash;
-                            link.DestinationVersion = updated.Provenance.Version;
-                            link.DestinationHash = updated.Provenance.ContentHash;
-                        }
-                        else
-                        {
-                            link.DestinationVersion = action.Item.Provenance.Version;
-                            link.DestinationHash = action.Item.Provenance.ContentHash;
-                            link.SourceVersion = updated.Provenance.Version;
-                            link.SourceHash = updated.Provenance.ContentHash;
-                        }
+                            await opLog.AppendAsync(job.Key, entityType, "update", updated.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
-                        link.LastSyncedAt = DateTimeOffset.UtcNow;
-                        link.LastSyncResult = "updated";
-                        await linkStateRepo.UpsertAsync(link, cancellationToken);
+                            if (direction == SourceToDestination)
+                            {
+                                link.SourceVersion = action.Item.Provenance.Version;
+                                link.SourceHash = action.Item.Provenance.ContentHash;
+                                link.DestinationVersion = updated.Provenance.Version;
+                                link.DestinationHash = updated.Provenance.ContentHash;
+                            }
+                            else
+                            {
+                                link.DestinationVersion = action.Item.Provenance.Version;
+                                link.DestinationHash = action.Item.Provenance.ContentHash;
+                                link.SourceVersion = updated.Provenance.Version;
+                                link.SourceHash = updated.Provenance.ContentHash;
+                            }
+
+                            link.LastSyncedAt = DateTimeOffset.UtcNow;
+                            link.LastSyncResult = "updated";
+                            await linkStateRepo.UpsertAsync(link, cancellationToken);
+                        }
 
                         break;
                     }
@@ -227,26 +239,30 @@ public sealed class SyncActionExecutor(
                     {
                         await targetConnector.DeleteItemAsync(action.DeleteId, cancellationToken);
                         logger.LogInformation("Job {JobKey}: deleted item {ItemId} on side {Side}", job.Key, action.DeleteId, direction);
-                        await opLog.AppendAsync(job.Key, entityType, "delete", action.DeleteId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
-                        var link = direction == SourceToDestination
-                            ? linksByDestinationId.GetValueOrDefault(action.DeleteId)
-                            : linksBySourceId.GetValueOrDefault(action.DeleteId);
-
-                        if (link is not null)
+                        if (!job.Options.NoPersistence)
                         {
-                            if (direction == SourceToDestination)
-                            {
-                                link.DestinationDeleted = true;
-                            }
-                            else
-                            {
-                                link.SourceDeleted = true;
-                            }
+                            await opLog.AppendAsync(job.Key, entityType, "delete", action.DeleteId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
-                            link.LastSyncedAt = DateTimeOffset.UtcNow;
-                            link.LastSyncResult = "deleted";
-                            await linkStateRepo.UpsertAsync(link, cancellationToken);
+                            var link = direction == SourceToDestination
+                                ? linksByDestinationId.GetValueOrDefault(action.DeleteId)
+                                : linksBySourceId.GetValueOrDefault(action.DeleteId);
+
+                            if (link is not null)
+                            {
+                                if (direction == SourceToDestination)
+                                {
+                                    link.DestinationDeleted = true;
+                                }
+                                else
+                                {
+                                    link.SourceDeleted = true;
+                                }
+
+                                link.LastSyncedAt = DateTimeOffset.UtcNow;
+                                link.LastSyncResult = "deleted";
+                                await linkStateRepo.UpsertAsync(link, cancellationToken);
+                            }
                         }
 
                         break;
@@ -270,7 +286,7 @@ public sealed class SyncActionExecutor(
                 _ => action.Kind.ToString().ToLowerInvariant()
             };
 
-            return await HandleActionExceptionAsync(ex, job.Key, entityType, operation, itemId, direction, cancellationToken);
+            return await HandleActionExceptionAsync(ex, job.Key, entityType, operation, itemId, direction, job.Options.NoPersistence, cancellationToken);
         }
     }
 
@@ -290,9 +306,13 @@ public sealed class SyncActionExecutor(
         string operation,
         string itemId,
         SyncDirection direction,
+        bool noPersistence,
         CancellationToken cancellationToken)
     {
-        await opLog.AppendAsync(jobKey, entityType, operation, itemId, direction.ToString(), "error", cancellationToken: cancellationToken);
+        if (!noPersistence)
+        {
+            await opLog.AppendAsync(jobKey, entityType, operation, itemId, direction.ToString(), "error", cancellationToken: cancellationToken);
+        }
 
         if (IsTransientFailure(ex))
         {

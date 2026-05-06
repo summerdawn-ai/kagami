@@ -144,7 +144,7 @@ public sealed class SyncHost(
     }
 
     /// <summary>
-    /// Resolves the connectors for a typed job and delegates execution to <see cref="JobExecutor.ExecuteAsync{TItem}"/>.
+    /// Resolves the connectors for a typed job and delegates execution to <see cref="JobExecutor.ExecuteJobAsync{TItem}"/>.
     /// </summary>
     private async Task ExecuteJobAsync<TItem>(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
@@ -156,7 +156,7 @@ public sealed class SyncHost(
 
             var job = new Job<TItem>(jobKey, jobOptions, sourceConnector, destinationConnector);
 
-            await executor.ExecuteAsync(job, whatIf, cancellationToken);
+            await executor.ExecuteJobAsync(job, whatIf, cancellationToken);
         }
         catch (Exception ex)
         {

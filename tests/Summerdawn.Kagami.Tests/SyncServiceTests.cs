@@ -9,15 +9,15 @@ using Summerdawn.Kagami.Tests.TestSupport;
 
 namespace Summerdawn.Kagami.Tests;
 
-public sealed class SyncServiceTests : IDisposable
+public sealed class CommandHandlerTests : IDisposable
 {
     private readonly TestDatabasePath databasePath = new();
     private readonly StateDatabase db;
     private readonly FakeConnector sourceConnector = new();
     private readonly FakeConnector destinationConnector = new();
-    private readonly SyncService<CanonicalContact> service;
+    private readonly CommandHandler<CanonicalContact> service;
 
-    public SyncServiceTests()
+    public CommandHandlerTests()
     {
         db = new StateDatabase(databasePath.Path, NullLogger<StateDatabase>.Instance);
         db.InitializeAsync().GetAwaiter().GetResult();
@@ -36,11 +36,11 @@ public sealed class SyncServiceTests : IDisposable
             new SyncActionExecutor(new LinkStateRepository(db), new OperationLogRepository(db), NullLogger<SyncActionExecutor>.Instance),
             NullLogger<JobExecutor>.Instance);
 
-        service = new SyncService<CanonicalContact>(
+        service = new CommandHandler<CanonicalContact>(
             name => connectors[name],
             executor,
             db,
-            NullLogger<SyncService<CanonicalContact>>.Instance);
+            NullLogger<CommandHandler<CanonicalContact>>.Instance);
     }
 
     public void Dispose() => databasePath.Dispose();
@@ -222,7 +222,7 @@ public sealed class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsync_DeletesExistingFilesBeforeWriting()
+    public async Task ExportAsync_WithPrune_DeletesExistingFiles()
     {
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -232,8 +232,33 @@ public sealed class SyncServiceTests : IDisposable
         sourceConnector.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
         try
         {
-            await service.ExportAsync("Microsoft", dir);
-            Assert.False(File.Exists(stale), "Stale export file should have been deleted");
+            await service.ExportAsync("Microsoft", dir, prune: true);
+            Assert.False(File.Exists(stale), "Stale export file should have been deleted when --prune is set");
+            Assert.True(File.Exists(Path.Combine(dir, "alice_smith.json")));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExportAsync_WithoutPrune_PreservesExistingFiles()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        string existing = Path.Combine(dir, "stale.json");
+        await File.WriteAllTextAsync(existing, "{}");
+
+        sourceConnector.Seed(MakeContact("a1", "Alice", lastName: "Smith"));
+        try
+        {
+            await service.ExportAsync("Microsoft", dir, prune: false);
+            Assert.True(File.Exists(existing), "Existing file should be preserved when --prune is not set");
+            Assert.True(File.Exists(Path.Combine(dir, "alice_smith.json")));
         }
         finally
         {
@@ -310,11 +335,14 @@ public sealed class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportAsync_DeletesExistingPhotoFilesBeforeWriting()
+    public async Task ExportAsync_WithPrune_DeletesExistingPhotoFiles()
     {
         string dir = Path.Combine(Path.GetTempPath(), $"kagami-export-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
+        // stale.json is needed so the connector can see the item as a destination contact.
+        string staleJson = Path.Combine(dir, "stale.json");
         string stalePhoto = Path.Combine(dir, "stale.png");
+        await File.WriteAllTextAsync(staleJson, "{}");
         await File.WriteAllBytesAsync(stalePhoto, [0x01]);
 
         var item = MakeContact("a1", "Alice", lastName: "Smith");
@@ -322,8 +350,9 @@ public sealed class SyncServiceTests : IDisposable
         sourceConnector.Seed(item);
         try
         {
-            await service.ExportAsync("Microsoft", dir);
-            Assert.False(File.Exists(stalePhoto), "Stale export photo should have been deleted");
+            await service.ExportAsync("Microsoft", dir, prune: true);
+            Assert.False(File.Exists(staleJson), "Stale export JSON should have been deleted when --prune is set");
+            Assert.False(File.Exists(stalePhoto), "Stale export photo should have been deleted when --prune is set");
             Assert.True(File.Exists(Path.Combine(dir, "alice_smith.png")));
         }
         finally
@@ -530,7 +559,7 @@ public sealed class SyncServiceTests : IDisposable
     //    }
     //}
 
-    private SyncService<CanonicalContact> CreateService(IConnector<CanonicalContact> microsoftConnector)
+    private CommandHandler<CanonicalContact> CreateService(IConnector<CanonicalContact> microsoftConnector)
     {
         var connectors = new Dictionary<string, IConnector<CanonicalContact>>(StringComparer.OrdinalIgnoreCase)
         {
@@ -546,11 +575,11 @@ public sealed class SyncServiceTests : IDisposable
             new SyncActionExecutor(new LinkStateRepository(db), new OperationLogRepository(db), NullLogger<SyncActionExecutor>.Instance),
             NullLogger<JobExecutor>.Instance);
 
-        return new SyncService<CanonicalContact>(
+        return new CommandHandler<CanonicalContact>(
             name => connectors[name],
             executor,
             db,
-            NullLogger<SyncService<CanonicalContact>>.Instance);
+            NullLogger<CommandHandler<CanonicalContact>>.Instance);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

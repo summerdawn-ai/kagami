@@ -35,7 +35,7 @@ public sealed class ContactsImportTests : IDisposable
     private readonly TestDatabasePath databasePath = new();
     private readonly StateDatabase db;
     private readonly FakeConnector connectorDest = new();
-    private readonly SyncService<CanonicalContact> service;
+    private readonly CommandHandler<CanonicalContact> service;
     private readonly string importDir;
 
     public ContactsImportTests()
@@ -56,11 +56,11 @@ public sealed class ContactsImportTests : IDisposable
             new SyncActionExecutor(new LinkStateRepository(db), new OperationLogRepository(db), NullLogger<SyncActionExecutor>.Instance),
             NullLogger<JobExecutor>.Instance);
 
-        service = new SyncService<CanonicalContact>(
+        service = new CommandHandler<CanonicalContact>(
             name => connectors[name],
             executor,
             db,
-            NullLogger<SyncService<CanonicalContact>>.Instance);
+            NullLogger<CommandHandler<CanonicalContact>>.Instance);
 
         importDir = Path.Combine(Path.GetTempPath(), $"kagami-import-{Guid.NewGuid():N}");
         Directory.CreateDirectory(importDir);
@@ -84,10 +84,11 @@ public sealed class ContactsImportTests : IDisposable
 
         var result = await service.ImportAsync(importDir, "Destination");
 
-        Assert.Equal(1, result.Created);
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.ActionsPlanned);
         var created = Assert.Single(connectorDest.Items);
         Assert.False(ContactPhotoMetadataHelper.TryGetPhoto(created, out _, out _),
-            "Photo should be explicitly cleared when no image file is present");
+            "Imported contact should have no photo when no image file is present");
     }
 
     [Fact]
@@ -98,7 +99,8 @@ public sealed class ContactsImportTests : IDisposable
 
         var result = await service.ImportAsync(importDir, "Destination");
 
-        Assert.Equal(1, result.Created);
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.ActionsPlanned);
         var created = Assert.Single(connectorDest.Items);
         Assert.True(ContactPhotoMetadataHelper.TryGetPhoto(created, out byte[] photoBytes, out string contentType));
         Assert.Equal("image/png", contentType);
@@ -117,8 +119,8 @@ public sealed class ContactsImportTests : IDisposable
 
         var result = await service.ImportAsync(importDir, "Destination", prune: true);
 
-        Assert.Equal(1, result.Created);
-        Assert.Equal(1, result.Deleted);
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, result.ActionsPlanned); // 1 create + 1 delete
         // Bob Jones should be deleted, Alice Smith should exist
         Assert.Single(connectorDest.Items, i => !i.IsDeleted);
     }
@@ -133,8 +135,8 @@ public sealed class ContactsImportTests : IDisposable
 
         var result = await service.ImportAsync(importDir, "Destination", prune: false);
 
-        Assert.Equal(1, result.Created);
-        Assert.Equal(0, result.Deleted);
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.ActionsPlanned); // only 1 create (Bob not pruned)
         // Both Bob Jones and Alice Smith should exist (Bob was not pruned)
         Assert.Equal(2, connectorDest.Items.Count(i => !i.IsDeleted));
     }
@@ -147,13 +149,14 @@ public sealed class ContactsImportTests : IDisposable
         await WriteContactJsonAsync("alice_smith", new { displayName = "Alice Smith", givenName = "Alice", familyName = "Smith" });
 
         var result1 = await service.ImportAsync(importDir, "Destination");
-        Assert.Equal(1, result1.Created);
+        Assert.True(result1.Succeeded);
+        Assert.Equal(1, result1.ActionsPlanned);
         Assert.Equal(1, connectorDest.Items.Count(i => !i.IsDeleted));
 
-        // Second import: should update (match) not create a second copy
+        // Second import: content is unchanged so no actions are planned
         var result2 = await service.ImportAsync(importDir, "Destination");
-        Assert.Equal(0, result2.Created);
-        Assert.Equal(1, result2.Updated);
+        Assert.True(result2.Succeeded);
+        Assert.Equal(0, result2.ActionsPlanned); // skip, content unchanged
         Assert.Equal(1, connectorDest.Items.Count(i => !i.IsDeleted));
     }
 
@@ -166,7 +169,7 @@ public sealed class ContactsImportTests : IDisposable
 
         var result = await service.ImportAsync(importDir, "Destination", whatIf: true);
 
-        Assert.Equal(1, result.Created);
+        Assert.Equal(1, result.ActionsPlanned);
         Assert.Empty(connectorDest.Items);
     }
 
@@ -183,13 +186,14 @@ public sealed class ContactsImportTests : IDisposable
 
         var result = await failingService.ImportAsync(importDir, "Destination");
 
-        Assert.Equal(1, result.Created);
+        // Job faults because alice_smith failed, but processing continued for bob_jones
+        Assert.False(result.Succeeded);
         Assert.Contains(failingConnector.Items, i => i is { DisplayName: "Bob Jones", IsDeleted: false });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private SyncService<CanonicalContact> CreateServiceWith(IConnector<CanonicalContact> destinationConnector)
+    private CommandHandler<CanonicalContact> CreateServiceWith(IConnector<CanonicalContact> destinationConnector)
     {
         var executor = new JobExecutor(
             new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
@@ -199,11 +203,11 @@ public sealed class ContactsImportTests : IDisposable
             new SyncActionExecutor(new LinkStateRepository(db), new OperationLogRepository(db), NullLogger<SyncActionExecutor>.Instance),
             NullLogger<JobExecutor>.Instance);
 
-        return new SyncService<CanonicalContact>(
+        return new CommandHandler<CanonicalContact>(
             _ => destinationConnector,
             executor,
             db,
-            NullLogger<SyncService<CanonicalContact>>.Instance);
+            NullLogger<CommandHandler<CanonicalContact>>.Instance);
     }
 
     private async Task WriteContactJsonAsync(string baseName, object contact)

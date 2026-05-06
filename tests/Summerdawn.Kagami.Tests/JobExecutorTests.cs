@@ -55,7 +55,7 @@ public sealed class JobExecutorTests : IDisposable
 
         var executor = CreateExecutor();
 
-        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
         var updatedTarget = await destinationConnector.GetItemAsync("b1");
 
         Assert.True(result.Succeeded);
@@ -83,7 +83,7 @@ public sealed class JobExecutorTests : IDisposable
         FakeConnector destinationConnector = new();
         var executor = CreateExecutor();
 
-        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
         Assert.True(result.Succeeded);
         Assert.Equal(2, result.ActionsPlanned);
@@ -99,7 +99,7 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<SyncActionExecutor> syncLogger = new();
         var executor = CreateExecutor(syncLogger: syncLogger);
 
-        await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
+        await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
         Assert.Contains(syncLogger.Entries, entry => entry.Contains("would create contact 'Alice Logging'", StringComparison.Ordinal));
     }
@@ -114,7 +114,7 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<SyncActionExecutor> syncLogger = new();
         var executor = CreateExecutor(syncLogger: syncLogger);
 
-        await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
+        await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
         Assert.Contains(syncLogger.Entries, entry => entry.Contains("would create contact 'Contoso Ltd'", StringComparison.Ordinal));
     }
@@ -130,7 +130,7 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<SyncActionExecutor> syncLogger = new();
         var executor = CreateExecutor(syncLogger: syncLogger);
 
-        await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, conflictPolicy: ConflictPolicy.SourceWins),
+        await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, conflictPolicy: ConflictPolicy.SourceWins),
             true);
 
         Assert.Contains(syncLogger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' in direction SourceToDestination", StringComparison.Ordinal));
@@ -152,7 +152,7 @@ public sealed class JobExecutorTests : IDisposable
         InMemoryLogger<SyncActionExecutor> syncLogger = new();
         var executor = CreateExecutor(syncLogger: syncLogger);
 
-        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
 
         // Run is faulted: succeeded must be false
         Assert.False(result.Succeeded);
@@ -185,7 +185,7 @@ public sealed class JobExecutorTests : IDisposable
 
         var executor = CreateExecutor();
 
-        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
 
         // Run is faulted: succeeded must be false
         Assert.False(result.Succeeded);
@@ -206,7 +206,7 @@ public sealed class JobExecutorTests : IDisposable
         // No pre-existing cursor
         var executor = CreateExecutor();
 
-        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
 
         Assert.True(result.Succeeded);
 
@@ -247,7 +247,7 @@ public sealed class JobExecutorTests : IDisposable
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
         var executor = CreateExecutor();
-        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
 
         Assert.True(result.Succeeded);
 
@@ -297,7 +297,7 @@ public sealed class JobExecutorTests : IDisposable
         // Switch to filtered sync (scope change invalidates old cursor; new cursor = none → full run)
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
         var executor = CreateExecutor();
-        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
 
         Assert.True(result.Succeeded);
 
@@ -338,7 +338,7 @@ public sealed class JobExecutorTests : IDisposable
 
         var executor = CreateExecutor();
         // Run 2: no changes on either side → delta is empty → no actions, not even delete
-        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
 
         Assert.True(result.Succeeded);
         Assert.Equal(0, result.ActionsPlanned);
@@ -365,7 +365,7 @@ public sealed class JobExecutorTests : IDisposable
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
         var executor = CreateExecutor();
-        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
 
         Assert.True(result.Succeeded);
         Assert.Equal(0, result.ActionsPlanned);
@@ -398,7 +398,7 @@ public sealed class JobExecutorTests : IDisposable
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
         var executor = CreateExecutor();
-        var result = await executor.ExecuteAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
 
         Assert.True(result.Succeeded);
 

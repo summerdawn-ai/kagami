@@ -36,8 +36,7 @@ public sealed class JobExecutor(
     /// job is skipped and <see cref="JobExecutionResult.Skipped"/> is set to <c>true</c>.
     /// The lease is always released in a <c>finally</c> block.
     /// </remarks>
-
-    public async Task<JobExecutionResult> ExecuteAsync<TItem>(Job<TItem> job, bool whatIf = false, CancellationToken cancellationToken = default) where TItem : CanonicalItem
+    public async Task<JobExecutionResult> ExecuteJobAsync<TItem>(Job<TItem> job, bool whatIf = false, CancellationToken cancellationToken = default) where TItem : CanonicalItem
     {
         string holderId = Guid.NewGuid().ToString("N");
         bool leaseAcquired = await leaseRepo.TryAcquireAsync(job.Key, holderId, LeaseDuration, cancellationToken);
@@ -111,17 +110,30 @@ public sealed class JobExecutor(
         await sourceConnector.AuthenticateAsync(cancellationToken);
         await destinationConnector.AuthenticateAsync(cancellationToken);
 
-        var existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
-        JobExecutionResult result = new() { JobKey = job.Key };
+        // When NoPersistence is set, skip all DB reads and treat everything as a full scan.
+        IReadOnlyList<LinkStateRow> existingLinks;
+        string? sourceCursor = null;
+        string? destinationCursor = null;
 
         string filterScope = job.Options.Filter ?? string.Empty;
 
-        // --- Determine cursors and effective run mode ---
-        var sourceCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Source, cancellationToken);
-        string? sourceCursor = GetApplicableCursor(job.Key, job.Options.Source, sourceCursorState, filterScope);
+        if (job.Options.NoPersistence)
+        {
+            existingLinks = [];
+        }
+        else
+        {
+            existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
 
-        var destinationCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Destination, cancellationToken);
-        string? destinationCursor = GetApplicableCursor(job.Key, job.Options.Destination, destinationCursorState, filterScope);
+            // --- Determine cursors and effective run mode ---
+            var sourceCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Source, cancellationToken);
+            sourceCursor = GetApplicableCursor(job.Key, job.Options.Source, sourceCursorState, filterScope);
+
+            var destinationCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Destination, cancellationToken);
+            destinationCursor = GetApplicableCursor(job.Key, job.Options.Destination, destinationCursorState, filterScope);
+        }
+
+        JobExecutionResult result = new() { JobKey = job.Key };
 
         // A run is a delta run only when usable cursors are available for both sides and neither
         // Full nor Force is set.  Any other combination is treated as a full scan so the planner
@@ -147,7 +159,7 @@ public sealed class JobExecutor(
         IReadOnlyList<SyncAction<TItem>> actions;
         try
         {
-            actions = planner.PlanActions(job.Options, sourcePageSet.Items, destinationPageSet.Items, existingLinks, filter: filter);
+            actions = planner.PlanActions(job.Options, sourcePageSet.Items, destinationPageSet.Items, existingLinks, filter);
         }
         finally
         {
@@ -168,18 +180,25 @@ public sealed class JobExecutor(
         {
             syncActionExecutor.LogPlannedActions(job.Key, actions);
         }
-
-        if (!whatIf)
+        else if (job.Options.NoPersistence)
         {
             // --- Apply source→destination ---
-            await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job: job, existingLinks: existingLinks, cancellationToken: cancellationToken);
+            await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job, existingLinks, cancellationToken);
+
+            // --- Apply destination→source ---
+            await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job, existingLinks, cancellationToken);
+        }
+        else
+        {
+            // --- Apply source→destination ---
+            await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job, existingLinks, cancellationToken);
 
             // Refresh link state so that IDs created in the previous pass are visible when
             // applying destination→source actions.
             existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
 
             // --- Apply destination→source ---
-            await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job: job, existingLinks: existingLinks, cancellationToken: cancellationToken);
+            await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job, existingLinks, cancellationToken);
 
             // --- Record links for matched-but-unchanged pairs ---
             // Skip actions that carry both sides (i.e. a matched pair whose content was identical)
@@ -189,17 +208,13 @@ public sealed class JobExecutor(
             {
                 existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
 
-                var destinationSkipsWithMatches = skipsWithMatches
-                    .Where(a => a.Direction == SourceToDestination)
-                    .ToList();
+                var destinationSkipsWithMatches = skipsWithMatches.Where(a => a.Direction == SourceToDestination).ToList();
                 if (destinationSkipsWithMatches.Count > 0)
                 {
                     await RecordUnchangedLinksAsync(job.PartitionKey, destinationSkipsWithMatches, existingLinks, SourceToDestination, cancellationToken);
                 }
 
-                var sourceSkipsWithMatches = skipsWithMatches
-                    .Where(a => a.Direction == DestinationToSource)
-                    .ToList();
+                var sourceSkipsWithMatches = skipsWithMatches.Where(a => a.Direction == DestinationToSource).ToList();
                 if (sourceSkipsWithMatches.Count > 0)
                 {
                     await RecordUnchangedLinksAsync(job.PartitionKey, sourceSkipsWithMatches, existingLinks, DestinationToSource, cancellationToken);

@@ -65,4 +65,14 @@ public sealed class JobOptions
     /// between runs the stored cursor is discarded and the next run performs a full re-enumeration.
     /// </remarks>
     public string? Filter { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the job must not read or write any sync DB state.
+    /// </summary>
+    /// <remarks>
+    /// When <c>true</c>, the executor skips all cursor reads and writes, all link-state reads
+    /// and writes, and all operation-log entries.  Intended for import and export jobs that use
+    /// a local connector and should not leave database artefacts behind.
+    /// </remarks>
+    public bool NoPersistence { get; set; }
 }

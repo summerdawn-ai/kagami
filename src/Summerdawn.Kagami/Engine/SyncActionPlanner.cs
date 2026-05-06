@@ -402,9 +402,23 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
 
         if (link.DestinationItem != null)
         {
-            // Destination-only: create on source (unless restricted by SyncMode).
+            // Destination-only: no source match found.
+            // In Forward mode with Mirror policy on a full scan, the source is authoritative
+            // so this item should be deleted from the destination.
             if (jobOptions.SyncMode == Forward)
             {
+                if (jobOptions.DeletePolicy == Mirror && jobOptions.Full)
+                {
+                    return new SyncAction<TItem>
+                    {
+                        Kind = Delete,
+                        Direction = SourceToDestination,
+                        Item = link.DestinationItem,
+                        DeleteId = link.DestinationItem.Provenance.ProviderId,
+                        Reason = "Destination-only item; source is authoritative (--prune)",
+                    };
+                }
+
                 return null;
             }
 

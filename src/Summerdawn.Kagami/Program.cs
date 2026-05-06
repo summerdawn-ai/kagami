@@ -286,6 +286,7 @@ public static class Program
             fromOption,
             toEndpointOption,
             filterOption,
+            pruneOption,
         };
         contactsExportCommand.SetAction(async parseResult =>
         {
@@ -293,9 +294,13 @@ public static class Program
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             string? filter = parseResult.GetValue(filterOption);
+            bool prune = parseResult.GetValue(pruneOption);
             var svc = BuildContactsService(settingsFiles);
             var contactFilter = ContactFilter.Parse(filter);
-            await svc.ExportAsync(from, to, contactFilter, CancellationToken.None);
+            var result = await svc.ExportAsync(from, to, prune: prune, contactFilter, CancellationToken.None);
+            Console.WriteLine(result.Succeeded
+                ? $"Export completed. Actions planned: {result.ActionsPlanned}"
+                : $"Export failed: {result.Error}");
         });
 
         // contacts sync
@@ -354,6 +359,7 @@ public static class Program
             pruneOption,
             filterOption,
             whatIfOption,
+            forceOption,
         };
         contactsImportCommand.SetAction(async parseResult =>
         {
@@ -363,10 +369,13 @@ public static class Program
             bool prune = parseResult.GetValue(pruneOption);
             string? filter = parseResult.GetValue(filterOption);
             bool whatIf = parseResult.GetValue(whatIfOption);
+            bool force = parseResult.GetValue(forceOption);
             var svc = BuildContactsService(settingsFiles);
             var contactFilter = ContactFilter.Parse(filter);
-            var result = await svc.ImportAsync(from, to, prune, contactFilter, whatIf, CancellationToken.None);
-            Console.WriteLine($"Import completed. Created: {result.Created}, Updated: {result.Updated}, Deleted: {result.Deleted}");
+            var result = await svc.ImportAsync(from, to, prune, contactFilter, whatIf, force, CancellationToken.None);
+            Console.WriteLine(result.Succeeded
+                ? $"Import completed. Actions planned: {result.ActionsPlanned}"
+                : $"Import failed: {result.Error ?? result.SkipReason}");
         });
 
         var contactsCommand = new Command("contacts", "Interactive contact operations")
@@ -415,8 +424,8 @@ public static class Program
     private static SyncHost BuildSyncHost(string[] settingsFiles) =>
         BuildServiceProvider(settingsFiles).GetRequiredService<SyncHost>();
 
-    private static SyncService<CanonicalContact> BuildContactsService(string[] settingsFiles) =>
-        BuildServiceProvider(settingsFiles).GetRequiredService<SyncService<CanonicalContact>>();
+    private static CommandHandler<CanonicalContact> BuildContactsService(string[] settingsFiles) =>
+        BuildServiceProvider(settingsFiles).GetRequiredService<CommandHandler<CanonicalContact>>();
 
     private static KagamiOptions BuildKagamiOptions(string[] settingsFiles) =>
         BuildServiceProvider(settingsFiles).GetRequiredService<KagamiOptions>();
