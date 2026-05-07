@@ -267,7 +267,7 @@ public sealed class LinkExaminerTests
             destinationItem: Item("b1", version: "v1"),
             sourceVersion: "v1", destinationVersion: "v1");
 
-        var result = LinkExaminer.Examine(link, deltaJobOptions);
+        var result = LinkExaminer.Examine(link, DeltaJobOptions);
 
         Assert.Equal(SideActivity.Unchanged, result.SourceActivity);
     }
@@ -281,7 +281,7 @@ public sealed class LinkExaminerTests
             destinationItem: Item("b1", version: "v1"),
             sourceVersion: "v1", destinationVersion: "v1");
 
-        var result = LinkExaminer.Examine(link, fullJobOptions);
+        var result = LinkExaminer.Examine(link, FullJobOptions);
 
         Assert.Equal(SideActivity.Deleted, result.SourceActivity);
     }
@@ -295,7 +295,7 @@ public sealed class LinkExaminerTests
             destinationItem: Item("b1", version: "v1"),
             sourceVersion: "v1", destinationVersion: "v1");
 
-        var result = LinkExaminer.Examine(link, deltaJobOptions);
+        var result = LinkExaminer.Examine(link, DeltaJobOptions);
 
         Assert.Equal(SideActivity.Deleted, result.SourceActivity);
     }
@@ -315,7 +315,7 @@ public sealed class LinkExaminerTests
             sourceVersion: "v1", destinationVersion: "v1");
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
-        var result = LinkExaminer.Examine(link, fullJobOptions, filter);
+        var result = LinkExaminer.Examine(link, FullJobOptions, filter);
 
         Assert.Equal(SideActivity.MovedOutOfScope, result.SourceActivity);
         Assert.True(result.IsRelevantToCurrentScope);
@@ -335,7 +335,7 @@ public sealed class LinkExaminerTests
         };
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
-        var result = LinkExaminer.Examine(link, fullJobOptions, filter);
+        var result = LinkExaminer.Examine(link, FullJobOptions, filter);
 
         Assert.False(result.IsRelevantToCurrentScope);
     }
@@ -352,7 +352,7 @@ public sealed class LinkExaminerTests
         };
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
-        var result = LinkExaminer.Examine(link, fullJobOptions, filter);
+        var result = LinkExaminer.Examine(link, FullJobOptions, filter);
 
         Assert.True(result.IsRelevantToCurrentScope);
         Assert.Equal(SideActivity.Created, result.SourceActivity);
@@ -368,7 +368,7 @@ public sealed class LinkExaminerTests
             sourceVersion: "v1", destinationVersion: "v1");
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
-        var result = LinkExaminer.Examine(link, fullJobOptions, filter);
+        var result = LinkExaminer.Examine(link, FullJobOptions, filter);
 
         Assert.True(result.IsRelevantToCurrentScope);
     }
@@ -377,7 +377,7 @@ public sealed class LinkExaminerTests
     // Helpers
     // -------------------------------------------------------------------------
 
-    private static readonly JobOptions fullJobOptions = new()
+    private static readonly JobOptions FullJobOptions = new()
     {
         Enabled = true,
         EntityType = "contact",
@@ -386,7 +386,7 @@ public sealed class LinkExaminerTests
         Full = true,
     };
 
-    private static readonly JobOptions deltaJobOptions = new()
+    private static readonly JobOptions DeltaJobOptions = new()
     {
         Enabled = true,
         EntityType = "contact",

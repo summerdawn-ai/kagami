@@ -71,7 +71,7 @@ public sealed class ContactsExportTests : IDisposable
 
         Assert.True(result.Succeeded);
         Assert.Equal(2, result.ActionsPlanned);
-        var files = Directory.GetFiles(exportDir, "*.json");
+        string[] files = Directory.GetFiles(exportDir, "*.json");
         Assert.Equal(2, files.Length);
     }
 
@@ -153,7 +153,7 @@ public sealed class ContactsExportTests : IDisposable
         await service.ExportAsync("Source", exportDir);
 
         // After export, no link-state rows should exist in the DB.
-        var partitionKey = $"contact:Source:{exportDir}";
+        string partitionKey = $"contact:Source:{exportDir}";
         var links = await linkStateRepo.GetByPartitionAsync(partitionKey);
         Assert.Empty(links);
     }

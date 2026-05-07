@@ -9,7 +9,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
-using Summerdawn.Kagami.Connectors.Microsoft;
 using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Tests;
