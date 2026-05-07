@@ -98,11 +98,8 @@ public sealed class ImportExportContactsConnector : IConnector<CanonicalContact>
         return new IncrementalPage<CanonicalContact> { Items = contacts, HasMore = false };
     }
 
-    /// <summary>
-    /// Returns the same full page as <see cref="GetInitialPageAsync"/>; incremental sync is not supported.
-    /// </summary>
     public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default)
-        => GetInitialPageAsync(cancellationToken);
+        => throw new NotSupportedException("Import/Export does not support incremental pages.");
 
     /// <summary>
     /// Reads a single contact by its file base name (provider ID).
