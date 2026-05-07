@@ -24,6 +24,12 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     private const int MaxBatchSize = 50;
     private static readonly DateOnly DefaultBirthday = new(1900, 1, 1);
 
+    private static readonly HashSet<string> SystemGroupResourceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "contactGroups/myContacts",
+        "contactGroups/starred",
+    };
+
     private Dictionary<string, string>? groupNamesByResource;
     private Dictionary<string, string>? groupResourcesByName;
 
@@ -76,10 +82,11 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
     public async Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
+        await EnsureGroupsReadAsync(cancellationToken);
         string requestUri = $"https://people.googleapis.com/v1/{id}?personFields={Uri.EscapeDataString(PersonFields)}";
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         using var document = await SendForJsonAsync(request, cancellationToken);
-        var item = ConvertPerson(document.RootElement);
+        var item = ConvertPerson(document.RootElement, groupNamesByResource!);
         if (item is not null && !item.IsDeleted)
         {
             await PopulatePhotoAsync(item, document.RootElement, cancellationToken);
@@ -90,12 +97,13 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
     public async Task<CanonicalContact> CreateItemAsync(CanonicalContact contact, CancellationToken cancellationToken = default)
     {
-        var body = await BuildWritablePersonAsync(contact, cancellationToken);
+        await EnsureGroupsWrittenAsync(contact.Categories, cancellationToken);
+        var body = BuildWritablePerson(contact, groupNamesByResource!);
         string requestUri = $"https://people.googleapis.com/v1/people:createContact?personFields={Uri.EscapeDataString(PersonFields)}";
         using var request = await CreateRequestAsync(HttpMethod.Post, requestUri, cancellationToken);
         request.Content = CreateJsonContent(body);
         using var document = await SendForJsonAsync(request, cancellationToken);
-        var created = ConvertPerson(document.RootElement) ?? throw new InvalidOperationException("Google createContact returned no person payload.");
+        var created = ConvertPerson(document.RootElement, groupNamesByResource!) ?? throw new InvalidOperationException("Google createContact returned no person payload.");
         await SyncPhotoAsync(created.Provenance.ProviderId, contact, deleteWhenAbsent: false, cancellationToken);
         return await GetItemAsync(created.Provenance.ProviderId, cancellationToken)
             ?? throw new InvalidOperationException("Google createContact succeeded but the created item could not be reloaded.");
@@ -103,7 +111,8 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
     public async Task<CanonicalContact> UpdateItemAsync(CanonicalContact contact, CancellationToken cancellationToken = default)
     {
-        var person = await BuildWritablePersonAsync(contact, cancellationToken);
+        await EnsureGroupsWrittenAsync(contact.Categories, cancellationToken);
+        var person = BuildWritablePerson(contact, groupNamesByResource!);
         person["resourceName"] = contact.Provenance.ProviderId;
         if (!string.IsNullOrWhiteSpace(contact.Provenance.Version))
         {
@@ -130,6 +139,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
     private async Task<ConnectorPage> GetConnectionsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
     {
+        await EnsureGroupsReadAsync(cancellationToken);
         StringBuilder requestUri = new("https://people.googleapis.com/v1/people/me/connections");
         requestUri.Append("?personFields=").Append(Uri.EscapeDataString("metadata"));
         requestUri.Append("&sources=READ_SOURCE_TYPE_CONTACT");
@@ -264,7 +274,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                     continue;
                 }
 
-                var item = ConvertPerson(person);
+                var item = ConvertPerson(person, groupNamesByResource!);
                 if (item is not null)
                 {
                     if (!item.IsDeleted)
@@ -308,7 +318,17 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         throw new InvalidOperationException($"Google People API request failed with {(int)response.StatusCode} {response.ReasonPhrase}: {detail}");
     }
 
-    private async Task<JsonObject> BuildWritablePersonAsync(CanonicalContact contact, CancellationToken cancellationToken)
+    /// <summary>
+    /// Builds a Google People API writable person payload from a canonical contact.
+    /// </summary>
+    /// <param name="contact">
+    /// The canonical contact to serialize.
+    /// </param>
+    /// <param name="groupNamesByResource">
+    /// A mapping of Google contact-group resource names to human-readable group names,
+    /// used to resolve canonical category names back to resource names via reverse-lookup.
+    /// </param>
+    internal static JsonObject BuildWritablePerson(CanonicalContact contact, IReadOnlyDictionary<string, string> groupNamesByResource)
     {
         JsonObject person = [];
         if (!string.IsNullOrWhiteSpace(contact.GivenName) || !string.IsNullOrWhiteSpace(contact.FamilyName) || !string.IsNullOrWhiteSpace(contact.DisplayName))
@@ -390,31 +410,58 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
         if (contact.Categories.Count > 0)
         {
-            string[] resourceNames = await EnsureGroupsAsync(contact.Categories, cancellationToken);
-            person["memberships"] = CreateArray(resourceNames.Select(resourceName => (JsonNode?)new JsonObject
+            List<JsonNode?> membershipNodes = [];
+            foreach (string category in contact.Categories
+                .Where(c => !string.IsNullOrWhiteSpace(c))
+                .Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                ["contactGroupMembership"] = new JsonObject
+                // Reverse-lookup: find the resource name whose display name matches this category.
+                string? resourceName = null;
+                foreach (var kv in groupNamesByResource)
                 {
-                    ["contactGroupResourceName"] = resourceName,
-                },
-            }));
-        }
-        else
-        {
-            person["memberships"] = CreateArray(
-                new JsonObject
+                    if (string.Equals(kv.Value, category, StringComparison.OrdinalIgnoreCase))
+                    {
+                        resourceName = kv.Key;
+                        break;
+                    }
+                }
+
+                // Skip unknown categories and system groups — orchestration must have ensured groups exist.
+                if (resourceName is null || SystemGroupResourceNames.Contains(resourceName))
+                {
+                    continue;
+                }
+
+                membershipNodes.Add(new JsonObject
                 {
                     ["contactGroupMembership"] = new JsonObject
                     {
-                        ["contactGroupResourceName"] = "contactGroups/myContacts",
+                        ["contactGroupResourceName"] = resourceName,
                     },
                 });
+            }
+
+            if (membershipNodes.Count > 0)
+            {
+                person["memberships"] = CreateArray(membershipNodes);
+            }
         }
 
         return person;
     }
 
-    private CanonicalContact? ConvertPerson(JsonElement person)
+    /// <summary>
+    /// Converts a Google People API person element to a canonical contact.
+    /// </summary>
+    /// <param name="person">
+    /// The JSON element representing the People API person payload.
+    /// </param>
+    /// <param name="groupNamesByResource">
+    /// A mapping of Google contact-group resource names to human-readable group names.
+    /// System groups (<c>contactGroups/myContacts</c>, <c>contactGroups/starred</c>) are filtered out;
+    /// custom groups are translated using this mapping, falling back to the raw resource name if unknown.
+    /// </param>
+    internal static CanonicalContact? ConvertPerson(JsonElement person, IReadOnlyDictionary<string, string> groupNamesByResource)
     {
         string? resourceName = person.TryGetProperty("resourceName", out var resourceNameElement)
             ? resourceNameElement.GetString()
@@ -446,7 +493,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             Title = ReadFirstNestedString(person, "organizations", "title"),
             Notes = ReadFirstNestedString(person, "biographies", "value"),
             Birthday = ReadBirthday(person),
-            Categories = ReadMemberships(person),
+            Categories = ReadMemberships(person, groupNamesByResource),
 
             Provenance =
             {
@@ -578,33 +625,23 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         await EnsureSuccessAsync(deleteResponse, cancellationToken);
     }
 
-    private async Task<string[]> EnsureGroupsAsync(IReadOnlyList<string> categories, CancellationToken cancellationToken)
+    private async Task EnsureGroupsWrittenAsync(IReadOnlyList<string> categories, CancellationToken cancellationToken)
     {
-        await EnsureGroupCacheAsync(cancellationToken);
-        List<string> resourceNames = [];
-        foreach (string category in categories.Where(category => !string.IsNullOrWhiteSpace(category)).Distinct(StringComparer.OrdinalIgnoreCase))
+        await EnsureGroupsReadAsync(cancellationToken);
+        foreach (string category in categories.Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            if (groupResourcesByName!.TryGetValue(category, out string? resourceName))
+            if (groupResourcesByName!.ContainsKey(category))
             {
-                resourceNames.Add(resourceName);
                 continue;
             }
 
             string createdResourceName = await CreateGroupAsync(category, cancellationToken);
             groupResourcesByName[category] = createdResourceName;
             groupNamesByResource![createdResourceName] = category;
-            resourceNames.Add(createdResourceName);
         }
-
-        if (!resourceNames.Contains("contactGroups/myContacts", StringComparer.Ordinal))
-        {
-            resourceNames.Insert(0, "contactGroups/myContacts");
-        }
-
-        return [.. resourceNames];
     }
 
-    private async Task EnsureGroupCacheAsync(CancellationToken cancellationToken)
+    private async Task EnsureGroupsReadAsync(CancellationToken cancellationToken)
     {
         if (groupNamesByResource is not null && groupResourcesByName is not null)
         {
@@ -664,21 +701,12 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             ?? throw new InvalidOperationException($"Google contact group '{name}' creation did not return a resource name.");
     }
 
-    private List<string> ReadMemberships(JsonElement person)
+    private static List<string> ReadMemberships(JsonElement person, IReadOnlyDictionary<string, string> groupNamesByResource)
     {
         List<string> categories = [];
         if (!person.TryGetProperty("memberships", out var memberships))
         {
             return categories;
-        }
-
-        if (groupNamesByResource is null)
-        {
-            groupNamesByResource = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["contactGroups/myContacts"] = "My Contacts",
-                ["contactGroups/starred"] = "Starred",
-            };
         }
 
         foreach (var membership in memberships.EnumerateArray())
@@ -691,12 +719,18 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             string? resourceName = contactGroupMembership.TryGetProperty("contactGroupResourceName", out var resourceNameElement)
                 ? resourceNameElement.GetString()
                 : null;
-            if (string.IsNullOrWhiteSpace(resourceName))
+
+            // Skip missing resource names and system groups (myContacts, starred).
+            if (string.IsNullOrWhiteSpace(resourceName) || SystemGroupResourceNames.Contains(resourceName))
             {
                 continue;
             }
 
-            categories.Add(groupNamesByResource.GetValueOrDefault(resourceName, defaultValue: resourceName));
+            // Translate to display name; skip if not in the cache.
+            if (groupNamesByResource.TryGetValue(resourceName, out string? displayName))
+            {
+                categories.Add(displayName);
+            }
         }
 
         return categories.Distinct(StringComparer.OrdinalIgnoreCase).ToList();

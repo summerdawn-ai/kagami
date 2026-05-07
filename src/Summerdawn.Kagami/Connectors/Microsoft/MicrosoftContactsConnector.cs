@@ -388,7 +388,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
     private static StringContent CreateJsonContent(JsonNode body) =>
         new(body.ToJsonString(), Encoding.UTF8, "application/json");
 
-    private static JsonObject BuildWritableContact(CanonicalContact contact)
+    internal static JsonObject BuildWritableContact(CanonicalContact contact)
     {
         return new JsonObject
         {
@@ -474,7 +474,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         return array;
     }
 
-    private static CanonicalContact? ConvertContact(JsonElement element)
+    internal static CanonicalContact? ConvertContact(JsonElement element)
     {
         string? id = element.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
         if (string.IsNullOrWhiteSpace(id))
@@ -496,13 +496,13 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
 
         CanonicalContact contact = new()
         {
-            GivenName = ReadString(element, "givenName"),
-            MiddleName = ReadString(element, "middleName"),
-            FamilyName = ReadString(element, "surname"),
+            GivenName = NullIfEmpty(ReadString(element, "givenName")),
+            MiddleName = NullIfEmpty(ReadString(element, "middleName")),
+            FamilyName = NullIfEmpty(ReadString(element, "surname")),
             DisplayName = ReadString(element, "displayName") ?? string.Empty,
-            Organization = ReadString(element, "companyName"),
-            Title = ReadString(element, "jobTitle"),
-            Notes = ReadString(element, "personalNotes"),
+            Organization = NullIfEmpty(ReadString(element, "companyName")),
+            Title = NullIfEmpty(ReadString(element, "jobTitle")),
+            Notes = NullIfEmpty(ReadString(element, "personalNotes")),
             Birthday = ReadDateOnly(element, "birthday"),
             Categories = ReadStringArray(element, "categories"),
 
@@ -658,14 +658,26 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             return;
         }
 
+        string? street = NullIfEmpty(ReadString(addressElement, "street"));
+        string? city = NullIfEmpty(ReadString(addressElement, "city"));
+        string? state = NullIfEmpty(ReadString(addressElement, "state"));
+        string? postalCode = NullIfEmpty(ReadString(addressElement, "postalCode"));
+        string? country = NullIfEmpty(ReadString(addressElement, "countryOrRegion"));
+
+        // Drop the address entry when every meaningful field is absent.
+        if (street is null && city is null && state is null && postalCode is null && country is null)
+        {
+            return;
+        }
+
         addresses.Add(new ContactAddress
         {
             Label = label,
-            Street = ReadString(addressElement, "street"),
-            City = ReadString(addressElement, "city"),
-            State = ReadString(addressElement, "state"),
-            PostalCode = ReadString(addressElement, "postalCode"),
-            Country = ReadString(addressElement, "countryOrRegion"),
+            Street = street,
+            City = city,
+            State = state,
+            PostalCode = postalCode,
+            Country = country,
         });
     }
 
@@ -673,6 +685,9 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         element.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.GetString()
             : null;
+
+    private static string? NullIfEmpty(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
 
     private static List<string> ReadStringArray(JsonElement element, string propertyName)
     {

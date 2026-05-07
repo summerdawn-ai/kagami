@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 using Azure.Core;
@@ -406,24 +407,87 @@ public sealed class MicrosoftContactsConnectorTests
         Assert.Equal("555-2001", json["mobilePhone"]!.GetValue<string>());
     }
 
+    // ── normalization: direct ConvertContact tests ────────────────────────
+
+    [Fact]
+    public void ConvertContact_NormalizesEmptyStringsToNull()
+    {
+        // Representative Microsoft Graph contact with empty-string fields and all-null address objects.
+        string contactJson = """
+            {
+                "id": "test-id",
+                "givenName": "Yvonne",
+                "middleName": "",
+                "surname": "Pignolet",
+                "displayName": "Yvonne Pignolet",
+                "emailAddresses": [],
+                "businessPhones": [],
+                "homePhones": [],
+                "mobilePhone": "+41 78 743 07 46",
+                "companyName": null,
+                "jobTitle": "",
+                "personalNotes": "- Some notes",
+                "birthday": null,
+                "categories": [],
+                "homeAddress": null,
+                "businessAddress": null,
+                "otherAddress": null,
+                "lastModifiedDateTime": "2024-01-01T00:00:00Z"
+            }
+            """;
+
+        using var document = JsonDocument.Parse(contactJson);
+        var contact = MicrosoftContactsConnector.ConvertContact(document.RootElement);
+
+        Assert.NotNull(contact);
+        string actual = SerializeCore(contact);
+        string expected = """{"givenName":"Yvonne","middleName":null,"familyName":"Pignolet","displayName":"Yvonne Pignolet","emails":[],"phones":[{"label":"mobile","number":"+41 78 743 07 46"}],"addresses":[],"organization":null,"title":null,"notes":"- Some notes","categories":[],"birthday":null}""";
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void ConvertContact_DropsAddressesWhereAllMeaningfulFieldsAreNull()
+    {
+        // All three address objects are present but contain only null fields.
+        string contactJson = """
+            {
+                "id": "test-id",
+                "displayName": "Adriana De Matteis",
+                "emailAddresses": [],
+                "businessPhones": [],
+                "homePhones": [],
+                "mobilePhone": "+41794318938",
+                "birthday": null,
+                "categories": ["Heavenly Heat"],
+                "homeAddress":     {"street": null, "city": null, "state": null, "postalCode": null, "countryOrRegion": null},
+                "businessAddress": {"street": null, "city": null, "state": null, "postalCode": null, "countryOrRegion": null},
+                "otherAddress":    {"street": null, "city": null, "state": null, "postalCode": null, "countryOrRegion": null},
+                "lastModifiedDateTime": "2024-01-01T00:00:00Z"
+            }
+            """;
+
+        using var document = JsonDocument.Parse(contactJson);
+        var contact = MicrosoftContactsConnector.ConvertContact(document.RootElement);
+
+        Assert.NotNull(contact);
+        string actual = SerializeCore(contact);
+        string expected = """{"givenName":null,"middleName":null,"familyName":null,"displayName":"Adriana De Matteis","emails":[],"phones":[{"label":"mobile","number":"+41794318938"}],"addresses":[],"organization":null,"title":null,"notes":null,"categories":["Heavenly Heat"],"birthday":null}""";
+        Assert.Equal(expected, actual);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────
 
     private static CanonicalContact GetContact(ItemSet<CanonicalContact> page, string id) =>
         page.Items.Single(i => i.Provenance.ProviderId == id);
 
     /// <summary>
-    /// Calls the internal BuildWritableContact via JSON round-trip by going through
-    /// the connector's CreateItemAsync path using a fake that captures the payload.
+    /// Calls <see cref="MicrosoftContactsConnector.BuildWritableContact"/> directly (now internal).
     /// </summary>
-    private static JsonObject InvokeInternalBuildWritableContact(CanonicalContact contact)
-    {
-        // We use reflection to call the private static method.
-        var method = typeof(MicrosoftContactsConnector)
-            .GetMethod("BuildWritableContact", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("BuildWritableContact not found");
+    private static JsonObject InvokeInternalBuildWritableContact(CanonicalContact contact) =>
+        MicrosoftContactsConnector.BuildWritableContact(contact);
 
-        return (JsonObject)method.Invoke(null, [contact])!;
-    }
+    private static string SerializeCore(CanonicalContact contact) =>
+        CanonicalContactTestHelpers.SerializeCore(contact);
 
     // ── HTTP stubs ────────────────────────────────────────────────────────
 
