@@ -13,10 +13,10 @@ namespace Summerdawn.Kagami.Engine;
 /// and applies them.
 /// </summary>
 /// <remarks>
-/// Responsible for orchestration: authentication, reading incremental deltas via
-/// cursor-based reads, planning actions, partitioning actions by direction and skip,
-/// invoking <see cref="SyncActionExecutor"/>, recording unchanged links, performing
-/// post-write cursor drains, and committing cursors only on a clean (non-faulted) run.
+/// Responsible for orchestration: authentication, reading current snapshots, reading
+/// incremental pages and cursors, planning actions, partitioning actions by direction and
+/// skip, invoking <see cref="SyncActionExecutor"/>, recording unchanged links, and
+/// committing cursors only on a clean (non-faulted) run.
 /// </remarks>
 public sealed class JobExecutor(
     SyncActionPlanner planner,
@@ -67,35 +67,34 @@ public sealed class JobExecutor(
     }
 
     /// <summary>
-    /// Authenticates both connectors, reads the current delta for each side, plans actions, and applies them.
+    /// Authenticates both connectors, reads current state, plans actions, and applies them.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A single cursor-based read pass is performed per endpoint on each run. When a valid cursor
-    /// exists and the filter scope is unchanged, only items that changed since the last run are
-    /// fetched; <see cref="LinkCreator"/> skips persisted-link rows where neither side appears in
-    /// the current scan so no unnecessary actions are produced for unchanged items outside the
-    /// delta window.
-    /// <para>
-    /// When either side of a persisted link appears in the delta but the other does not, the
-    /// missing item is fetched individually from its connector so the planner can compare both
-    /// sides correctly without triggering a full re-enumeration.
+    /// The method makes a single read pass per connector:
     /// </para>
-    /// <para>
-    /// When <c>Full</c> or <c>Force</c> is set, the cursor is ignored and a full re-enumeration
-    /// is performed; cursors are re-established from the end of the new scan.
-    /// </para>
-    /// <para>
-    /// After any write pass, a lightweight post-write incremental read is performed on the
-    /// affected side to advance the stored cursor past writes that Kagami itself introduced in
-    /// this run. Runs that produce zero writes skip the drain entirely.
-    /// </para>
+    /// <list type="number">
+    ///   <item>
+    ///     <term>Delta (cursor-based) pass</term>
+    ///     <description>When a cursor is available and the filter scope has not changed, only
+    ///     items that changed since the last cursor advance are fetched.  The planner treats
+    ///     absence as "implicitly unchanged" rather than "deleted".</description>
+    ///   </item>
+    ///   <item>
+    ///     <term>Full pass</term>
+    ///     <description>Used on the first run (no cursor), when the filter scope changed, or when
+    ///     <c>Full</c> or <c>Force</c> is set.  Fetches all current items; absence means the item
+    ///     is no longer present.  The effective <see cref="JobOptions.Full"/> flag is set to
+    ///     <c>true</c> when this mode is used so the planner applies full-scan semantics.</description>
+    ///   </item>
+    /// </list>
     /// <para>
     /// Raw (unfiltered) items are passed directly to the planner so that
     /// <see cref="LinkExaminer"/> can detect items that moved out of the filter scope and
     /// classify them as <see cref="SideActivity.MovedOutOfScope"/> rather than silently
     /// dropping them.
     /// </para>
+    /// <para>
     /// Actions are applied source→destination first; link state is refreshed before the
     /// destination→source pass so that newly created destination IDs are visible.
     /// </para>
@@ -117,7 +116,7 @@ public sealed class JobExecutor(
 
         string filterScope = job.Options.Filter ?? string.Empty;
 
-        // --- Read delta (or full re-enumeration when no cursor / --full / --force) ---
+        // --- Determine cursors and effective run mode ---
         var sourceCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Source, cancellationToken);
         string? sourceCursor = GetApplicableCursor(job.Key, job.Options.Source, sourceCursorState, filterScope);
 
@@ -143,51 +142,12 @@ public sealed class JobExecutor(
         var sourcePageSet = await ReadAllPagesAsync(sourceConnector, job.Options.Source, sourceCursor, job.Options.Full || job.Options.Force, cancellationToken);
         var destinationPageSet = await ReadAllPagesAsync(destinationConnector, job.Options.Destination, destinationCursor, job.Options.Full || job.Options.Force, cancellationToken);
 
-        // --- Supplement delta with targeted lookups for "one-sided" persisted links ---
-        // When one side of a persisted link appears in the delta but the other does not, the
-        // absent side is still alive — it just has not changed since the last cursor advance.
-        // Fetch those items individually so the planner can compare both sides correctly.
-        var sourceIdsInDelta = sourcePageSet.Items.Select(i => i.Provenance.ProviderId).ToHashSet(StringComparer.Ordinal);
-        var destIdsInDelta = destinationPageSet.Items.Select(i => i.Provenance.ProviderId).ToHashSet(StringComparer.Ordinal);
-        var supplementalSourceItems = new List<TItem>();
-        var supplementalDestinationItems = new List<TItem>();
-
-        foreach (var row in existingLinks)
-        {
-            bool sourceInDelta = sourceIdsInDelta.Contains(row.SourceId);
-            bool destInDelta = row.DestinationId is not null && destIdsInDelta.Contains(row.DestinationId);
-
-            if (sourceInDelta && !destInDelta && row.DestinationId is not null)
-            {
-                var item = await destinationConnector.GetItemAsync(row.DestinationId, cancellationToken);
-                if (item is { IsDeleted: false })
-                {
-                    supplementalDestinationItems.Add(item);
-                }
-            }
-            else if (destInDelta && !sourceInDelta)
-            {
-                var item = await sourceConnector.GetItemAsync(row.SourceId, cancellationToken);
-                if (item is { IsDeleted: false })
-                {
-                    supplementalSourceItems.Add(item);
-                }
-            }
-        }
-
-        var allSourceItems = supplementalSourceItems.Count > 0
-            ? [.. sourcePageSet.Items, .. supplementalSourceItems]
-            : sourcePageSet.Items;
-        var allDestItems = supplementalDestinationItems.Count > 0
-            ? [.. destinationPageSet.Items, .. supplementalDestinationItems]
-            : destinationPageSet.Items;
-
         // --- Plan actions using raw (unfiltered) items + filter ---
         // The filter is forwarded to LinkExaminer so it can detect items that moved out of scope.
         IReadOnlyList<SyncAction<TItem>> actions;
         try
         {
-            actions = planner.PlanActions(job.Options, allSourceItems, allDestItems, existingLinks, filter: filter);
+            actions = planner.PlanActions(job.Options, sourcePageSet.Items, destinationPageSet.Items, existingLinks, filter: filter);
         }
         finally
         {
@@ -211,11 +171,6 @@ public sealed class JobExecutor(
 
         if (!whatIf)
         {
-            // Cursor values to persist at the end of the run. These may be advanced by the
-            // post-write drain if this run issued any writes.
-            string? sourceCommitCursor = sourcePageSet.Cursor;
-            string? destinationCommitCursor = destinationPageSet.Cursor;
-
             // --- Apply source→destination ---
             await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job: job, existingLinks: existingLinks, cancellationToken: cancellationToken);
 
@@ -225,21 +180,6 @@ public sealed class JobExecutor(
 
             // --- Apply destination→source ---
             await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job: job, existingLinks: existingLinks, cancellationToken: cancellationToken);
-
-            // --- Post-write cursor drain ---
-            // Items created or updated by this run bump the remote generation counter. Without a
-            // drain, the stored cursor would be stale by our own writes and they would re-appear
-            // in the next incremental delta. Only drain sides that actually received writes; runs
-            // with zero writes skip the drain so quiescent runs remain cheap.
-            if (actionsToDestination.Count > 0)
-            {
-                destinationCommitCursor = (await ReadAllPagesAsync(destinationConnector, job.Options.Destination, destinationPageSet.Cursor, force: false, cancellationToken)).Cursor;
-            }
-
-            if (actionsToSource.Count > 0)
-            {
-                sourceCommitCursor = (await ReadAllPagesAsync(sourceConnector, job.Options.Source, sourcePageSet.Cursor, force: false, cancellationToken)).Cursor;
-            }
 
             // --- Record links for matched-but-unchanged pairs ---
             // Skip actions that carry both sides (i.e. a matched pair whose content was identical)
@@ -267,14 +207,14 @@ public sealed class JobExecutor(
             }
 
             // --- Persist cursors ---
-            if (sourceCommitCursor is not null)
+            if (sourcePageSet.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(job.Key, job.Options.Source, filterScope, sourceCommitCursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(job.Key, job.Options.Source, filterScope, sourcePageSet.Cursor, cancellationToken);
             }
 
-            if (destinationCommitCursor is not null)
+            if (destinationPageSet.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(job.Key, job.Options.Destination, filterScope, destinationCommitCursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(job.Key, job.Options.Destination, filterScope, destinationPageSet.Cursor, cancellationToken);
             }
         }
 
