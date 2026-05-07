@@ -6,8 +6,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
-using Summerdawn.Kagami.Connectors.Google;
-using Summerdawn.Kagami.Connectors.Microsoft;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 using Summerdawn.Kagami.Persistence;
@@ -102,7 +100,7 @@ public static class KagamiServiceCollectionExtensions
         services.AddSingleton<SyncActionExecutor>();
         services.AddSingleton<JobExecutor>();
         services.AddSingleton<SyncHost>();
-        services.AddSingleton<SyncService<CanonicalContact>>();
+        services.AddSingleton<CommandHandler<CanonicalContact>>();
         return services;
     }
 

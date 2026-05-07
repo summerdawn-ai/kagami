@@ -9,7 +9,7 @@ using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Models;
 
-namespace Summerdawn.Kagami.Connectors.Microsoft;
+namespace Summerdawn.Kagami.Connectors;
 
 internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
 {

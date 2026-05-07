@@ -8,7 +8,7 @@ using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Models;
 
-namespace Summerdawn.Kagami.Connectors.Google;
+namespace Summerdawn.Kagami.Connectors;
 
 internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
 {

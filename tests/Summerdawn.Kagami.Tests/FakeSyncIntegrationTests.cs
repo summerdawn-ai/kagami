@@ -45,7 +45,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     {
         sourceConnector.Seed(CreateContact("a1", "Meeting"));
 
-        var result = await executor.ExecuteAsync(CreateJob("job-1"), whatIf: true);
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1"), whatIf: true);
 
         Assert.True(result.Succeeded);
         Assert.True(result.ActionsPlanned > 0);
@@ -57,7 +57,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     {
         sourceConnector.Seed(CreateContact("a1", "Meeting"));
 
-        var result = await executor.ExecuteAsync(CreateJob("job-1"));
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1"));
 
         Assert.True(result.Succeeded);
         var links = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
@@ -71,7 +71,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     {
         await leaseRepository.TryAcquireAsync("job-1", "external-holder", TimeSpan.FromMinutes(5));
 
-        var result = await executor.ExecuteAsync(CreateJob("job-1"));
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1"));
 
         Assert.True(result.Skipped);
         Assert.False(result.Succeeded);
@@ -81,10 +81,10 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     public async Task IncrementalRerun_DoesNotCreateDuplicateLinks()
     {
         sourceConnector.Seed(CreateContact("a1", "Meeting"));
-        await executor.ExecuteAsync(CreateJob("job-1"));
+        await executor.ExecuteJobAsync(CreateJob("job-1"));
 
         var firstLinks = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
-        await executor.ExecuteAsync(CreateJob("job-1"));
+        await executor.ExecuteJobAsync(CreateJob("job-1"));
         var secondLinks = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
 
         Assert.Equal(firstLinks.Count, secondLinks.Count);
@@ -107,9 +107,9 @@ public sealed class FakeSyncIntegrationTests : IDisposable
 
         await sourceConnector.UpdateItemAsync(CreateContact("a1", "Updated Meeting"));
 
-        var firstRun = await executor.ExecuteAsync(CreateJob("job-1"));
+        var firstRun = await executor.ExecuteJobAsync(CreateJob("job-1"));
         var linksAfterUpdate = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
-        var secondRun = await executor.ExecuteAsync(CreateJob("job-1"));
+        var secondRun = await executor.ExecuteJobAsync(CreateJob("job-1"));
         var currentSource = await sourceConnector.GetItemAsync("a1");
         var currentTarget = await destinationConnector.GetItemAsync("b1");
 
