@@ -63,18 +63,8 @@ public sealed class CommandHandlerTests : IDisposable
     {
         var pagedService = CreateService(
             new PagedConnector(
-                new IncrementalPage<CanonicalContact>
-                {
-                    Items = [MakeContact("a1", "Alice")],
-                    HasMore = true,
-                    NextCursor = "page-2",
-                },
-                new IncrementalPage<CanonicalContact>
-                {
-                    Items = [MakeContact("a2", "Bob")],
-                    HasMore = false,
-                    NextCursor = "delta-token",
-                }));
+                new ItemSet<CanonicalContact>([MakeContact("a1", "Alice")], "page-2"),
+                new ItemSet<CanonicalContact>([MakeContact("a2", "Bob")], "delta-token")));
 
         var items = await pagedService.ListAsync("Microsoft", null, null, default);
 
@@ -83,22 +73,23 @@ public sealed class CommandHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task ListAsync_UsesFullLoadPath()
+    {
+        sourceConnector.Seed(MakeContact("a1", "Alice"));
+
+        var items = await service.ListAsync("Microsoft", null, null, default);
+
+        Assert.Single(items);
+        Assert.Equal(1, sourceConnector.GetAllItemsCallCount);
+    }
+
+    [Fact]
     public async Task ListAsync_HonorsMaxItemsAcrossPages()
     {
         var pagedService = CreateService(
             new PagedConnector(
-                new IncrementalPage<CanonicalContact>
-                {
-                    Items = Enumerable.Range(1, 60).Select(index => MakeContact($"a{index}", $"Contact {index}")).ToArray(),
-                    HasMore = true,
-                    NextCursor = "page-2",
-                },
-                new IncrementalPage<CanonicalContact>
-                {
-                    Items = Enumerable.Range(61, 60).Select(index => MakeContact($"a{index}", $"Contact {index}")).ToArray(),
-                    HasMore = false,
-                    NextCursor = "delta-token",
-                }));
+                new ItemSet<CanonicalContact>(Enumerable.Range(1, 60).Select(index => MakeContact($"a{index}", $"Contact {index}")).ToArray(), "page-2"),
+                new ItemSet<CanonicalContact>(Enumerable.Range(61, 60).Select(index => MakeContact($"a{index}", $"Contact {index}")).ToArray(), "delta-token")));
 
         var items = await pagedService.ListAsync("Microsoft", filter: null, maxItems: 100);
 
@@ -130,22 +121,6 @@ public sealed class CommandHandlerTests : IDisposable
 
         Assert.Single(items);
         Assert.Equal("Contoso Ltd", items[0].Organization);
-    }
-
-    [Fact]
-    public async Task ListAsync_WithFilter_LoadsPhotosOnlyForMatchedContacts()
-    {
-        LazyPhotoConnector lazyConnector = new(
-            MakeContact("a1", "Alice"),
-            MakeContact("a2", "Bob"));
-        var lazyService = CreateService(lazyConnector);
-
-        var filter = ContactFilter.Parse("startswith(name,'A')")!;
-        var items = await lazyService.ListAsync("Microsoft", filter, null, default);
-
-        var item = Assert.Single(items);
-        Assert.Equal("Alice", item.DisplayName);
-        Assert.Equal(["a1"], lazyConnector.LoadedPhotoIds);
     }
 
     [Fact]
@@ -608,9 +583,9 @@ public sealed class CommandHandlerTests : IDisposable
 
     private sealed class UnsupportedPayload { }
 
-    private sealed class PagedConnector(params IncrementalPage<CanonicalContact>[] pages) : IConnector<CanonicalContact>
+    private sealed class PagedConnector(params ItemSet<CanonicalContact>[] pages) : IConnector<CanonicalContact>
     {
-        private readonly Queue<IncrementalPage<CanonicalContact>> queuedPages = new(pages);
+        private readonly Queue<ItemSet<CanonicalContact>> queuedPages = new(pages);
 
         public ConnectorCapabilities Capabilities { get; } = new()
         {
@@ -619,13 +594,27 @@ public sealed class CommandHandlerTests : IDisposable
             SupportsDeletes = true,
         };
 
+        public string EndpointName => "paged-test";
+
         public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-        public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(queuedPages.Dequeue());
+        public Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
+        {
+            List<CanonicalContact> items = [];
+            string? finalCursor = cursor;
 
-        public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
-            Task.FromResult(queuedPages.Dequeue());
+            while (queuedPages.TryDequeue(out var page))
+            {
+                items.AddRange(page.Items);
+                finalCursor = page.Cursor;
+                if (page.Cursor is null)
+                {
+                    break;
+                }
+            }
+
+            return Task.FromResult(new ItemSet<CanonicalContact>(items, finalCursor));
+        }
 
         public Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
             Task.FromResult<CanonicalContact?>(null);
@@ -649,11 +638,13 @@ public sealed class CommandHandlerTests : IDisposable
             SupportsContactPhotos = true,
         };
 
+        public string EndpointName => "lazy-photo-test";
+
         public List<string> LoadedPhotoIds { get; } = [];
 
         public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-        public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default)
+        public Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
         {
             foreach (var item in items)
             {
@@ -665,21 +656,8 @@ public sealed class CommandHandlerTests : IDisposable
                 });
             }
 
-            return Task.FromResult(new IncrementalPage<CanonicalContact>
-            {
-                Items = items,
-                NextCursor = "1",
-                HasMore = false,
-            });
+            return Task.FromResult(new ItemSet<CanonicalContact>(items, "1"));
         }
-
-        public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new IncrementalPage<CanonicalContact>
-            {
-                Items = [],
-                NextCursor = cursor,
-                HasMore = false,
-            });
 
         public Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
             Task.FromResult(items.FirstOrDefault(item => item.Provenance.ProviderId == id));

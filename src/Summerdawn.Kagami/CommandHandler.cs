@@ -33,41 +33,26 @@ public sealed class CommandHandler<TItem>(
         await connector.AuthenticateAsync(cancellationToken);
 
         List<TItem> items = [];
-        var page = await connector.GetInitialPageAsync(cancellationToken);
+        // For architectural reasons, load _all_ items, anyway;
+        // the max count is only to avoid overfilling the output.
+        var allItems = await connector.GetAllItemsAsync(cancellationToken);
 
-        while (true)
+        // Limit listed items to max count.
+        foreach (var item in allItems)
         {
-            foreach (var item in page.Items)
+            if (filter is not null && !filter.Matches(item))
             {
-                if (filter is not null && !filter.Matches(item))
-                {
-                    continue;
-                }
-
-                if (item is CanonicalContact contact)
-                {
-                    await ContactPhotoLoader.EnsureLoadedAsync(contact, cancellationToken);
-                }
-
-                items.Add(item);
-                if (maxItems is not null && items.Count >= maxItems.Value)
-                {
-                    return items;
-                }
+                continue;
             }
 
-            if (!page.HasMore)
+            items.Add(item);
+            if (maxItems is not null && items.Count >= maxItems.Value)
             {
                 return items;
             }
-
-            if (page.NextCursor is null)
-            {
-                throw new InvalidOperationException($"Connector returned HasMore=true without a cursor for endpoint '{endpointName}'.");
-            }
-
-            page = await connector.GetIncrementalPageAsync(page.NextCursor, cancellationToken);
         }
+
+        return items;
     }
 
     /// <summary>
@@ -105,8 +90,8 @@ public sealed class CommandHandler<TItem>(
         {
             Enabled = true,
             EntityType = EntityType.Contact,
-            Source = endpointName,
-            Destination = outputDirectory,
+            SourceEndpointName = endpointName,
+            DestinationEndpointName = outputDirectory,
             SyncMode = SyncMode.Forward,
             DeletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore,
             Full = true,
@@ -148,8 +133,8 @@ public sealed class CommandHandler<TItem>(
         {
             Enabled = true,
             EntityType = EntityType.Contact,
-            Source = fromEndpoint,
-            Destination = toEndpoint,
+            SourceEndpointName = fromEndpoint,
+            DestinationEndpointName = toEndpoint,
             SyncMode = mode,
             DeletePolicy = deletePolicy,
             ConflictPolicy = conflictPolicy,
@@ -203,8 +188,8 @@ public sealed class CommandHandler<TItem>(
         {
             Enabled = true,
             EntityType = EntityType.Contact,
-            Source = sourceDirectory,
-            Destination = toEndpoint,
+            SourceEndpointName = sourceDirectory,
+            DestinationEndpointName = toEndpoint,
             SyncMode = SyncMode.Forward,
             DeletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore,
             Full = true,

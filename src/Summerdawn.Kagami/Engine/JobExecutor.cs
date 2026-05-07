@@ -126,11 +126,11 @@ public sealed class JobExecutor(
             existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
 
             // --- Determine cursors and effective run mode ---
-            var sourceCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Source, cancellationToken);
-            sourceCursor = GetApplicableCursor(job.Key, job.Options.Source, sourceCursorState, filterScope);
+            var sourceCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.SourceEndpointName, cancellationToken);
+            sourceCursor = GetApplicableCursor(job.Key, job.Options.SourceEndpointName, sourceCursorState, filterScope);
 
-            var destinationCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.Destination, cancellationToken);
-            destinationCursor = GetApplicableCursor(job.Key, job.Options.Destination, destinationCursorState, filterScope);
+            var destinationCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.DestinationEndpointName, cancellationToken);
+            destinationCursor = GetApplicableCursor(job.Key, job.Options.DestinationEndpointName, destinationCursorState, filterScope);
         }
 
         JobExecutionResult result = new() { JobKey = job.Key };
@@ -151,15 +151,15 @@ public sealed class JobExecutor(
         }
 
         // --- Single read pass per connector (planning + cursor advancement) ---
-        var sourcePageSet = await ReadAllPagesAsync(sourceConnector, job.Options.Source, sourceCursor, job.Options.Full || job.Options.Force, cancellationToken);
-        var destinationPageSet = await ReadAllPagesAsync(destinationConnector, job.Options.Destination, destinationCursor, job.Options.Full || job.Options.Force, cancellationToken);
+        var sourceItemSet = await LoadItemsAsync(job, sourceConnector, sourceCursor, cancellationToken);
+        var destinationItemSet = await LoadItemsAsync(job, destinationConnector, destinationCursor, cancellationToken);
 
         // --- Plan actions using raw (unfiltered) items + filter ---
         // The filter is forwarded to LinkExaminer so it can detect items that moved out of scope.
         IReadOnlyList<SyncAction<TItem>> actions;
         try
         {
-            actions = planner.PlanActions(job.Options, sourcePageSet.Items, destinationPageSet.Items, existingLinks, filter);
+            actions = planner.PlanActions(job.Options, sourceItemSet.Items, destinationItemSet.Items, existingLinks, filter);
         }
         finally
         {
@@ -222,14 +222,14 @@ public sealed class JobExecutor(
             }
 
             // --- Persist cursors ---
-            if (sourcePageSet.Cursor is not null)
+            if (sourceItemSet.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(job.Key, job.Options.Source, filterScope, sourcePageSet.Cursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(job.Key, job.Options.SourceEndpointName, filterScope, sourceItemSet.Cursor, cancellationToken);
             }
 
-            if (destinationPageSet.Cursor is not null)
+            if (destinationItemSet.Cursor is not null)
             {
-                await cursorRepo.SetCursorAsync(job.Key, job.Options.Destination, filterScope, destinationPageSet.Cursor, cancellationToken);
+                await cursorRepo.SetCursorAsync(job.Key, job.Options.DestinationEndpointName, filterScope, destinationItemSet.Cursor, cancellationToken);
             }
         }
 
@@ -263,52 +263,29 @@ public sealed class JobExecutor(
         throw new NotSupportedException($"Filters are not supported for item type '{typeof(TItem).Name}'.");
     }
 
-    /// <summary>
-    /// Reads all incremental pages for an endpoint, starting from <paramref name="cursor"/> when
-    /// available, or from the initial page when cursor is absent or <paramref name="force"/> is set.
-    /// </summary>
-    private async Task<PageSet<TItem>> ReadAllPagesAsync<TItem>(
-        IConnector<TItem> connector,
-        string endpointName,
-        string? cursor,
-        bool force,
-        CancellationToken cancellationToken) where TItem : CanonicalItem
+    private async Task<ItemSet<TItem>> LoadItemsAsync<TItem>(Job<TItem> job, IConnector<TItem> connector, string? cursor, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
-        IncrementalPage<TItem> page;
-        if (cursor is null || force)
+        // Use optimized endpoint if cursor not needed.
+        if (job.Options.NoPersistence)
         {
-            if (force && cursor is not null)
-            {
-                logger.LogInformation("Force flag set for {Endpoint}; performing full re-sync (ignoring cursor)", endpointName);
-            }
-            else
-            {
-                logger.LogInformation("No cursor for {Endpoint}, performing initial full sync", endpointName);
-            }
-
-            page = await connector.GetInitialPageAsync(cancellationToken);
-        }
-        else
-        {
-            page = await connector.GetIncrementalPageAsync(cursor, cancellationToken);
+            logger.LogInformation("No persistence for {Endpoint}; performing full load without cursors", connector.EndpointName);
+            var items = await connector.GetAllItemsAsync(cancellationToken);
+            return new ItemSet<TItem>(items, null);
         }
 
-        List<TItem> items = [.. page.Items];
-        string? finalCursor = page.NextCursor;
-
-        while (page.HasMore)
+        if ((job.Options.Full || job.Options.Force) && cursor is not null)
         {
-            if (page.NextCursor is null)
-            {
-                throw new InvalidOperationException($"Connector returned HasMore=true without a cursor for endpoint '{endpointName}'.");
-            }
+            logger.LogInformation("Full or force flag set for {Endpoint}; performing full load (ignoring cursor)", connector.EndpointName);
 
-            page = await connector.GetIncrementalPageAsync(page.NextCursor, cancellationToken);
-            items.AddRange(page.Items);
-            finalCursor = page.NextCursor;
+            // Ensure loading from beginning.
+            cursor = null;
+        }
+        else if (cursor is null)
+        {
+            logger.LogInformation("No cursor for {Endpoint}, performing full load", connector.EndpointName);
         }
 
-        return new PageSet<TItem>(items, finalCursor);
+        return await connector.GetCursorItemsAsync(cursor, cancellationToken);
     }
 
     /// <summary>
@@ -399,9 +376,4 @@ public sealed class JobExecutor(
             ? existingLinks.FirstOrDefault(link => link.SourceId == providerId)
             : existingLinks.FirstOrDefault(link => link.DestinationId == providerId);
     }
-
-    /// <summary>
-    /// Represents a collected set of paged items and the final cursor to persist for the next run.
-    /// </summary>
-    private sealed record PageSet<TItem>(IReadOnlyList<TItem> Items, string? Cursor) where TItem : CanonicalItem;
 }

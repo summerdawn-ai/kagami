@@ -4,8 +4,6 @@ using System.Text.Json.Nodes;
 
 using Azure.Core;
 
-using Microsoft.Extensions.Logging.Abstractions;
-
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
@@ -27,12 +25,7 @@ public sealed class MicrosoftContactsConnectorTests
             Properties = new Dictionary<string, string> { ["userId"] = "user@example.com" },
         };
         var credential = new MicrosoftClientCredential(new FakeTokenCredential());
-        return new MicrosoftContactsConnector(
-            httpClient,
-            "test",
-            endpoint,
-            credential,
-            NullLogger<MicrosoftContactsConnector>.Instance);
+        return new MicrosoftContactsConnector(httpClient, "test", endpoint, credential);
     }
 
     private static string ContactJson(
@@ -82,8 +75,24 @@ public sealed class MicrosoftContactsConnectorTests
     private static string DeltaPage(string deltaLink, params string[] contactJsons) =>
         $"{{\"value\":[{string.Join(",", contactJsons)}],\"@odata.deltaLink\":\"{deltaLink}\"}}";
 
-    private static string NormalPage(params string[] contactJsons) =>
-        $"{{\"value\":[{string.Join(",", contactJsons)}]}}";
+    private static string BatchResponse(params string[] contactJsons)
+    {
+        var responses = new JsonArray();
+        for (int i = 0; i < contactJsons.Length; i++)
+        {
+            responses.Add(new JsonObject
+            {
+                ["id"] = (i + 1).ToString(),
+                ["status"] = 200,
+                ["body"] = JsonNode.Parse(contactJsons[i]),
+            });
+        }
+
+        return new JsonObject
+        {
+            ["responses"] = responses,
+        }.ToJsonString();
+    }
 
     private static JsonArray CreateStringArray(IEnumerable<string> values)
     {
@@ -101,12 +110,12 @@ public sealed class MicrosoftContactsConnectorTests
     public async Task GetInitialPage_MapsBusinessPhonesAsWork()
     {
         string contact = ContactJson("c1", businessPhones: ["555-0001", "555-0002"]);
-        string enrichment = NormalPage(ContactJson("c1", businessPhones: ["555-0001", "555-0002"]));
+        string enrichment = BatchResponse(ContactJson("c1", businessPhones: ["555-0001", "555-0002"]));
         var connector = CreateConnector(
             (DeltaPage("delta1", contact)),
             (enrichment));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Equal(2, phones.Count);
@@ -116,15 +125,30 @@ public sealed class MicrosoftContactsConnectorTests
     }
 
     [Fact]
+    public async Task GetAllItemsAsync_LoadsContactsDirectlyWithoutBatchHydration()
+    {
+        string page = "{" +
+            "\"value\":[" + ContactJson("c1", businessPhones: ["555-0001"], extendedProps: [("String 0x3A1F", "555-other")]) + "]}";
+        var connector = CreateConnector(page);
+
+        var items = await connector.GetAllItemsAsync();
+
+        var contact = items.Single();
+        Assert.Equal("c1", contact.Provenance.ProviderId);
+        Assert.Contains(contact.Phones, phone => phone.Label == "work" && phone.Number == "555-0001");
+        Assert.Contains(contact.Phones, phone => phone.Label == "other" && phone.Number == "555-other");
+    }
+
+    [Fact]
     public async Task GetInitialPage_MapsHomePhonesAsHome()
     {
         string contact = ContactJson("c1", homePhones: ["555-1001"]);
-        string enrichment = NormalPage(ContactJson("c1", homePhones: ["555-1001"]));
+        string enrichment = BatchResponse(ContactJson("c1", homePhones: ["555-1001"]));
         var connector = CreateConnector(
             (DeltaPage("delta1", contact)),
             (enrichment));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Single(phones);
@@ -136,12 +160,12 @@ public sealed class MicrosoftContactsConnectorTests
     public async Task GetInitialPage_MapsMobilePhone()
     {
         string contact = ContactJson("c1", mobile: "555-2001");
-        string enrichment = NormalPage(ContactJson("c1", mobile: "555-2001"));
+        string enrichment = BatchResponse(ContactJson("c1", mobile: "555-2001"));
         var connector = CreateConnector(
             (DeltaPage("delta1", contact)),
             (enrichment));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Single(phones);
@@ -158,9 +182,9 @@ public sealed class MicrosoftContactsConnectorTests
         string enriched = ContactJson("c1", extendedProps: [("String 0x3A1F", "555-9001")]);
         var connector = CreateConnector(
             (DeltaPage("delta1", deltaContact)),
-            (NormalPage(enriched)));
+            (BatchResponse(enriched)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Single(phones);
@@ -182,9 +206,9 @@ public sealed class MicrosoftContactsConnectorTests
         ]);
         var connector = CreateConnector(
             (DeltaPage("delta1", deltaContact)),
-            (NormalPage(enriched)));
+            (BatchResponse(enriched)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Equal(5, phones.Count);
@@ -207,9 +231,9 @@ public sealed class MicrosoftContactsConnectorTests
         ]);
         var connector = CreateConnector(
             (DeltaPage("delta1", deltaContact)),
-            (NormalPage(enriched)));
+            (BatchResponse(enriched)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Single(phones);
@@ -224,9 +248,9 @@ public sealed class MicrosoftContactsConnectorTests
         string enriched = ContactJson("c1");
         var connector = CreateConnector(
             (DeltaPage("delta1", deltaContact)),
-            (NormalPage(enriched)));
+            (BatchResponse(enriched)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Empty(phones);
@@ -243,9 +267,9 @@ public sealed class MicrosoftContactsConnectorTests
 
         var connector = CreateConnector(
             (DeltaPage("delta1", deltaContact)),
-            (NormalPage(enrichedC1, enrichedExtra)));
+            (BatchResponse(enrichedC1, enrichedExtra)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         // Only c1 should be in the page, not c-extra
         Assert.Single(page.Items);
@@ -262,9 +286,9 @@ public sealed class MicrosoftContactsConnectorTests
 
         var connector = CreateConnector(
             (deltaPage),
-            (NormalPage(nonDeleted)));
+            (BatchResponse(nonDeleted)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         Assert.Equal(2, page.Items.Count);
         var deletedItem = page.Items.Single(i => i.Provenance.ProviderId == "del1");
@@ -384,7 +408,7 @@ public sealed class MicrosoftContactsConnectorTests
 
     // ── helpers ───────────────────────────────────────────────────────────
 
-    private static CanonicalContact GetContact(IncrementalPage<CanonicalContact> page, string id) =>
+    private static CanonicalContact GetContact(ItemSet<CanonicalContact> page, string id) =>
         page.Items.Single(i => i.Provenance.ProviderId == id);
 
     /// <summary>

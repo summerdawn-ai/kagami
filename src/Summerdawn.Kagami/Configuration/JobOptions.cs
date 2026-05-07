@@ -18,12 +18,12 @@ public sealed class JobOptions
     /// <summary>
     /// Gets or sets the name of the source endpoint.
     /// </summary>
-    public string Source { get; set; } = string.Empty;
+    public string SourceEndpointName { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the name of the destination endpoint.
     /// </summary>
-    public string Destination { get; set; } = string.Empty;
+    public string DestinationEndpointName { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the sync direction and mode.

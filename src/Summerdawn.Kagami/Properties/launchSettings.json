@@ -1,8 +1,20 @@
 {
   "profiles": {
-    "Summerdawn.Kagami": {
+    "contacts list --from=Google": {
       "commandName": "Project",
-      "commandLineArgs": "contacts list --from=Microsoft --settings ./appsettings.json"
+      "commandLineArgs": "contacts list --from=Google --filter \"startswith(name,'Katharina')\" --settings ./appsettings.json"
+    },
+    "contacts list --from=Microsoft": {
+      "commandName": "Project",
+      "commandLineArgs": "contacts list --from=Microsoft --filter \"startswith(name,'Katharina')\" --settings ./appsettings.json"
+    },
+    "jobs list": {
+      "commandName": "Project",
+      "commandLineArgs": "jobs list --settings ./appsettings.json"
+    },
+    "contacts sync --full": {
+      "commandName": "Project",
+      "commandLineArgs": "contacts sync --from Google --to Microsoft --settings ./appsettings.json --full --filter \"startswith(name, 'Yvonne')\" --what-if"
     }
   }
 }

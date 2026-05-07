@@ -75,8 +75,7 @@ public static class KagamiServiceCollectionExtensions
                         capturedEndpointName,
                         capturedEndpoint,
                         credential as MicrosoftClientCredential
-                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a MicrosoftClientCredential."),
-                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<MicrosoftContactsConnector>()),
+                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a MicrosoftClientCredential.")),
                     _ => throw new InvalidOperationException(
                         $"No connector registered for endpoint '{capturedEndpointName}' of type '{capturedEndpoint.Type}'."),
                 };

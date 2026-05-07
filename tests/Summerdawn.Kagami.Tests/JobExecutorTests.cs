@@ -68,18 +68,9 @@ public sealed class JobExecutorTests : IDisposable
     public async Task ExecuteAsync_AggregatesMultiPageConnectorReads()
     {
         PagedConnector sourceConnector = new(
-            new IncrementalPage<CanonicalContact>
-            {
-                Items = [CreateContactItem("a1", "v1", "Alice One")],
-                HasMore = true,
-                NextCursor = "page-2",
-            },
-            new IncrementalPage<CanonicalContact>
-            {
-                Items = [CreateContactItem("a2", "v1", "Alice Two")],
-                HasMore = false,
-                NextCursor = "delta-token",
-            });
+            new ItemSet<CanonicalContact>(
+                [CreateContactItem("a1", "v1", "Alice One"), CreateContactItem("a2", "v1", "Alice Two")],
+                "delta-token"));
         FakeConnector destinationConnector = new();
         var executor = CreateExecutor();
 
@@ -213,6 +204,22 @@ public sealed class JobExecutorTests : IDisposable
         // Cursor must have been written after a successful run
         var cursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None);
         Assert.NotNull(cursor);
+    }
+
+    [Fact]
+    public async Task NoPersistenceRun_UsesFullLoadPathWithoutAdvancingCursors()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+
+        var executor = CreateExecutor();
+
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, noPersistence: true));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, sourceConnector.GetAllItemsCallCount);
+        Assert.Null(await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None));
     }
 
     // -------------------------------------------------------------------------
@@ -426,25 +433,28 @@ public sealed class JobExecutorTests : IDisposable
         IConnector<CanonicalContact> destinationConnector,
         ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
         string? filter = null,
-        SyncMode syncMode = SyncMode.Bidirectional)
+        SyncMode syncMode = SyncMode.Bidirectional,
+        bool noPersistence = false)
     {
-        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy, filter, syncMode), sourceConnector, destinationConnector);
+        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy, filter, syncMode, noPersistence), sourceConnector, destinationConnector);
     }
 
     private static JobOptions CreateJobOptions(
         ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
         string? filter = null,
-        SyncMode syncMode = SyncMode.Bidirectional) =>
+        SyncMode syncMode = SyncMode.Bidirectional,
+        bool noPersistence = false) =>
         new()
         {
             Enabled = true,
             EntityType = EntityType.Contact,
-            Source = "endpointA",
-            Destination = "endpointB",
+            SourceEndpointName = "endpointA",
+            DestinationEndpointName = "endpointB",
             SyncMode = syncMode,
             DeletePolicy = DeletePolicy.Mirror,
             ConflictPolicy = conflictPolicy,
             Filter = filter,
+            NoPersistence = noPersistence,
         };
 
     private static CanonicalContact CreateContactItem(string id, string version, string displayName, string? organization = null, string? email = null) => new()
@@ -463,7 +473,7 @@ public sealed class JobExecutorTests : IDisposable
     private static string GenerateTestEmail(string displayName) =>
         $"{displayName.Replace(" ", ".", StringComparison.OrdinalIgnoreCase).ToLowerInvariant()}@example.com";
 
-    private sealed class PagedConnector(params IncrementalPage<CanonicalContact>[] pages) : IConnector<CanonicalContact>
+    private sealed class PagedConnector(params ItemSet<CanonicalContact>[] pageSets) : IConnector<CanonicalContact>
     {
         private int index;
 
@@ -474,13 +484,12 @@ public sealed class JobExecutorTests : IDisposable
             SupportsDeletes = true,
         };
 
+        public string EndpointName => "paged-test";
+
         public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-        public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(GetPage(reset: true));
-
-        public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
-            Task.FromResult(GetPage());
+        public Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default) =>
+            Task.FromResult(GetPage(reset: cursor is null));
 
         public Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
             Task.FromResult<CanonicalContact?>(null);
@@ -493,11 +502,11 @@ public sealed class JobExecutorTests : IDisposable
 
         public Task DeleteItemAsync(string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-        private IncrementalPage<CanonicalContact> GetPage(bool reset = false)
+        private ItemSet<CanonicalContact> GetPage(bool reset)
         {
-            if (pages.Length == 0)
+            if (pageSets.Length == 0)
             {
-                throw new InvalidOperationException("At least one page is required.");
+                throw new InvalidOperationException("At least one item set is required.");
             }
 
             if (reset)
@@ -505,9 +514,9 @@ public sealed class JobExecutorTests : IDisposable
                 index = 0;
             }
 
-            int currentIndex = Math.Min(index, pages.Length - 1);
+            int currentIndex = Math.Min(index, pageSets.Length - 1);
             index++;
-            return pages[currentIndex];
+            return pageSets[currentIndex];
         }
     }
 }

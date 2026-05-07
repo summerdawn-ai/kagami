@@ -608,8 +608,8 @@ public sealed class SyncActionPlannerTests
         {
             Enabled = true,
             EntityType = EntityType.CalendarEvent,
-            Source = "endpointA",
-            Destination = "endpointB",
+            SourceEndpointName = "endpointA",
+            DestinationEndpointName = "endpointB",
             SyncMode = mode,
             DeletePolicy = deletePolicy,
             ConflictPolicy = conflictPolicy,
