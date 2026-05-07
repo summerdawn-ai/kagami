@@ -78,7 +78,7 @@ public sealed class ForceSyncTests : IDisposable
         Assert.Equal(1, firstResult.ActionsPlanned);
 
         // Record how many times the connector had to do a null-cursor full read during the first run.
-        int initialPageCallsAfterFirstRun = sourceConnector.GetItemsCallCountWithoutCursor;
+        int initialPageCallsAfterFirstRun = sourceConnector.GetCursorItemsCallCountWithNullCursor;
 
         // Second run with no changes: the cursor is at the end of all items so the
         // incremental read returns an empty delta. The planner sees no items and produces
@@ -89,7 +89,7 @@ public sealed class ForceSyncTests : IDisposable
 
         // The source connector's initial-page endpoint must not have been called again;
         // only the incremental (delta) endpoint should be used on this run.
-        Assert.Equal(initialPageCallsAfterFirstRun, sourceConnector.GetItemsCallCountWithoutCursor);
+        Assert.Equal(initialPageCallsAfterFirstRun, sourceConnector.GetCursorItemsCallCountWithNullCursor);
     }
 
     [Fact]

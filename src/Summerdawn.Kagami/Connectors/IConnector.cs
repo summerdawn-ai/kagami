@@ -31,6 +31,15 @@ public interface IConnector<TItem> where TItem : CanonicalItem
     public Task<ItemSet<TItem>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Loads all current items from the connector without using delta endpoints or cursors.
+    /// </summary>
+    public async Task<IReadOnlyList<TItem>> GetAllItemsAsync(CancellationToken cancellationToken = default)
+    {
+        var itemSet = await GetCursorItemsAsync(cursor: null, cancellationToken);
+        return itemSet.Items;
+    }
+
+    /// <summary>
     /// Fetches a single item by its provider ID, or returns <c>null</c> when the item does not exist.
     /// </summary>
     public Task<TItem?> GetItemAsync(string id, CancellationToken cancellationToken = default);

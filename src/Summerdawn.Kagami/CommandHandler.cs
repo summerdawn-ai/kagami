@@ -33,9 +33,9 @@ public sealed class CommandHandler<TItem>(
         await connector.AuthenticateAsync(cancellationToken);
 
         List<TItem> items = [];
-        var itemSet = await connector.GetCursorItemsAsync(cursor: null, cancellationToken);
+        var allItems = await connector.GetAllItemsAsync(cancellationToken);
 
-        foreach (var item in itemSet.Items)
+        foreach (var item in allItems)
         {
             if (filter is not null && !filter.Matches(item))
             {

@@ -265,6 +265,14 @@ public sealed class JobExecutor(
 
     private async Task<ItemSet<TItem>> LoadItemsAsync<TItem>(Job<TItem> job, IConnector<TItem> connector, string? cursor, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
+        // Use optimized endpoint if cursor not needed.
+        if (job.Options.NoPersistence)
+        {
+            logger.LogInformation("No persistence for {Endpoint}; performing full load without cursors", connector.EndpointName);
+            var items = await connector.GetAllItemsAsync(cancellationToken);
+            return new ItemSet<TItem>(items, null);
+        }
+
         if ((job.Options.Full || job.Options.Force) && cursor is not null)
         {
             logger.LogInformation("Full or force flag set for {Endpoint}; performing full load (ignoring cursor)", connector.EndpointName);

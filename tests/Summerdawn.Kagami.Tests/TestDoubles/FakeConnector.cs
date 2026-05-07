@@ -7,12 +7,16 @@ public sealed class FakeConnector : IConnector<CanonicalContact>
 {
     private readonly List<CanonicalContact> items = [];
     private int generation;
-    private int getItemsCallCountWithoutCursor;
 
     /// <summary>
     /// Gets the number of times <see cref="GetCursorItemsAsync"/> has been called with a <c>null</c> cursor.
     /// </summary>
-    public int GetItemsCallCountWithoutCursor => getItemsCallCountWithoutCursor;
+    public int GetCursorItemsCallCountWithNullCursor { get; private set; }
+
+    /// <summary>
+    /// Gets the number of times <see cref="GetAllItemsAsync"/> has been called.
+    /// </summary>
+    public int GetAllItemsCallCount { get; private set; }
 
     public ConnectorCapabilities Capabilities { get; } = new()
     {
@@ -52,7 +56,7 @@ public sealed class FakeConnector : IConnector<CanonicalContact>
     {
         if (cursor is null)
         {
-            getItemsCallCountWithoutCursor++;
+            GetCursorItemsCallCountWithNullCursor++;
             return Task.FromResult(new ItemSet<CanonicalContact>([.. items], generation.ToString()));
         }
 
@@ -63,6 +67,12 @@ public sealed class FakeConnector : IConnector<CanonicalContact>
 
         var changed = items.Where(i => GetItemGeneration(i) > fromGeneration).ToList();
         return Task.FromResult(new ItemSet<CanonicalContact>(changed, generation.ToString()));
+    }
+
+    public Task<IReadOnlyList<CanonicalContact>> GetAllItemsAsync(CancellationToken cancellationToken = default)
+    {
+        GetAllItemsCallCount++;
+        return Task.FromResult((IReadOnlyList<CanonicalContact>)[.. items]);
     }
 
     public Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>

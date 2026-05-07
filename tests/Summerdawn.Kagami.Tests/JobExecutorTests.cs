@@ -206,6 +206,22 @@ public sealed class JobExecutorTests : IDisposable
         Assert.NotNull(cursor);
     }
 
+    [Fact]
+    public async Task NoPersistenceRun_UsesFullLoadPathWithoutAdvancingCursors()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+
+        var executor = CreateExecutor();
+
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, noPersistence: true));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, sourceConnector.GetAllItemsCallCount);
+        Assert.Null(await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None));
+    }
+
     // -------------------------------------------------------------------------
     // Scenario A: Filtered mirror/prune — item moves out of scope
     // -------------------------------------------------------------------------
@@ -417,15 +433,17 @@ public sealed class JobExecutorTests : IDisposable
         IConnector<CanonicalContact> destinationConnector,
         ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
         string? filter = null,
-        SyncMode syncMode = SyncMode.Bidirectional)
+        SyncMode syncMode = SyncMode.Bidirectional,
+        bool noPersistence = false)
     {
-        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy, filter, syncMode), sourceConnector, destinationConnector);
+        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy, filter, syncMode, noPersistence), sourceConnector, destinationConnector);
     }
 
     private static JobOptions CreateJobOptions(
         ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
         string? filter = null,
-        SyncMode syncMode = SyncMode.Bidirectional) =>
+        SyncMode syncMode = SyncMode.Bidirectional,
+        bool noPersistence = false) =>
         new()
         {
             Enabled = true,
@@ -436,6 +454,7 @@ public sealed class JobExecutorTests : IDisposable
             DeletePolicy = DeletePolicy.Mirror,
             ConflictPolicy = conflictPolicy,
             Filter = filter,
+            NoPersistence = noPersistence,
         };
 
     private static CanonicalContact CreateContactItem(string id, string version, string displayName, string? organization = null, string? email = null) => new()

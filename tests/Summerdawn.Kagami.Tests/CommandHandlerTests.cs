@@ -73,6 +73,17 @@ public sealed class CommandHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task ListAsync_UsesFullLoadPath()
+    {
+        sourceConnector.Seed(MakeContact("a1", "Alice"));
+
+        var items = await service.ListAsync("Microsoft", null, null, default);
+
+        Assert.Single(items);
+        Assert.Equal(1, sourceConnector.GetAllItemsCallCount);
+    }
+
+    [Fact]
     public async Task ListAsync_HonorsMaxItemsAcrossPages()
     {
         var pagedService = CreateService(

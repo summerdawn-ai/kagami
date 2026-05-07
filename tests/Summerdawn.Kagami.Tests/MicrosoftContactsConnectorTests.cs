@@ -125,6 +125,21 @@ public sealed class MicrosoftContactsConnectorTests
     }
 
     [Fact]
+    public async Task GetAllItemsAsync_LoadsContactsDirectlyWithoutBatchHydration()
+    {
+        string page = "{" +
+            "\"value\":[" + ContactJson("c1", businessPhones: ["555-0001"], extendedProps: [("String 0x3A1F", "555-other")]) + "]}";
+        var connector = CreateConnector(page);
+
+        var items = await connector.GetAllItemsAsync();
+
+        var contact = items.Single();
+        Assert.Equal("c1", contact.Provenance.ProviderId);
+        Assert.Contains(contact.Phones, phone => phone.Label == "work" && phone.Number == "555-0001");
+        Assert.Contains(contact.Phones, phone => phone.Label == "other" && phone.Number == "555-other");
+    }
+
+    [Fact]
     public async Task GetInitialPage_MapsHomePhonesAsHome()
     {
         string contact = ContactJson("c1", homePhones: ["555-1001"]);
