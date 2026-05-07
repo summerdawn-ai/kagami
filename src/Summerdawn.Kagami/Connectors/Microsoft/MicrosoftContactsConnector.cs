@@ -14,7 +14,13 @@ namespace Summerdawn.Kagami.Connectors;
 internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
 {
     private const string MicrosoftScope = "https://graph.microsoft.com/.default";
+    private const string GraphBaseUri = "https://graph.microsoft.com/v1.0";
     private const string ContactSelectFields = "id,displayName,givenName,middleName,surname,emailAddresses,businessPhones,homePhones,mobilePhone,companyName,jobTitle,personalNotes,birthday,categories,homeAddress,businessAddress,otherAddress,lastModifiedDateTime";
+    private const string DeltaSelectFields = "id,lastModifiedDateTime";
+    // Delta returns only lightweight metadata, so we can ask Graph for larger pages before hydrating the contacts in batches.
+    private const string DeltaPageSizeHeaderValue = "odata.maxpagesize=200";
+    // Microsoft Graph limits JSON batching to 20 requests, so 200-contact pages are hydrated in 20-item chunks.
+    private const int MaxBatchSize = 20;
 
     // Additional Microsoft phone fields not available on the standard contact resource.
     // We intentionally only map phone-number labels that are supported on Microsoft for this connector.
@@ -50,8 +56,8 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         string userId = endpoint.Properties.GetRequiredValue("userId", $"endpoint '{endpointName}'");
         string? folderId = endpoint.Properties.GetOptionalValue("folderId");
         collectionPath = folderId is null
-            ? $"https://graph.microsoft.com/v1.0/users/{Uri.EscapeDataString(userId)}/contacts"
-            : $"https://graph.microsoft.com/v1.0/users/{Uri.EscapeDataString(userId)}/contactFolders/{Uri.EscapeDataString(folderId)}/contacts";
+            ? $"{GraphBaseUri}/users/{Uri.EscapeDataString(userId)}/contacts"
+            : $"{GraphBaseUri}/users/{Uri.EscapeDataString(userId)}/contactFolders/{Uri.EscapeDataString(folderId)}/contacts";
     }
 
     public ConnectorCapabilities Capabilities { get; } = new()
@@ -71,7 +77,7 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
     }
 
     public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
-        GetPageAsync($"{collectionPath}/delta?$select={Uri.EscapeDataString(ContactSelectFields)}", cancellationToken);
+        GetPageAsync($"{collectionPath}/delta?$select={Uri.EscapeDataString(DeltaSelectFields)}", cancellationToken);
 
     public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
         GetPageAsync(cursor, cancellationToken);
@@ -128,30 +134,43 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
     private async Task<IncrementalPage<CanonicalContact>> GetPageAsync(string requestUri, CancellationToken cancellationToken)
     {
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
+        request.Headers.TryAddWithoutValidation("Prefer", DeltaPageSizeHeaderValue);
         using var document = await SendForJsonAsync(request, cancellationToken);
 
         List<CanonicalContact> items = [];
+        List<string> idsToHydrate = [];
         if (document.RootElement.TryGetProperty("value", out var values))
         {
             foreach (var element in values.EnumerateArray())
             {
-                var contact = ConvertContact(element);
-                if (contact is not null)
+                string? id = ReadString(element, "id");
+                if (string.IsNullOrWhiteSpace(id))
                 {
-                    if (!contact.IsDeleted)
-                    {
-                        ContactPhotoLoader.Attach(contact, ct => PopulatePhotoAsync(contact, contact.Provenance.ProviderId, ct));
-                    }
-
-                    items.Add(contact);
+                    continue;
                 }
+
+                if (element.TryGetProperty("@removed", out _))
+                {
+                    items.Add(new CanonicalContact
+                    {
+                        IsDeleted = true,
+                        Provenance =
+                        {
+                            ProviderId = id,
+                            LastModified = ReadDateTimeOffset(element, "lastModifiedDateTime"),
+                        }
+                    });
+                    continue;
+                }
+
+                idsToHydrate.Add(id);
             }
         }
 
-        // Enrich delta page items with extended phone properties.
-        // The delta endpoint does not support $expand=singleValueExtendedProperties, so we
-        // make a second call to the regular (non-delta) endpoint filtered by lastModifiedDateTime.
-        await EnrichWithExtendedPhonePropertiesAsync(items, cancellationToken);
+        if (idsToHydrate.Count > 0)
+        {
+            items.AddRange(await BatchGetContactsAsync(idsToHydrate, cancellationToken));
+        }
 
         string? nextLink = document.RootElement.TryGetProperty("@odata.nextLink", out var nextLinkElement)
             ? nextLinkElement.GetString()
@@ -168,63 +187,117 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         };
     }
 
-    // The delta endpoint does not support extended property expansion, so after loading a delta
-    // page we enrich the non-deleted items by querying the regular contacts endpoint filtered
-    // by the minimum lastModifiedDateTime seen in the page.
-    private async Task EnrichWithExtendedPhonePropertiesAsync(List<CanonicalContact> contacts, CancellationToken cancellationToken)
+    /// <summary>
+    /// Hydrates the metadata-only delta page by fetching the full contact payload only for the ids returned on that page.
+    /// </summary>
+    /// <remarks>
+    /// The delta request can page up to 200 lightweight ids at a time, but Microsoft Graph JSON batching allows only 20 subrequests per batch,
+    /// so the connector splits each page into smaller chunks and reassembles the hydrated results in page order.
+    /// </remarks>
+    private async Task<List<CanonicalContact>> BatchGetContactsAsync(List<string> ids, CancellationToken cancellationToken)
     {
-        // Collect non-deleted items that have payloads.
-        var nonDeleted = contacts
-            .Where(i => i is { IsDeleted: false, Provenance.LastModified: not null })
-            .ToList();
-        if (nonDeleted.Count == 0)
+        List<CanonicalContact> items = [];
+        foreach (string[] chunk in ids.Chunk(MaxBatchSize))
         {
-            return;
+            items.AddRange(await BatchGetContactsChunkAsync(chunk, cancellationToken));
         }
 
-        // Find the minimum lastModifiedDateTime.
-        var minModified = nonDeleted
-            .Select(i => i.Provenance.LastModified!.Value)
-            .Min();
+        return items;
+    }
 
-        // Query the regular contacts endpoint with a filter and extended-property expansion.
-        // This returns all contacts modified at or after the minimum, which should cover the delta page items.
-        string filter = Uri.EscapeDataString($"lastModifiedDateTime ge {minModified:O}");
-        string enrichUri = $"{collectionPath}?$select={Uri.EscapeDataString(ContactSelectFields)}&$filter={filter}&{ExtendedPropertiesExpand}";
+    /// <summary>
+    /// Sends one Microsoft Graph <c>$batch</c> request for a single chunk of contact ids and maps the responses back to canonical contacts.
+    /// </summary>
+    private async Task<List<CanonicalContact>> BatchGetContactsChunkAsync(IReadOnlyList<string> ids, CancellationToken cancellationToken)
+    {
+        using var request = await CreateRequestAsync(HttpMethod.Post, $"{GraphBaseUri}/$batch", cancellationToken);
+        request.Content = CreateJsonContent(CreateBatchRequestBody(ids));
+        using var document = await SendForJsonAsync(request, cancellationToken);
 
-        // Build lookup of enriched data by contact id.
-        Dictionary<string, JsonElement> enriched = [];
-        string? nextLink = enrichUri;
-        while (nextLink is not null)
+        Dictionary<string, JsonElement> responseById = [];
+        if (document.RootElement.TryGetProperty("responses", out var responses))
         {
-            using var enrichRequest = await CreateRequestAsync(HttpMethod.Get, nextLink, cancellationToken);
-            using var enrichDoc = await SendForJsonAsync(enrichRequest, cancellationToken);
-            if (enrichDoc.RootElement.TryGetProperty("value", out var enrichValues))
+            foreach (var response in responses.EnumerateArray())
             {
-                foreach (var element in enrichValues.EnumerateArray())
+                string? responseId = ReadString(response, "id");
+                if (!string.IsNullOrWhiteSpace(responseId))
                 {
-                    string? eid = element.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-                    if (!string.IsNullOrWhiteSpace(eid))
-                    {
-                        enriched[eid] = element.Clone();
-                    }
+                    responseById[responseId] = response.Clone();
                 }
             }
-
-            nextLink = enrichDoc.RootElement.TryGetProperty("@odata.nextLink", out var nextLinkEl)
-                ? nextLinkEl.GetString()
-                : null;
         }
 
-        // Apply extended phone properties only to items that were in the delta page.
-        // Ignore any extra contacts returned by the enrichment query.
-        foreach (var contact in nonDeleted)
+        List<CanonicalContact> items = [];
+        for (int i = 0; i < ids.Count; i++)
         {
-            if (enriched.TryGetValue(contact.Provenance.ProviderId, out var enrichedElement))
+            string requestId = (i + 1).ToString();
+            if (!responseById.TryGetValue(requestId, out var response))
             {
-                ApplyExtendedPhoneProperties(contact, enrichedElement);
+                throw new InvalidOperationException($"Microsoft Graph batch response was missing contact '{ids[i]}'.");
             }
+
+            int status = response.GetProperty("status").GetInt32();
+            if (status < 200 || status >= 300)
+            {
+                string detail = response.TryGetProperty("body", out var errorBody)
+                    ? errorBody.GetRawText()
+                    : "No response body was returned.";
+                throw new InvalidOperationException($"Microsoft Graph batch contact request failed for '{ids[i]}' with {status}: {detail}");
+            }
+
+            if (!response.TryGetProperty("body", out var body))
+            {
+                throw new InvalidOperationException($"Microsoft Graph batch response for '{ids[i]}' did not include a contact payload.");
+            }
+
+            var contact = ConvertContact(body);
+            if (contact is null)
+            {
+                continue;
+            }
+
+            ApplyExtendedPhoneProperties(contact, body);
+            ContactPhotoLoader.Attach(contact, ct => PopulatePhotoAsync(contact, contact.Provenance.ProviderId, ct));
+            items.Add(contact);
         }
+
+        return items;
+    }
+
+    /// <summary>
+    /// Builds the Microsoft Graph batch payload without <see cref="System.Text.Json.Nodes"/> so the connector stays friendly to AOT compilation.
+    /// </summary>
+    private string CreateBatchRequestBody(IReadOnlyList<string> ids)
+    {
+        StringBuilder body = new();
+        body.Append("{\"requests\":[");
+        for (int i = 0; i < ids.Count; i++)
+        {
+            if (i > 0)
+            {
+                body.Append(',');
+            }
+
+            body.Append("{\"id\":\"")
+                .Append(i + 1)
+                .Append("\",\"method\":\"GET\",\"url\":")
+                .Append(JsonSerializer.Serialize(CreateBatchRelativeContactUrl(ids[i])))
+                .Append('}');
+        }
+
+        body.Append("]}");
+        return body.ToString();
+    }
+
+    private string CreateBatchRelativeContactUrl(string id)
+    {
+        string relativePath = new Uri(collectionPath).AbsolutePath;
+        if (relativePath.StartsWith("/v1.0", StringComparison.OrdinalIgnoreCase))
+        {
+            relativePath = relativePath["/v1.0".Length..];
+        }
+
+        return $"{relativePath}/{Uri.EscapeDataString(id)}?$select={Uri.EscapeDataString(ContactSelectFields)}&{ExtendedPropertiesExpand}";
     }
 
     private async Task<HttpRequestMessage> CreateRequestAsync(HttpMethod method, string requestUri, CancellationToken cancellationToken)
@@ -253,6 +326,9 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         string detail = await response.Content.ReadAsStringAsync(cancellationToken);
         throw new InvalidOperationException($"Microsoft Graph request failed with {(int)response.StatusCode} {response.ReasonPhrase}: {detail}");
     }
+
+    private static StringContent CreateJsonContent(string body) =>
+        new(body, Encoding.UTF8, "application/json");
 
     private static StringContent CreateJsonContent(JsonNode body) =>
         new(body.ToJsonString(), Encoding.UTF8, "application/json");

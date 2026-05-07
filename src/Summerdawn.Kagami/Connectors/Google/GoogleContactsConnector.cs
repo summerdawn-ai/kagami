@@ -13,6 +13,10 @@ namespace Summerdawn.Kagami.Connectors;
 internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
 {
     private const string PersonFields = "metadata,names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships,photos";
+    // Load larger metadata-only pages up front so exports and list operations spend less time round-tripping for page tokens.
+    private const int ConnectionsPageSize = 200;
+    // Google batchGet limits matching to 50 ids.
+    private const int MaxBatchSize = 50;
     private static readonly DateOnly DefaultBirthday = new(1900, 1, 1);
 
     private readonly HttpClient httpClient;
@@ -116,7 +120,7 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
         StringBuilder requestUri = new("https://people.googleapis.com/v1/people/me/connections");
         requestUri.Append("?personFields=").Append(Uri.EscapeDataString("metadata"));
         requestUri.Append("&sources=READ_SOURCE_TYPE_CONTACT");
-        requestUri.Append("&pageSize=50");
+        requestUri.Append("&pageSize=").Append(ConnectionsPageSize);
         if (cursor.RequestSyncToken)
         {
             requestUri.Append("&requestSyncToken=true");
@@ -203,7 +207,28 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
         };
     }
 
+    /// <summary>
+    /// Hydrates the metadata-only connection page by loading the full Google People payload for just the ids on that page.
+    /// </summary>
+    /// <remarks>
+    /// Google <c>people:batchGet</c> is still a GET with repeated <c>resourceNames</c> query parameters, so the page is split into
+    /// smaller chunks to avoid building an oversized request URI when the connector loads 200 contacts at a time.
+    /// </remarks>
     private async Task<List<CanonicalContact>> BatchGetPeopleAsync(List<string> resourceNames, CancellationToken cancellationToken)
+    {
+        List<CanonicalContact> items = [];
+        foreach (string[] chunk in resourceNames.Chunk(MaxBatchSize))
+        {
+            items.AddRange(await BatchGetPeopleChunkAsync(chunk, cancellationToken));
+        }
+
+        return items;
+    }
+
+    /// <summary>
+    /// Executes a single Google <c>people:batchGet</c> request for one resource-name chunk and attaches deferred photo loading to each hydrated contact.
+    /// </summary>
+    private async Task<List<CanonicalContact>> BatchGetPeopleChunkAsync(IReadOnlyList<string> resourceNames, CancellationToken cancellationToken)
     {
         StringBuilder requestUri = new("https://people.googleapis.com/v1/people:batchGet");
         requestUri.Append("?personFields=").Append(Uri.EscapeDataString(PersonFields));

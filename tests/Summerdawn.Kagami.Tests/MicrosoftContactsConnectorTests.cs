@@ -85,6 +85,25 @@ public sealed class MicrosoftContactsConnectorTests
     private static string NormalPage(params string[] contactJsons) =>
         $"{{\"value\":[{string.Join(",", contactJsons)}]}}";
 
+    private static string BatchResponse(params string[] contactJsons)
+    {
+        var responses = new JsonArray();
+        for (int i = 0; i < contactJsons.Length; i++)
+        {
+            responses.Add(new JsonObject
+            {
+                ["id"] = (i + 1).ToString(),
+                ["status"] = 200,
+                ["body"] = JsonNode.Parse(contactJsons[i]),
+            });
+        }
+
+        return new JsonObject
+        {
+            ["responses"] = responses,
+        }.ToJsonString();
+    }
+
     private static JsonArray CreateStringArray(IEnumerable<string> values)
     {
         var array = new JsonArray();
@@ -101,7 +120,7 @@ public sealed class MicrosoftContactsConnectorTests
     public async Task GetInitialPage_MapsBusinessPhonesAsWork()
     {
         string contact = ContactJson("c1", businessPhones: ["555-0001", "555-0002"]);
-        string enrichment = NormalPage(ContactJson("c1", businessPhones: ["555-0001", "555-0002"]));
+        string enrichment = BatchResponse(ContactJson("c1", businessPhones: ["555-0001", "555-0002"]));
         var connector = CreateConnector(
             (DeltaPage("delta1", contact)),
             (enrichment));
@@ -119,7 +138,7 @@ public sealed class MicrosoftContactsConnectorTests
     public async Task GetInitialPage_MapsHomePhonesAsHome()
     {
         string contact = ContactJson("c1", homePhones: ["555-1001"]);
-        string enrichment = NormalPage(ContactJson("c1", homePhones: ["555-1001"]));
+        string enrichment = BatchResponse(ContactJson("c1", homePhones: ["555-1001"]));
         var connector = CreateConnector(
             (DeltaPage("delta1", contact)),
             (enrichment));
@@ -136,7 +155,7 @@ public sealed class MicrosoftContactsConnectorTests
     public async Task GetInitialPage_MapsMobilePhone()
     {
         string contact = ContactJson("c1", mobile: "555-2001");
-        string enrichment = NormalPage(ContactJson("c1", mobile: "555-2001"));
+        string enrichment = BatchResponse(ContactJson("c1", mobile: "555-2001"));
         var connector = CreateConnector(
             (DeltaPage("delta1", contact)),
             (enrichment));
@@ -158,7 +177,7 @@ public sealed class MicrosoftContactsConnectorTests
         string enriched = ContactJson("c1", extendedProps: [("String 0x3A1F", "555-9001")]);
         var connector = CreateConnector(
             (DeltaPage("delta1", deltaContact)),
-            (NormalPage(enriched)));
+            (BatchResponse(enriched)));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -182,7 +201,7 @@ public sealed class MicrosoftContactsConnectorTests
         ]);
         var connector = CreateConnector(
             (DeltaPage("delta1", deltaContact)),
-            (NormalPage(enriched)));
+            (BatchResponse(enriched)));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -207,7 +226,7 @@ public sealed class MicrosoftContactsConnectorTests
         ]);
         var connector = CreateConnector(
             (DeltaPage("delta1", deltaContact)),
-            (NormalPage(enriched)));
+            (BatchResponse(enriched)));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -224,7 +243,7 @@ public sealed class MicrosoftContactsConnectorTests
         string enriched = ContactJson("c1");
         var connector = CreateConnector(
             (DeltaPage("delta1", deltaContact)),
-            (NormalPage(enriched)));
+            (BatchResponse(enriched)));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -243,7 +262,7 @@ public sealed class MicrosoftContactsConnectorTests
 
         var connector = CreateConnector(
             (DeltaPage("delta1", deltaContact)),
-            (NormalPage(enrichedC1, enrichedExtra)));
+            (BatchResponse(enrichedC1, enrichedExtra)));
 
         var page = await connector.GetInitialPageAsync();
 
@@ -262,7 +281,7 @@ public sealed class MicrosoftContactsConnectorTests
 
         var connector = CreateConnector(
             (deltaPage),
-            (NormalPage(nonDeleted)));
+            (BatchResponse(nonDeleted)));
 
         var page = await connector.GetInitialPageAsync();
 
