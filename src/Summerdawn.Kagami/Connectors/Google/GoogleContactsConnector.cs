@@ -10,6 +10,9 @@ using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Connectors;
 
+/// <summary>
+/// Synchronizes Google People contacts by combining connection-list enumeration with person hydration.
+/// </summary>
 public sealed class GoogleContactsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, GoogleOAuthCredential credential, ILogger<GoogleContactsConnector> logger) : IConnector<CanonicalContact>
 {
     private const string PersonFields = "metadata,names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships,photos";
@@ -215,6 +218,10 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     /// <summary>
     /// Hydrates the metadata-only connection page by loading the full Google People payload for just the ids on that page.
     /// </summary>
+    /// <remarks>
+    /// Google connection entries expose the connection version rather than the underlying person version, so the connector must always hydrate
+    /// each page through <c>people:batchGet</c> to read the authoritative person etag used for change tracking and export correctness.
+    /// </remarks>
     /// <remarks>
     /// Google <c>people:batchGet</c> is still a GET with repeated <c>resourceNames</c> query parameters, so the page is split into
     /// smaller chunks to avoid building an oversized request URI when the connector loads 200 contacts at a time.

@@ -12,6 +12,9 @@ using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Connectors;
 
+/// <summary>
+/// Synchronizes Microsoft Graph contacts using delta queries for persisted syncs and direct full collection reads for explicit full loads.
+/// </summary>
 public sealed class MicrosoftContactsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, MicrosoftClientCredential credential) : IConnector<CanonicalContact>
 {
     private const string MicrosoftScope = "https://graph.microsoft.com/.default";
