@@ -43,10 +43,10 @@ public sealed class GoogleContactsConnectorTests
     }
 
     [Fact]
-    public void ConvertPerson_UnknownCustomGroupFallsBackToRawResourceName()
+    public void ConvertPerson_UnknownCustomGroupIsSkipped()
     {
-        // When a membership resource name is not in the supplied mapping,
-        // the raw resource name should be preserved instead of being silently dropped.
+        // When a membership resource name is not in the
+        // supplied mapping, the membership should be skipped.
         string personJson = """
             {
                 "resourceName": "people/456",
@@ -65,9 +65,8 @@ public sealed class GoogleContactsConnectorTests
             new Dictionary<string, string>());
 
         Assert.NotNull(contact);
-        // myContacts filtered; unknown custom group preserved as raw resource name.
-        string category = Assert.Single(contact.Categories);
-        Assert.Equal("contactGroups/unknown-abc", category);
+        // myContacts filtered; unknown custom group skipped.
+        Assert.Empty(contact.Categories);
     }
 
     [Fact]

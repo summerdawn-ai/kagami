@@ -726,8 +726,11 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                 continue;
             }
 
-            // Translate to display name; fall back to raw resource name if not in the cache.
-            categories.Add(groupNamesByResource.GetValueOrDefault(resourceName, defaultValue: resourceName));
+            // Translate to display name; skip if not in the cache.
+            if (groupNamesByResource.TryGetValue(resourceName, out string? displayName))
+            {
+                categories.Add(displayName);
+            }
         }
 
         return categories.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
