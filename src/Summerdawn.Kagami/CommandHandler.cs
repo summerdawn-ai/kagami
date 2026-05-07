@@ -44,11 +44,6 @@ public sealed class CommandHandler<TItem>(
                     continue;
                 }
 
-                if (item is CanonicalContact contact)
-                {
-                    await ContactPhotoLoader.EnsureLoadedAsync(contact, cancellationToken);
-                }
-
                 items.Add(item);
                 if (maxItems is not null && items.Count >= maxItems.Value)
                 {

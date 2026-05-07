@@ -133,22 +133,6 @@ public sealed class CommandHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task ListAsync_WithFilter_LoadsPhotosOnlyForMatchedContacts()
-    {
-        LazyPhotoConnector lazyConnector = new(
-            MakeContact("a1", "Alice"),
-            MakeContact("a2", "Bob"));
-        var lazyService = CreateService(lazyConnector);
-
-        var filter = ContactFilter.Parse("startswith(name,'A')")!;
-        var items = await lazyService.ListAsync("Microsoft", filter, null, default);
-
-        var item = Assert.Single(items);
-        Assert.Equal("Alice", item.DisplayName);
-        Assert.Equal(["a1"], lazyConnector.LoadedPhotoIds);
-    }
-
-    [Fact]
     public async Task ListAsync_ThrowsForUnknownEndpoint()
     {
         await Assert.ThrowsAsync<KeyNotFoundException>(
