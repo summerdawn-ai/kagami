@@ -1,10 +1,7 @@
-using System.Text.Encodings.Web;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
-using Summerdawn.Kagami.Serialization;
 
 namespace Summerdawn.Kagami.Tests;
 
@@ -169,22 +166,6 @@ public sealed class GoogleContactsConnectorTests
 
     // ── helpers ───────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Serializes <paramref name="contact"/> to a compact camelCase JSON string, excluding provenance,
-    /// for stable test assertions.
-    /// </summary>
-    private static string SerializeCore(CanonicalContact contact)
-    {
-        var options = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            PropertyNameCaseInsensitive = true,
-            WriteIndented = false,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            TypeInfoResolver = new KagamiJsonContext(),
-        };
-        var node = JsonNode.Parse(JsonSerializer.Serialize(contact, options))!.AsObject();
-        node.Remove("provenance");
-        return node.ToJsonString(new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
-    }
+    private static string SerializeCore(CanonicalContact contact) =>
+        CanonicalContactTestHelpers.SerializeCore(contact);
 }

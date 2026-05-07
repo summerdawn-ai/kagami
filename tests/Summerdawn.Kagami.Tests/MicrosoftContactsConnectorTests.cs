@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -10,7 +9,6 @@ using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
-using Summerdawn.Kagami.Serialization;
 
 namespace Summerdawn.Kagami.Tests;
 
@@ -488,24 +486,8 @@ public sealed class MicrosoftContactsConnectorTests
     private static JsonObject InvokeInternalBuildWritableContact(CanonicalContact contact) =>
         MicrosoftContactsConnector.BuildWritableContact(contact);
 
-    /// <summary>
-    /// Serializes <paramref name="contact"/> to a compact camelCase JSON string, excluding provenance,
-    /// for stable test assertions.
-    /// </summary>
-    private static string SerializeCore(CanonicalContact contact)
-    {
-        var options = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            PropertyNameCaseInsensitive = true,
-            WriteIndented = false,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            TypeInfoResolver = new KagamiJsonContext(),
-        };
-        var node = JsonNode.Parse(JsonSerializer.Serialize(contact, options))!.AsObject();
-        node.Remove("provenance");
-        return node.ToJsonString(new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
-    }
+    private static string SerializeCore(CanonicalContact contact) =>
+        CanonicalContactTestHelpers.SerializeCore(contact);
 
     // ── HTTP stubs ────────────────────────────────────────────────────────
 
