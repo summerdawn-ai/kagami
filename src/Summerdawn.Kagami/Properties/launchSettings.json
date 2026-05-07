@@ -11,6 +11,10 @@
     "jobs list": {
       "commandName": "Project",
       "commandLineArgs": "jobs list --settings ./appsettings.json"
+    },
+    "contacts sync --full": {
+      "commandName": "Project",
+      "commandLineArgs": "contacts sync --from Google --to Microsoft --settings ./appsettings.json --full --filter \"startswith(name, 'Yvonne')\" --what-if"
     }
   }
 }

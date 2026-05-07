@@ -33,8 +33,11 @@ public sealed class CommandHandler<TItem>(
         await connector.AuthenticateAsync(cancellationToken);
 
         List<TItem> items = [];
+        // For architectural reasons, load _all_ items, anyway;
+        // the max count is only to avoid overfilling the output.
         var allItems = await connector.GetAllItemsAsync(cancellationToken);
 
+        // Limit listed items to max count.
         foreach (var item in allItems)
         {
             if (filter is not null && !filter.Matches(item))

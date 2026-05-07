@@ -13,7 +13,9 @@ namespace Summerdawn.Kagami.Connectors;
 /// <summary>
 /// Synchronizes Google People contacts by combining connection-list enumeration with person hydration.
 /// </summary>
+#pragma warning disable CS9113 // Parameter is unread.
 public sealed class GoogleContactsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, GoogleOAuthCredential credential, ILogger<GoogleContactsConnector> logger) : IConnector<CanonicalContact>
+#pragma warning restore CS9113 // Parameter is unread.
 {
     private const string PersonFields = "metadata,names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships,photos";
     // Load larger metadata-only pages up front so exports and list operations spend less time round-tripping for page tokens.
