@@ -10,7 +10,7 @@ using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Connectors;
 
-internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
+public sealed class GoogleContactsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, GoogleOAuthCredential credential, ILogger<GoogleContactsConnector> logger) : IConnector<CanonicalContact>
 {
     private const string PersonFields = "metadata,names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships,photos";
     // Load larger metadata-only pages up front so exports and list operations spend less time round-tripping for page tokens.
@@ -19,25 +19,8 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
     private const int MaxBatchSize = 50;
     private static readonly DateOnly DefaultBirthday = new(1900, 1, 1);
 
-    private readonly HttpClient httpClient;
-    private readonly ILogger<GoogleContactsConnector> logger;
-    private readonly GoogleOAuthCredential credential;
     private Dictionary<string, string>? groupNamesByResource;
     private Dictionary<string, string>? groupResourcesByName;
-
-    public GoogleContactsConnector(
-        HttpClient httpClient,
-        string endpointName,
-        EndpointOptions endpoint,
-        GoogleOAuthCredential credential,
-        ILogger<GoogleContactsConnector> logger)
-    {
-        _ = endpointName;
-        _ = endpoint;
-        this.httpClient = httpClient;
-        this.logger = logger;
-        this.credential = credential;
-    }
 
     public ConnectorCapabilities Capabilities { get; } = new()
     {
@@ -50,16 +33,41 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
         SupportsServerSideFiltering = false,
     };
 
+    public string EndpointName { get; } = endpointName;
+
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
         _ = await credential.GetAccessTokenAsync(cancellationToken);
     }
 
-    public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
-        GetConnectionsPageAsync(new GoogleCursor(null, null, true), cancellationToken);
+    public async Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
+    {
+        var pageCursor = cursor is null
+            ? new GoogleCursor(null, null, true)
+            : ParseCursor(cursor);
 
-    public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
-        GetConnectionsPageAsync(ParseCursor(cursor), cancellationToken);
+        List<CanonicalContact> items = [];
+        string? finalCursor = cursor;
+        while (true)
+        {
+            var page = await GetConnectionsPageAsync(pageCursor, cancellationToken);
+            items.AddRange(page.Items);
+            finalCursor = page.Cursor;
+            if (!page.HasMore)
+            {
+                break;
+            }
+
+            if (page.Cursor is null)
+            {
+                throw new InvalidOperationException("Google connector returned HasMore=true without a cursor.");
+            }
+
+            pageCursor = ParseCursor(page.Cursor);
+        }
+
+        return new ItemSet<CanonicalContact>(items, finalCursor);
+    }
 
     public async Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
@@ -115,7 +123,7 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
-    private async Task<IncrementalPage<CanonicalContact>> GetConnectionsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
+    private async Task<ConnectorPage> GetConnectionsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
     {
         StringBuilder requestUri = new("https://people.googleapis.com/v1/people/me/connections");
         requestUri.Append("?personFields=").Append(Uri.EscapeDataString("metadata"));
@@ -141,7 +149,7 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
         if (response.StatusCode == HttpStatusCode.Gone && cursor.SyncToken is not null)
         {
             logger.LogWarning("Google People sync token expired; falling back to a new full sync.");
-            return await GetInitialPageAsync(cancellationToken);
+            return await GetConnectionsPageAsync(new GoogleCursor(null, null, true), cancellationToken);
         }
 
         await EnsureSuccessAsync(response, cancellationToken);
@@ -197,14 +205,11 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
             ? nextSyncTokenElement.GetString()
             : cursor.SyncToken;
 
-        return new IncrementalPage<CanonicalContact>
-        {
-            Items = items,
-            HasMore = nextPageToken is not null,
-            NextCursor = nextPageToken is not null
-                ? SerializeCursor(new GoogleCursor(cursor.SyncToken, nextPageToken, cursor.RequestSyncToken))
-                : nextSyncToken is not null ? SerializeCursor(new GoogleCursor(nextSyncToken, null, false)) : null,
-        };
+        string? nextCursor = nextPageToken is not null
+            ? SerializeCursor(new GoogleCursor(cursor.SyncToken, nextPageToken, cursor.RequestSyncToken))
+            : nextSyncToken is not null ? SerializeCursor(new GoogleCursor(nextSyncToken, null, false)) : null;
+
+        return new ConnectorPage(items, nextCursor, nextPageToken is not null);
     }
 
     /// <summary>
@@ -784,6 +789,8 @@ internal sealed class GoogleContactsConnector : IConnector<CanonicalContact>
             ["pageToken"] = cursor.PageToken,
             ["requestSyncToken"] = cursor.RequestSyncToken,
         }.ToJsonString();
+
+    private sealed record ConnectorPage(IReadOnlyList<CanonicalContact> Items, string? Cursor, bool HasMore);
 
     private sealed record GoogleCursor(string? SyncToken, string? PageToken, bool RequestSyncToken);
 

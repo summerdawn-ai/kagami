@@ -11,7 +11,7 @@ using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Connectors;
 
-internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
+public sealed class MicrosoftContactsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, MicrosoftClientCredential credential) : IConnector<CanonicalContact>
 {
     private const string MicrosoftScope = "https://graph.microsoft.com/.default";
     private const string GraphBaseUri = "https://graph.microsoft.com/v1.0";
@@ -39,26 +39,7 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         string.Join(" or ", ExtendedPhoneProperties.Select(p => $"id eq '{p.GraphId}'")) +
         ")";
 
-    private readonly HttpClient httpClient;
-    private readonly TokenCredential credential;
-    private readonly string collectionPath;
-
-    public MicrosoftContactsConnector(
-        HttpClient httpClient,
-        string endpointName,
-        EndpointOptions endpoint,
-        MicrosoftClientCredential credential,
-        ILogger<MicrosoftContactsConnector> logger)
-    {
-        _ = logger;
-        this.httpClient = httpClient;
-        this.credential = credential.TokenCredential;
-        string userId = endpoint.Properties.GetRequiredValue("userId", $"endpoint '{endpointName}'");
-        string? folderId = endpoint.Properties.GetOptionalValue("folderId");
-        collectionPath = folderId is null
-            ? $"{GraphBaseUri}/users/{Uri.EscapeDataString(userId)}/contacts"
-            : $"{GraphBaseUri}/users/{Uri.EscapeDataString(userId)}/contactFolders/{Uri.EscapeDataString(folderId)}/contacts";
-    }
+    private readonly string collectionPath = GetCollectionPath(endpointName, endpoint);
 
     public ConnectorCapabilities Capabilities { get; } = new()
     {
@@ -71,16 +52,33 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         SupportsServerSideFiltering = true,
     };
 
+    public string EndpointName { get; } = endpointName;
+
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
-        _ = await credential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
+        _ = await credential.TokenCredential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
     }
 
-    public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
-        GetPageAsync($"{collectionPath}/delta?$select={Uri.EscapeDataString(DeltaSelectFields)}", cancellationToken);
+    public async Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
+    {
+        string requestUri = cursor ?? $"{collectionPath}/delta?$select={Uri.EscapeDataString(DeltaSelectFields)}";
+        List<CanonicalContact> items = [];
+        string? finalCursor = cursor;
+        while (true)
+        {
+            var page = await GetPageAsync(requestUri, cancellationToken);
+            items.AddRange(page.Items);
+            finalCursor = page.Cursor;
+            if (!page.HasMore)
+            {
+                break;
+            }
 
-    public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
-        GetPageAsync(cursor, cancellationToken);
+            requestUri = page.Cursor ?? throw new InvalidOperationException("Microsoft connector returned HasMore=true without a cursor.");
+        }
+
+        return new ItemSet<CanonicalContact>(items, finalCursor);
+    }
 
     public async Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
@@ -131,7 +129,7 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
-    private async Task<IncrementalPage<CanonicalContact>> GetPageAsync(string requestUri, CancellationToken cancellationToken)
+    private async Task<ConnectorPage> GetPageAsync(string requestUri, CancellationToken cancellationToken)
     {
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         request.Headers.TryAddWithoutValidation("Prefer", DeltaPageSizeHeaderValue);
@@ -179,12 +177,7 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
             ? deltaLinkElement.GetString()
             : null;
 
-        return new IncrementalPage<CanonicalContact>
-        {
-            Items = items,
-            HasMore = nextLink is not null,
-            NextCursor = nextLink ?? deltaLink,
-        };
+        return new ConnectorPage(items, nextLink ?? deltaLink, nextLink is not null);
     }
 
     /// <summary>
@@ -281,13 +274,20 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
             body.Append("{\"id\":\"")
                 .Append(i + 1)
                 .Append("\",\"method\":\"GET\",\"url\":")
-                .Append(JsonSerializer.Serialize(CreateBatchRelativeContactUrl(ids[i])))
+                .Append('"')
+                .Append(EscapeJsonString(CreateBatchRelativeContactUrl(ids[i])))
+                .Append('"')
                 .Append('}');
         }
 
         body.Append("]}");
         return body.ToString();
     }
+
+    private static string EscapeJsonString(string value) =>
+        value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
 
     private string CreateBatchRelativeContactUrl(string id)
     {
@@ -300,9 +300,11 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         return $"{relativePath}/{Uri.EscapeDataString(id)}?$select={Uri.EscapeDataString(ContactSelectFields)}&{ExtendedPropertiesExpand}";
     }
 
+    private sealed record ConnectorPage(IReadOnlyList<CanonicalContact> Items, string? Cursor, bool HasMore);
+
     private async Task<HttpRequestMessage> CreateRequestAsync(HttpMethod method, string requestUri, CancellationToken cancellationToken)
     {
-        var token = await credential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
+        var token = await credential.TokenCredential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
         HttpRequestMessage request = new(method, requestUri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
         return request;
@@ -648,5 +650,15 @@ internal sealed class MicrosoftContactsConnector : IConnector<CanonicalContact>
         }
 
         return null;
+    }
+    private static string GetCollectionPath(string endpointName, EndpointOptions endpoint)
+    {
+        string userId = endpoint.Properties.GetRequiredValue("userId", $"endpoint '{endpointName}'");
+        string? folderId = endpoint.Properties.GetOptionalValue("folderId");
+        string path = folderId is null
+            ? $"{GraphBaseUri}/users/{Uri.EscapeDataString(userId)}/contacts"
+            : $"{GraphBaseUri}/users/{Uri.EscapeDataString(userId)}/contactFolders/{Uri.EscapeDataString(folderId)}/contacts";
+
+        return path;
     }
 }

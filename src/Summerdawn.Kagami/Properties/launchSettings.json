@@ -6,7 +6,11 @@
     },
     "contacts list --from=Microsoft": {
       "commandName": "Project",
-      "commandLineArgs": "contacts list --from=Microsoft --filter \"startswith(name,'Katharina')\" --settings ./appsettings.json"
+      "commandLineArgs": "contacts list --from=Google --filter \"startswith(name,'Katharina')\" --settings ./appsettings.json"
+    },
+    "jobs list": {
+      "commandName": "Project",
+      "commandLineArgs": "jobs list --settings ./appsettings.json"
     }
   }
 }

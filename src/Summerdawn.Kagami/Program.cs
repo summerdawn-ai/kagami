@@ -57,12 +57,12 @@ public static class Program
                 return;
             }
 
-            Console.WriteLine($"{"Key",-30} {"Enabled",-8} {"EntityType",-18} {"Source",-20} {"Destination",-20} {"Mode",-16} {"Schedule"}");
+            Console.WriteLine($"{"Key",-30} {"Enabled",-8} {"EntityType",-18} {"SourceEndpointName",-20} {"DestinationEndpointName",-20} {"Mode",-16} {"Schedule"}");
             Console.WriteLine(new string('-', 120));
             foreach (var (key, job) in kagamiOptions.Jobs)
             {
                 Console.WriteLine(
-                    $"{key,-30} {job.Enabled,-8} {job.EntityType,-18} {job.Source,-20} {job.Destination,-20} {job.SyncMode,-16} {job.Schedule}");
+                    $"{key,-30} {job.Enabled,-8} {job.EntityType,-18} {job.SourceEndpointName,-20} {job.DestinationEndpointName,-20} {job.SyncMode,-16} {job.Schedule}");
             }
         });
 

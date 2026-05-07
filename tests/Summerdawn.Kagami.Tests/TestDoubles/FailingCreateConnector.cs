@@ -15,13 +15,12 @@ public sealed class FailingCreateConnector(string throwForSourceId) : IConnector
 
     public ConnectorCapabilities Capabilities => inner.Capabilities;
 
+    public string EndpointName => "failing-test";
+
     public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-    public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default) =>
-        inner.GetInitialPageAsync(cancellationToken);
-
-    public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default) =>
-        inner.GetIncrementalPageAsync(cursor, cancellationToken);
+    public Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default) =>
+        inner.GetCursorItemsAsync(cursor, cancellationToken);
 
     public Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
         inner.GetItemAsync(id, cancellationToken);

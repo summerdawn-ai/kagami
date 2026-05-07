@@ -4,8 +4,6 @@ using System.Text.Json.Nodes;
 
 using Azure.Core;
 
-using Microsoft.Extensions.Logging.Abstractions;
-
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
@@ -27,12 +25,7 @@ public sealed class MicrosoftContactsConnectorTests
             Properties = new Dictionary<string, string> { ["userId"] = "user@example.com" },
         };
         var credential = new MicrosoftClientCredential(new FakeTokenCredential());
-        return new MicrosoftContactsConnector(
-            httpClient,
-            "test",
-            endpoint,
-            credential,
-            NullLogger<MicrosoftContactsConnector>.Instance);
+        return new MicrosoftContactsConnector(httpClient, "test", endpoint, credential);
     }
 
     private static string ContactJson(
@@ -82,9 +75,6 @@ public sealed class MicrosoftContactsConnectorTests
     private static string DeltaPage(string deltaLink, params string[] contactJsons) =>
         $"{{\"value\":[{string.Join(",", contactJsons)}],\"@odata.deltaLink\":\"{deltaLink}\"}}";
 
-    private static string NormalPage(params string[] contactJsons) =>
-        $"{{\"value\":[{string.Join(",", contactJsons)}]}}";
-
     private static string BatchResponse(params string[] contactJsons)
     {
         var responses = new JsonArray();
@@ -125,7 +115,7 @@ public sealed class MicrosoftContactsConnectorTests
             (DeltaPage("delta1", contact)),
             (enrichment));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Equal(2, phones.Count);
@@ -143,7 +133,7 @@ public sealed class MicrosoftContactsConnectorTests
             (DeltaPage("delta1", contact)),
             (enrichment));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Single(phones);
@@ -160,7 +150,7 @@ public sealed class MicrosoftContactsConnectorTests
             (DeltaPage("delta1", contact)),
             (enrichment));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Single(phones);
@@ -179,7 +169,7 @@ public sealed class MicrosoftContactsConnectorTests
             (DeltaPage("delta1", deltaContact)),
             (BatchResponse(enriched)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Single(phones);
@@ -203,7 +193,7 @@ public sealed class MicrosoftContactsConnectorTests
             (DeltaPage("delta1", deltaContact)),
             (BatchResponse(enriched)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Equal(5, phones.Count);
@@ -228,7 +218,7 @@ public sealed class MicrosoftContactsConnectorTests
             (DeltaPage("delta1", deltaContact)),
             (BatchResponse(enriched)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Single(phones);
@@ -245,7 +235,7 @@ public sealed class MicrosoftContactsConnectorTests
             (DeltaPage("delta1", deltaContact)),
             (BatchResponse(enriched)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         var phones = GetContact(page, "c1").Phones;
         Assert.Empty(phones);
@@ -264,7 +254,7 @@ public sealed class MicrosoftContactsConnectorTests
             (DeltaPage("delta1", deltaContact)),
             (BatchResponse(enrichedC1, enrichedExtra)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         // Only c1 should be in the page, not c-extra
         Assert.Single(page.Items);
@@ -283,7 +273,7 @@ public sealed class MicrosoftContactsConnectorTests
             (deltaPage),
             (BatchResponse(nonDeleted)));
 
-        var page = await connector.GetInitialPageAsync();
+        var page = await connector.GetCursorItemsAsync(cursor: null);
 
         Assert.Equal(2, page.Items.Count);
         var deletedItem = page.Items.Single(i => i.Provenance.ProviderId == "del1");
@@ -403,7 +393,7 @@ public sealed class MicrosoftContactsConnectorTests
 
     // ── helpers ───────────────────────────────────────────────────────────
 
-    private static CanonicalContact GetContact(IncrementalPage<CanonicalContact> page, string id) =>
+    private static CanonicalContact GetContact(ItemSet<CanonicalContact> page, string id) =>
         page.Items.Single(i => i.Provenance.ProviderId == id);
 
     /// <summary>

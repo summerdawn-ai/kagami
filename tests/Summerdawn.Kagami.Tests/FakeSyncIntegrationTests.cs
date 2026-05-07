@@ -127,8 +127,8 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     {
         Enabled = true,
         EntityType = EntityType.Contact,
-        Source = "endpointA",
-        Destination = "endpointB",
+        SourceEndpointName = "endpointA",
+        DestinationEndpointName = "endpointB",
         SyncMode = mode,
         DeletePolicy = DeletePolicy.Mirror,
         ConflictPolicy = ConflictPolicy.LastWriteWins,

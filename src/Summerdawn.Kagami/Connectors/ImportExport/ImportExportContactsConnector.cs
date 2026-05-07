@@ -27,33 +27,13 @@ namespace Summerdawn.Kagami.Connectors;
 /// <see cref="Configuration.DeletePolicy"/> on the job options).
 /// </para>
 /// </remarks>
-public sealed class ImportExportContactsConnector : IConnector<CanonicalContact>
+public sealed class ImportExportContactsConnector(string directory) : IConnector<CanonicalContact>
 {
     private static readonly string[] PhotoExtensions = [".png", ".jpg", ".gif", ".bmp", ".webp", ".bin"];
 
-    private readonly string directory;
-
     // Tracks base names used during this session (pre-populated from existing files) to avoid
     // clobbering on create.
-    private readonly HashSet<string> usedBaseNames;
-
-    /// <summary>
-    /// Initializes a new instance of <see cref="ImportExportContactsConnector"/> backed by
-    /// <paramref name="directory"/>.
-    /// </summary>
-    public ImportExportContactsConnector(string directory)
-    {
-        this.directory = directory;
-
-        usedBaseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (Directory.Exists(directory))
-        {
-            foreach (string file in Directory.GetFiles(directory, "*.json"))
-            {
-                usedBaseNames.Add(Path.GetFileNameWithoutExtension(file));
-            }
-        }
-    }
+    private readonly HashSet<string> usedBaseNames = GetUsedBaseNames(directory);
 
     /// <inheritdoc/>
     public ConnectorCapabilities Capabilities { get; } = new()
@@ -67,21 +47,28 @@ public sealed class ImportExportContactsConnector : IConnector<CanonicalContact>
         SupportsServerSideFiltering = false,
     };
 
+    public string EndpointName => "importExport";
+
     /// <summary>
     /// No-op; local file access requires no authentication.
     /// </summary>
     public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     /// <summary>
-    /// Reads all <c>*.json</c> files in the directory and returns them as a single full page.
+    /// Reads all <c>*.json</c> files in the directory and returns them as a single item set.
     /// </summary>
-    public async Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default)
+    public async Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
     {
+        if (cursor is not null)
+        {
+            throw new NotSupportedException("Import/Export does not support incremental cursors.");
+        }
+
         var contacts = new List<CanonicalContact>();
 
         if (!Directory.Exists(directory))
         {
-            return new IncrementalPage<CanonicalContact> { Items = contacts, HasMore = false };
+            return new ItemSet<CanonicalContact>(contacts, null);
         }
 
         foreach (string jsonFile in Directory.GetFiles(directory, "*.json").OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
@@ -95,11 +82,8 @@ public sealed class ImportExportContactsConnector : IConnector<CanonicalContact>
             }
         }
 
-        return new IncrementalPage<CanonicalContact> { Items = contacts, HasMore = false };
+        return new ItemSet<CanonicalContact>(contacts, null);
     }
-
-    public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("Import/Export does not support incremental pages.");
 
     /// <summary>
     /// Reads a single contact by its file base name (provider ID).
@@ -242,5 +226,20 @@ public sealed class ImportExportContactsConnector : IConnector<CanonicalContact>
             string photoPath = Path.ChangeExtension(filePath, extension);
             await File.WriteAllBytesAsync(photoPath, photoBytes, cancellationToken);
         }
+    }
+
+    private static HashSet<string> GetUsedBaseNames(string directory)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (Directory.Exists(directory))
+        {
+            foreach (string file in Directory.GetFiles(directory, "*.json"))
+            {
+                names.Add(Path.GetFileNameWithoutExtension(file));
+            }
+        }
+
+        return names;
     }
 }

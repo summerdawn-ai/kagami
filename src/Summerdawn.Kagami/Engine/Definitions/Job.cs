@@ -11,9 +11,9 @@ public record Job<TItem>(string Key, JobOptions Options, IConnector<TItem> Sourc
 {
     /// <summary>
     /// Gets the partition key used to group link-state rows for this endpoint pair.
-    /// Derived from <see cref="JobOptions.EntityType"/>, <see cref="JobOptions.Source"/>, and
-    /// <see cref="JobOptions.Destination"/> so that scheduled jobs and equivalent CLI sync runs
+    /// Derived from <see cref="JobOptions.EntityType"/>, <see cref="JobOptions.SourceEndpointName"/>, and
+    /// <see cref="JobOptions.DestinationEndpointName"/> so that scheduled jobs and equivalent CLI sync runs
     /// targeting the same endpoints share the same link-state partition.
     /// </summary>
-    public string PartitionKey => $"{Options.EntityType}:{Options.Source}:{Options.Destination}";
+    public string PartitionKey => $"{Options.EntityType}:{Options.SourceEndpointName}:{Options.DestinationEndpointName}";
 }

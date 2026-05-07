@@ -381,8 +381,8 @@ public sealed class LinkExaminerTests
     {
         Enabled = true,
         EntityType = "contact",
-        Source = "endpointA",
-        Destination = "endpointB",
+        SourceEndpointName = "endpointA",
+        DestinationEndpointName = "endpointB",
         Full = true,
     };
 
@@ -390,8 +390,8 @@ public sealed class LinkExaminerTests
     {
         Enabled = true,
         EntityType = "contact",
-        Source = "endpointA",
-        Destination = "endpointB",
+        SourceEndpointName = "endpointA",
+        DestinationEndpointName = "endpointB",
         Full = false,
         Force = false,
     };

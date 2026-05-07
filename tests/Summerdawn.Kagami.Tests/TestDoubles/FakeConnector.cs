@@ -7,12 +7,12 @@ public sealed class FakeConnector : IConnector<CanonicalContact>
 {
     private readonly List<CanonicalContact> items = [];
     private int generation;
-    private int getInitialPageCallCount;
+    private int getItemsCallCountWithoutCursor;
 
     /// <summary>
-    /// Gets the number of times <see cref="GetInitialPageAsync"/> has been called.
+    /// Gets the number of times <see cref="GetCursorItemsAsync"/> has been called with a <c>null</c> cursor.
     /// </summary>
-    public int GetInitialPageCallCount => getInitialPageCallCount;
+    public int GetItemsCallCountWithoutCursor => getItemsCallCountWithoutCursor;
 
     public ConnectorCapabilities Capabilities { get; } = new()
     {
@@ -24,6 +24,8 @@ public sealed class FakeConnector : IConnector<CanonicalContact>
         SupportsContactPhotos = true,
         SupportsServerSideFiltering = false,
     };
+
+    public string EndpointName => "fake";
 
     public void Seed(CanonicalContact item)
     {
@@ -46,31 +48,21 @@ public sealed class FakeConnector : IConnector<CanonicalContact>
 
     public Task AuthenticateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-    public Task<IncrementalPage<CanonicalContact>> GetInitialPageAsync(CancellationToken cancellationToken = default)
+    public Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
     {
-        getInitialPageCallCount++;
-        return Task.FromResult(new IncrementalPage<CanonicalContact>
+        if (cursor is null)
         {
-            Items = [.. items],
-            NextCursor = generation.ToString(),
-            HasMore = false,
-        });
-    }
+            getItemsCallCountWithoutCursor++;
+            return Task.FromResult(new ItemSet<CanonicalContact>([.. items], generation.ToString()));
+        }
 
-    public Task<IncrementalPage<CanonicalContact>> GetIncrementalPageAsync(string cursor, CancellationToken cancellationToken = default)
-    {
         if (!int.TryParse(cursor, out int fromGeneration))
         {
             fromGeneration = 0;
         }
 
         var changed = items.Where(i => GetItemGeneration(i) > fromGeneration).ToList();
-        return Task.FromResult(new IncrementalPage<CanonicalContact>
-        {
-            Items = changed,
-            NextCursor = generation.ToString(),
-            HasMore = false,
-        });
+        return Task.FromResult(new ItemSet<CanonicalContact>(changed, generation.ToString()));
     }
 
     public Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>

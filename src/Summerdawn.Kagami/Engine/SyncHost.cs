@@ -112,12 +112,12 @@ public sealed class SyncHost(
             throw new InvalidOperationException($"Job '{jobKey}' not found in configuration.");
         }
 
-        string partitionKey = $"{job.EntityType}:{job.Source}:{job.Destination}";
+        string partitionKey = $"{job.EntityType}:{job.SourceEndpointName}:{job.DestinationEndpointName}";
         var linkRepo = new LinkStateRepository(stateDb);
         await linkRepo.DeleteByPartitionAsync(partitionKey, cancellationToken);
         var cursorRepo = new EndpointCursorRepository(stateDb);
-        await cursorRepo.DeleteCursorAsync(jobKey, job.Source, cancellationToken);
-        await cursorRepo.DeleteCursorAsync(jobKey, job.Destination, cancellationToken);
+        await cursorRepo.DeleteCursorAsync(jobKey, job.SourceEndpointName, cancellationToken);
+        await cursorRepo.DeleteCursorAsync(jobKey, job.DestinationEndpointName, cancellationToken);
         logger.LogInformation("Reset job {JobKey}: link state and cursors cleared", jobKey);
     }
 
@@ -151,8 +151,8 @@ public sealed class SyncHost(
         try
         {
             var connectorResolver = provider.GetRequiredService<Func<string, IConnector<TItem>>>();
-            var sourceConnector = connectorResolver(jobOptions.Source);
-            var destinationConnector = connectorResolver(jobOptions.Destination);
+            var sourceConnector = connectorResolver(jobOptions.SourceEndpointName);
+            var destinationConnector = connectorResolver(jobOptions.DestinationEndpointName);
 
             var job = new Job<TItem>(jobKey, jobOptions, sourceConnector, destinationConnector);
 
