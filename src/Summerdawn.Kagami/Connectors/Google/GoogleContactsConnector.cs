@@ -498,7 +498,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             GivenName = NullIfEmpty(ReadFirstNestedString(person, "names", "givenName")?.Trim()),
             MiddleName = NullIfEmpty(ReadFirstNestedString(person, "names", "middleName")?.Trim()),
             FamilyName = NullIfEmpty(ReadFirstNestedString(person, "names", "familyName")?.Trim()),
-            DisplayName = (ReadFirstNestedString(person, "names", "displayName") ?? string.Empty).Trim(),
+            DisplayName = NormalizeDisplayName(ReadFirstNestedString(person, "names", "displayName")),
             Organization = ReadFirstNestedString(person, "organizations", "name"),
             Title = ReadFirstNestedString(person, "organizations", "title"),
             Notes = ReadFirstNestedString(person, "biographies", "value"),
@@ -822,6 +822,9 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         var first = array[0];
         return first.TryGetProperty(propertyName, out var propertyElement) ? propertyElement.GetString() : null;
     }
+
+    private static string NormalizeDisplayName(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? string.Empty : string.Join(' ', value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     private static string? NullIfEmpty(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;

@@ -504,7 +504,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             GivenName = NullIfEmpty(ReadString(element, "givenName")?.Trim()),
             MiddleName = NullIfEmpty(ReadString(element, "middleName")?.Trim()),
             FamilyName = NullIfEmpty(ReadString(element, "surname")?.Trim()),
-            DisplayName = (ReadString(element, "displayName") ?? string.Empty).Trim(),
+            DisplayName = NormalizeDisplayName(ReadString(element, "displayName")),
             Organization = NullIfEmpty(ReadString(element, "companyName")),
             Title = NullIfEmpty(ReadString(element, "jobTitle")),
             Notes = NullIfEmpty(ReadString(element, "personalNotes")),
@@ -691,6 +691,9 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         element.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.GetString()
             : null;
+
+    private static string NormalizeDisplayName(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? string.Empty : string.Join(' ', value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     private static string? NullIfEmpty(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
