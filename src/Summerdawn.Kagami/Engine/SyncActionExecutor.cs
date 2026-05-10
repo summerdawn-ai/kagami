@@ -68,18 +68,12 @@ public sealed class SyncActionExecutor(
         IReadOnlyList<SyncAction<TItem>> actions,
         SyncDirection direction,
         Job<TItem> job,
-        IReadOnlyList<LinkStateRow> existingLinks,
         CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         await EnsureActionItemsLoadedAsync(actions, cancellationToken);
 
         string entityType = job.Options.EntityType;
         var targetConnector = direction == SourceToDestination ? job.DestinationConnector : job.SourceConnector;
-
-        var linksBySourceId = existingLinks.ToDictionary(l => l.SourceId);
-        var linksByDestinationId = existingLinks
-            .Where(l => l.DestinationId != null)
-            .ToDictionary(l => l.DestinationId!);
 
         bool failedActions = false;
 
@@ -91,9 +85,6 @@ public sealed class SyncActionExecutor(
                 job,
                 entityType,
                 targetConnector,
-                existingLinks,
-                linksBySourceId,
-                linksByDestinationId,
                 cancellationToken);
 
             if (!succeeded)
@@ -126,9 +117,6 @@ public sealed class SyncActionExecutor(
         Job<TItem> job,
         string entityType,
         IConnector<TItem> targetConnector,
-        IReadOnlyList<LinkStateRow> existingLinks,
-        Dictionary<string, LinkStateRow> linksBySourceId,
-        Dictionary<string, LinkStateRow> linksByDestinationId,
         CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         var itemToWrite = GetItemToWrite(action);
@@ -168,7 +156,7 @@ public sealed class SyncActionExecutor(
 
                 case Update when itemToWrite is not null:
                     {
-                        var link = FindLinkForUpdate(existingLinks, direction, itemToWrite.Provenance.ProviderId);
+                        var link = action.Link.PersistedState;
                         if (link is null)
                         {
                             if (matchedTargetItem is null)
@@ -248,9 +236,7 @@ public sealed class SyncActionExecutor(
                         {
                             await opLog.AppendAsync(job.Key, entityType, "delete", deleteId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
-                            var link = direction == SourceToDestination
-                                ? linksByDestinationId.GetValueOrDefault(deleteId)
-                                : linksBySourceId.GetValueOrDefault(deleteId);
+                            var link = action.Link.PersistedState;
 
                             if (link is not null)
                             {
@@ -396,20 +382,6 @@ public sealed class SyncActionExecutor(
         }
 
         return $"item '{GetDeleteId(action)}'";
-    }
-
-    /// <summary>
-    /// Finds the persisted link row for an update action, or returns <c>null</c> when no link
-    /// exists yet.
-    /// </summary>
-    private static LinkStateRow? FindLinkForUpdate(
-        IReadOnlyList<LinkStateRow> existingLinks,
-        SyncDirection direction,
-        string providerId)
-    {
-        return direction == SourceToDestination
-            ? existingLinks.FirstOrDefault(link => link.SourceId == providerId)
-            : existingLinks.FirstOrDefault(link => link.DestinationId == providerId);
     }
 
     /// <summary>
