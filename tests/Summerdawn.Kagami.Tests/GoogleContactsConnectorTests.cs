@@ -34,7 +34,7 @@ public sealed class GoogleContactsConnectorTests
         };
 
         using var document = JsonDocument.Parse(personJson);
-        var contact = GoogleContactsConnector.ConvertPerson(document.RootElement, groupNamesByResource);
+        var contact = GoogleContactsConnector.ConvertPerson(document.RootElement, groupNamesByResource, "google");
 
         Assert.NotNull(contact);
         string actual = SerializeCore(contact);
@@ -54,7 +54,7 @@ public sealed class GoogleContactsConnectorTests
             """;
 
         using var document = JsonDocument.Parse(personJson);
-        var contact = GoogleContactsConnector.ConvertPerson(document.RootElement, new Dictionary<string, string>());
+        var contact = GoogleContactsConnector.ConvertPerson(document.RootElement, new Dictionary<string, string>(), "google");
 
         Assert.NotNull(contact);
         Assert.Equal(new DateOnly(1604, 5, 10), contact!.Birthday);
@@ -80,7 +80,8 @@ public sealed class GoogleContactsConnectorTests
         using var document = JsonDocument.Parse(personJson);
         var contact = GoogleContactsConnector.ConvertPerson(
             document.RootElement,
-            new Dictionary<string, string>());
+            new Dictionary<string, string>(),
+            "google");
 
         Assert.NotNull(contact);
         // myContacts filtered; unknown custom group skipped.
@@ -104,7 +105,8 @@ public sealed class GoogleContactsConnectorTests
         using var document = JsonDocument.Parse(personJson);
         var contact = GoogleContactsConnector.ConvertPerson(
             document.RootElement,
-            new Dictionary<string, string>());
+            new Dictionary<string, string>(),
+            "google");
 
         Assert.NotNull(contact);
         Assert.Empty(contact.Categories);

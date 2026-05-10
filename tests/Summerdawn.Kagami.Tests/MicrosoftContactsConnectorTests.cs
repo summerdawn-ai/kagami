@@ -438,7 +438,7 @@ public sealed class MicrosoftContactsConnectorTests
             """;
 
         using var document = JsonDocument.Parse(contactJson);
-        var contact = MicrosoftContactsConnector.ConvertContact(document.RootElement);
+        var contact = MicrosoftContactsConnector.ConvertContact(document.RootElement, "Microsoft");
 
         Assert.NotNull(contact);
         string actual = SerializeCore(contact);
@@ -486,7 +486,7 @@ public sealed class MicrosoftContactsConnectorTests
             """;
 
         using var document = JsonDocument.Parse(contactJson);
-        var contact = MicrosoftContactsConnector.ConvertContact(document.RootElement);
+        var contact = MicrosoftContactsConnector.ConvertContact(document.RootElement, "Microsoft");
 
         Assert.NotNull(contact);
         string actual = SerializeCore(contact);

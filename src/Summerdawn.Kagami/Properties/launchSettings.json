@@ -14,6 +14,10 @@
     },
     "contacts sync --full": {
       "commandName": "Project",
+      "commandLineArgs": "contacts sync --from Google --to Microsoft --settings ./appsettings.json --full --what-if"
+    },
+    "contacts sync --full --filter": {
+      "commandName": "Project",
       "commandLineArgs": "contacts sync --from Google --to Microsoft --settings ./appsettings.json --full --filter \"startswith(name, 'Yvonne')\" --what-if"
     }
   }

@@ -86,7 +86,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         string requestUri = $"https://people.googleapis.com/v1/{id}?personFields={Uri.EscapeDataString(PersonFields)}";
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         using var document = await SendForJsonAsync(request, cancellationToken);
-        var item = ConvertPerson(document.RootElement, groupNamesByResource!);
+        var item = ConvertPerson(document.RootElement, groupNamesByResource!, EndpointName);
         if (item is not null && !item.IsDeleted)
         {
             await PopulatePhotoAsync(item, document.RootElement, cancellationToken);
@@ -103,7 +103,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         using var request = await CreateRequestAsync(HttpMethod.Post, requestUri, cancellationToken);
         request.Content = CreateJsonContent(body);
         using var document = await SendForJsonAsync(request, cancellationToken);
-        var created = ConvertPerson(document.RootElement, groupNamesByResource!) ?? throw new InvalidOperationException("Google createContact returned no person payload.");
+        var created = ConvertPerson(document.RootElement, groupNamesByResource!, EndpointName) ?? throw new InvalidOperationException("Google createContact returned no person payload.");
         await SyncPhotoAsync(created.Provenance.ProviderId, contact, deleteWhenAbsent: false, cancellationToken);
         return await GetItemAsync(created.Provenance.ProviderId, cancellationToken)
             ?? throw new InvalidOperationException("Google createContact succeeded but the created item could not be reloaded.");
@@ -274,7 +274,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                     continue;
                 }
 
-                var item = ConvertPerson(person, groupNamesByResource!);
+                var item = ConvertPerson(person, groupNamesByResource!, EndpointName);
                 if (item is not null)
                 {
                     if (!item.IsDeleted)
@@ -467,7 +467,8 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     /// System groups (<c>contactGroups/myContacts</c>, <c>contactGroups/starred</c>) are filtered out;
     /// custom groups are translated using this mapping, falling back to the raw resource name if unknown.
     /// </param>
-    internal static CanonicalContact? ConvertPerson(JsonElement person, IReadOnlyDictionary<string, string> groupNamesByResource)
+    /// <param name="endpointName">The name of the endpoint from which this contact was retrieved.</param>
+    internal static CanonicalContact? ConvertPerson(JsonElement person, IReadOnlyDictionary<string, string> groupNamesByResource, string endpointName)
     {
         string? resourceName = person.TryGetProperty("resourceName", out var resourceNameElement)
             ? resourceNameElement.GetString()
@@ -485,7 +486,10 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             return new CanonicalContact
             {
                 IsDeleted = true,
-                Provenance = { ProviderId = resourceName }
+                Provenance = {
+                    ProviderId = resourceName,
+                    EndpointName = endpointName
+                }
             };
         }
 
@@ -504,6 +508,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             Provenance =
             {
                 ProviderId = resourceName,
+                EndpointName = endpointName,
                 Version = person.TryGetProperty("etag", out var etagElement) ? etagElement.GetString() : null,
                 LastModified = ReadLastModified(person),
             }
