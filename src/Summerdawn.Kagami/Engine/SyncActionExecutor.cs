@@ -36,8 +36,8 @@ public sealed class SyncActionExecutor(
     Func<ConsoleKeyInfo>? readKey = null,
     Action<string>? writePrompt = null)
 {
-    private readonly Func<ConsoleKeyInfo> readKey = readKey ?? (() => Console.ReadKey(intercept: true));
-    private readonly Action<string> writePrompt = writePrompt ?? Console.Write;
+    private readonly Func<ConsoleKeyInfo> readKeyFunc = readKey ?? (() => Console.ReadKey(intercept: true));
+    private readonly Action<string> writePromptAction = writePrompt ?? Console.Write;
 
     /// <summary>
     /// Logs all planned actions for a what-if run without performing any writes.
@@ -391,8 +391,8 @@ public sealed class SyncActionExecutor(
     {
         while (true)
         {
-            writePrompt($"Planned action: {action.ToDisplayString()} Proceed (Y) (N) (A) (Q)");
-            var key = readKey();
+            writePromptAction($"Planned action: {action.ToDisplayString()} Proceed (Y) (N) (A) (Q)");
+            var key = readKeyFunc();
             Console.WriteLine();
             switch (key.KeyChar)
             {
