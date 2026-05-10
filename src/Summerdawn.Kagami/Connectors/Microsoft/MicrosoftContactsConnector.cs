@@ -407,7 +407,11 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             ["companyName"] = contact.Organization,
             ["jobTitle"] = contact.Title,
             ["personalNotes"] = contact.Notes,
-            ["birthday"] = JsonValue.Create(contact.Birthday?.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)),
+            ["birthday"] = JsonValue.Create(contact.Birthday is null
+                ? null
+                : contact.Birthday.Value.Year == 1604
+                    ? new DateOnly(1604, contact.Birthday.Value.Month, contact.Birthday.Value.Day).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)
+                    : contact.Birthday.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)),
             ["categories"] = CreateStringArray(contact.Categories),
             ["homeAddress"] = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "home", StringComparison.OrdinalIgnoreCase))),
             ["businessAddress"] = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "work", StringComparison.OrdinalIgnoreCase))),

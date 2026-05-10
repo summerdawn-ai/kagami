@@ -22,7 +22,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     private const int ConnectionsPageSize = 200;
     // Google batchGet limits matching to 50 ids.
     private const int MaxBatchSize = 50;
-    private static readonly DateOnly DefaultBirthday = new(1900, 1, 1);
+    private static readonly DateOnly DefaultBirthday = new(1604, 1, 1);
 
     private static readonly HashSet<string> SystemGroupResourceNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -396,15 +396,21 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
         if (contact.Birthday is not null)
         {
+            JsonObject date = new()
+            {
+                ["month"] = contact.Birthday.Value.Month,
+                ["day"] = contact.Birthday.Value.Day,
+            };
+
+            if (contact.Birthday.Value.Year != DefaultBirthday.Year)
+            {
+                date["year"] = contact.Birthday.Value.Year;
+            }
+
             person["birthdays"] = CreateArray(
                 new JsonObject
                 {
-                    ["date"] = new JsonObject
-                    {
-                        ["year"] = contact.Birthday.Value.Year,
-                        ["month"] = contact.Birthday.Value.Month,
-                        ["day"] = contact.Birthday.Value.Day,
-                    },
+                    ["date"] = date,
                 });
         }
 

@@ -43,6 +43,24 @@ public sealed class GoogleContactsConnectorTests
     }
 
     [Fact]
+    public void ConvertPerson_UsesSentinelYearForYearlessBirthday()
+    {
+        string personJson = """
+            {
+                "resourceName": "people/123",
+                "names": [{"displayName": "Birthday Contact"}],
+                "birthdays": [{"date": {"month": 5, "day": 10}}]
+            }
+            """;
+
+        using var document = JsonDocument.Parse(personJson);
+        var contact = GoogleContactsConnector.ConvertPerson(document.RootElement, new Dictionary<string, string>());
+
+        Assert.NotNull(contact);
+        Assert.Equal(new DateOnly(1604, 5, 10), contact!.Birthday);
+    }
+
+    [Fact]
     public void ConvertPerson_UnknownCustomGroupIsSkipped()
     {
         // When a membership resource name is not in the
@@ -161,6 +179,25 @@ public sealed class GoogleContactsConnectorTests
         var person = GoogleContactsConnector.BuildWritablePerson(contact, new Dictionary<string, string>());
 
         Assert.False(person.ContainsKey("memberships"));
+    }
+
+    [Fact]
+    public void BuildWritablePerson_OmitsYearForSentinelBirthday()
+    {
+        var contact = new CanonicalContact
+        {
+            DisplayName = "Birthday Contact",
+            Birthday = new DateOnly(1604, 5, 10),
+            Provenance = { ProviderId = "people/123" },
+        };
+
+        var person = GoogleContactsConnector.BuildWritablePerson(contact, new Dictionary<string, string>());
+
+        Assert.True(person.TryGetPropertyValue("birthdays", out var birthdays));
+        var birthdayDate = birthdays!.AsArray()[0]!["date"]!.AsObject();
+        Assert.False(birthdayDate.ContainsKey("year"));
+        Assert.Equal(5, birthdayDate["month"]!.GetValue<int>());
+        Assert.Equal(10, birthdayDate["day"]!.GetValue<int>());
     }
 
     // ── helpers ───────────────────────────────────────────────────────────
