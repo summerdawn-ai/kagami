@@ -119,8 +119,8 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     private static SyncAction<TItem>? PlanPersistedLink<TItem>(ExaminedLink<TItem> examined, JobOptions jobOptions)
         where TItem : CanonicalItem
     {
-        var link = examined;
-        var row = link.PersistedState!;
+        var examinedLink = examined;
+        var row = examinedLink.PersistedState!;
         bool force = jobOptions.Force;
 
         // MovedOutOfScope is treated the same as Deleted for delete propagation: the item no
@@ -243,8 +243,8 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
         bool destinationChanged = force || examined.DestinationActivity == Modified;
 
         if (!force && (sourceChanged || destinationChanged)
-            && link.SourceItem is not null && link.DestinationItem is not null
-            && ContentHashHelper.HaveIdenticalContent(link.SourceItem, link.DestinationItem))
+            && examinedLink.SourceItem is not null && examinedLink.DestinationItem is not null
+            && ContentHashHelper.HaveIdenticalContent(examinedLink.SourceItem, examinedLink.DestinationItem))
         {
             var skipDirection = jobOptions.SyncMode == Reverse ? DestinationToSource : SourceToDestination;
             return new SyncAction<TItem>
@@ -294,7 +294,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 ExaminedLink = examined,
                 Reason = "Item changed on destination side",
             },
-            _ when jobOptions.ConflictPolicy == DestinationWins && link.DestinationItem != null => new SyncAction<TItem>
+            _ when jobOptions.ConflictPolicy == DestinationWins && examinedLink.DestinationItem != null => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = DestinationToSource,
@@ -322,12 +322,12 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     private static SyncAction<TItem>? PlanInferredLink<TItem>(ExaminedLink<TItem> examined, JobOptions jobOptions)
         where TItem : CanonicalItem
     {
-        var link = examined;
+        var examinedLink = examined;
 
         // An inferred link may only be produced when neither side was previously linked.
         // Both sides are present (Created), so SourceItem and DestinationItem are non-null.
-        var source = link.SourceItem!;
-        var dest = link.DestinationItem!;
+        var source = examinedLink.SourceItem!;
+        var dest = examinedLink.DestinationItem!;
 
         // Without --force: skip the write when both sides already carry identical content.
         // Under --force: bypass this guard so the pair is written unconditionally.
@@ -370,9 +370,9 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     private static SyncAction<TItem>? PlanUnmatchedLink<TItem>(ExaminedLink<TItem> examined, JobOptions jobOptions)
         where TItem : CanonicalItem
     {
-        var link = examined;
+        var examinedLink = examined;
 
-        if (link.SourceItem != null)
+        if (examinedLink.SourceItem != null)
         {
             // Source-only: create on destination (unless restricted by SyncMode).
             if (jobOptions.SyncMode == Reverse)
@@ -389,7 +389,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             };
         }
 
-        if (link.DestinationItem != null)
+        if (examinedLink.DestinationItem != null)
         {
             // Destination-only: no source match found.
             // In Forward mode with Mirror policy on a full scan, the source is authoritative
@@ -433,9 +433,9 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     private static SyncAction<TItem>? PlanAmbiguousLink<TItem>(ExaminedLink<TItem> examined, JobOptions jobOptions)
         where TItem : CanonicalItem
     {
-        var link = examined;
+        var examinedLink = examined;
 
-        if (link.SourceItem != null)
+        if (examinedLink.SourceItem != null)
         {
             // Source-side ambiguity: relevant only when mode processes source→destination.
             if (jobOptions.SyncMode == Reverse)
@@ -452,7 +452,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             };
         }
 
-        if (link.DestinationItem != null)
+        if (examinedLink.DestinationItem != null)
         {
             // Destination-side ambiguity (contested target): relevant only when mode processes destination→source.
             if (jobOptions.SyncMode == Forward)
