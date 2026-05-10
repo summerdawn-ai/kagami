@@ -22,9 +22,10 @@ namespace Summerdawn.Kagami.Engine;
 ///   <item>Transient provider failures (HTTP 429 or 5xx) throw
 ///   <see cref="OperationFaultedException"/> immediately, aborting the entire pass
 ///   without processing further items.</item>
-///   <item>Permanent per-item failures (all other exceptions) are logged; remaining items
-///   continue to be processed.  After the pass completes, if any item failed,
-///   <see cref="OperationFaultedException"/> is thrown so that cursors do not advance.</item>
+///   <item>Permanent per-item failures (all other exceptions) are logged per item and
+///   remaining items continue to be processed.  After the pass completes, a warning is
+///   logged summarising the failures; cursors are still advanced so that the bad item
+///   is not retried on every subsequent run.</item>
 /// </list>
 /// </para>
 /// </remarks>
@@ -56,13 +57,12 @@ public sealed class SyncActionExecutor(
     /// </summary>
     /// <remarks>
     /// A transient provider failure throws <see cref="OperationFaultedException"/> immediately.
-    /// After the pass, if any permanent per-item failure occurred,
-    /// <see cref="OperationFaultedException"/> is thrown so that the caller does not advance
-    /// cursors.
+    /// Permanent per-item failures are logged per item; remaining items continue to be
+    /// processed and a summary warning is emitted after the pass.  Cursors are advanced
+    /// regardless of permanent per-item failures.
     /// </remarks>
     /// <exception cref="OperationFaultedException">
-    /// Thrown when a transient failure aborts the pass, or when the pass completes but at
-    /// least one item failed permanently.
+    /// Thrown only when a transient failure aborts the pass.
     /// </exception>
     public async Task ApplyActionsAsync<TItem>(
         IReadOnlyList<SyncAction<TItem>> actions,
@@ -104,8 +104,9 @@ public sealed class SyncActionExecutor(
 
         if (failedActions)
         {
-            throw new OperationFaultedException(
-                $"One or more sync actions failed for job '{job.Key}'; cursors will not advance.");
+            logger.LogWarning(
+                "Job {JobKey}: one or more synchronization actions failed. Check the log messages above for details.",
+                job.Key);
         }
     }
 

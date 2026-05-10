@@ -451,25 +451,23 @@ For non-transient failures (any exception that is not a 429 or 5xx), Kagami:
 
 - Logs an error for the affected item and writes an `"error"` entry to the operation log.
 - Continues processing remaining items in the batch.
-- Marks the overall run as **faulted**.
-- **Cursors are not advanced**, even if all other items succeeded.
+- Emits a final warning after the pass summarising that one or more actions failed.
+- **Cursors are advanced**, so the bad item is not retried on every subsequent run.
 
-This ensures that no item is silently skipped. On the next run, Kagami reads from the same cursor and encounters the affected item again; if it has already been written to the link-state database it will be skipped as unchanged, keeping replay cost low.
+To recover: either fix the bad source data (and wait for the item to appear in the next delta) or run a `--full` sync to reprocess all items.
 
 #### Cursor advancement
-
-Cursors are only advanced on a **clean, fully successful run** — one where every item in the pass succeeded without any permanent or transient failure. This is the key invariant that prevents gaps in sync coverage.
 
 | Run outcome | Cursor advanced? |
 |---|---|
 | All items succeeded | ✅ Yes |
 | Transient provider failure (429 / 5xx) | ❌ No — run aborted immediately |
-| One or more permanent per-item failures | ❌ No — full pass completed, cursors held |
+| One or more permanent per-item failures | ✅ Yes — pass completes; a summary warning is logged |
 | What-if run | ❌ No — no writes performed |
 
 #### Partial writes
 
-Link-state updates written before a fault are left in place and are not rolled back. On replay, items already present in the link-state table with a matching version hash are skipped automatically. The invariant that matters is cursor non-advancement, not write atomicity.
+Link-state updates written before a transient fault are left in place and are not rolled back. On replay, items already present in the link-state table with a matching version hash are skipped automatically.
 
 ## Current Limitations
 

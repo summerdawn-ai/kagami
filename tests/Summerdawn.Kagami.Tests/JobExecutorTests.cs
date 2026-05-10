@@ -129,14 +129,14 @@ public sealed class JobExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task PermanentPerItemFailure_ContinuesRemainingActionsButPreventsCursorAdvancement()
+    public async Task PermanentPerItemFailure_ContinuesRemainingActionsAndAdvancesCursor()
     {
         FakeConnector sourceConnector = new();
         FailingCreateConnector destinationConnector = new(throwForSourceId: "a1");
         sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
         sourceConnector.Seed(CreateContactItem("a2", "v1", "Bob", email: "bob@example.com"));
 
-        // Pre-seed a cursor so we can verify it does not advance.
+        // Pre-seed a cursor so we can verify it advances after the run.
         // Use "-1" so FakeConnector parses it as generation -1 and returns all gen-0 seeded items.
         await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, "-1", CancellationToken.None);
 
@@ -145,8 +145,8 @@ public sealed class JobExecutorTests : IDisposable
 
         var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
 
-        // Run is faulted: succeeded must be false
-        Assert.False(result.Succeeded);
+        // Run completes successfully (permanent per-item failures do not fault the run)
+        Assert.True(result.Succeeded);
         // Remaining items (Bob) were still processed
         Assert.Contains(destinationConnector.Items, i => i.DisplayName == "Bob" && !i.IsDeleted);
         // An error was logged for the failing item (permanent failure → "continuing", not "aborting run")
@@ -154,9 +154,12 @@ public sealed class JobExecutorTests : IDisposable
             e.Contains("a1", StringComparison.Ordinal) &&
             e.Contains("failed", StringComparison.Ordinal) &&
             e.Contains("continuing", StringComparison.Ordinal));
-        // Cursor must NOT have been written (faulted run must not advance cursors)
+        // A final warning was logged summarising the failures
+        Assert.Contains(syncLogger.Entries, e =>
+            e.Contains("one or more synchronization actions failed", StringComparison.OrdinalIgnoreCase));
+        // Cursor MUST have been written (run completes successfully despite per-item failures)
         var cursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None);
-        Assert.Equal("-1", cursor?.Cursor);
+        Assert.NotEqual("-1", cursor?.Cursor);
     }
 
     [Theory]
