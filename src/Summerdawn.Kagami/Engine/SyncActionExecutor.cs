@@ -32,8 +32,13 @@ namespace Summerdawn.Kagami.Engine;
 public sealed class SyncActionExecutor(
     LinkStateRepository linkStateRepo,
     OperationLogRepository opLog,
-    ILogger<SyncActionExecutor> logger)
+    ILogger<SyncActionExecutor> logger,
+    Func<ConsoleKeyInfo>? readKey = null,
+    Action<string>? writePrompt = null)
 {
+    private readonly Func<ConsoleKeyInfo> readKey = readKey ?? (() => Console.ReadKey(intercept: true));
+    private readonly Action<string> writePrompt = writePrompt ?? Console.Write;
+
     /// <summary>
     /// Logs all planned actions for a what-if run without performing any writes.
     /// </summary>
@@ -41,14 +46,7 @@ public sealed class SyncActionExecutor(
     {
         foreach (var action in actions)
         {
-            string verb = action.Kind.ToString().ToLowerInvariant();
-            logger.LogInformation(
-                "What-if job {JobKey}: would {Verb} {Description} in direction {TargetSide} ({Reason})",
-                jobKey,
-                verb,
-                DescribeActionTarget(action),
-                action.Direction,
-                action.Reason ?? "no reason provided");
+            logger.LogInformation("What-if job {JobKey}: would {Action}", jobKey, action.ToDisplayString());
         }
     }
 
@@ -64,10 +62,11 @@ public sealed class SyncActionExecutor(
     /// <exception cref="OperationFaultedException">
     /// Thrown only when a transient failure aborts the pass.
     /// </exception>
-    public async Task ApplyActionsAsync<TItem>(
+    public async Task<bool> ApplyActionsAsync<TItem>(
         IReadOnlyList<SyncAction<TItem>> actions,
         SyncDirection direction,
         Job<TItem> job,
+        bool confirm,
         CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         await EnsureActionItemsLoadedAsync(actions, cancellationToken);
@@ -79,6 +78,20 @@ public sealed class SyncActionExecutor(
 
         foreach (var action in actions)
         {
+            if (confirm)
+            {
+                switch (PromptForConfirmation(action))
+                {
+                    case 'N':
+                        continue;
+                    case 'A':
+                        confirm = false;
+                        break;
+                    case 'Q':
+                        throw new OperationFaultedException("Action execution was aborted by the user.");
+                }
+            }
+
             bool succeeded = await ApplyActionAsync(
                 action,
                 direction,
@@ -99,6 +112,8 @@ public sealed class SyncActionExecutor(
                 "Job {JobKey}: one or more synchronization actions failed. Check the log messages above for details.",
                 job.Key);
         }
+
+        return confirm;
     }
 
     /// <summary>
@@ -130,7 +145,7 @@ public sealed class SyncActionExecutor(
                             ?? throw new InvalidOperationException($"Create action has no origin item (job '{job.Key}', direction {direction}).");
 
                         var createdItem = await targetConnector.CreateItemAsync(originItem, cancellationToken);
-                        logger.LogInformation("Job {JobKey}: created {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
+                        logger.LogInformation("Job {JobKey}: created {Action}", job.Key, action.ToDisplayString());
 
                         if (!job.Options.NoPersistence)
                         {
@@ -176,7 +191,7 @@ public sealed class SyncActionExecutor(
                         DetachPhotoIfUnchanged(action, targetItemToWrite);
 
                         var updatedTargetItem = await targetConnector.UpdateItemAsync(targetItemToWrite, cancellationToken);
-                        logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
+                        logger.LogInformation("Job {JobKey}: updated {Action}", job.Key, action.ToDisplayString());
 
                         if (!job.Options.NoPersistence)
                         {
@@ -238,7 +253,7 @@ public sealed class SyncActionExecutor(
                                 $"Delete action has no target provider ID — neither a live target item nor a persisted link row with a target ID is available (job '{job.Key}', direction {direction}).");
 
                         await targetConnector.DeleteItemAsync(deleteId, cancellationToken);
-                        logger.LogInformation("Job {JobKey}: deleted item {ItemId} on side {Side}", job.Key, deleteId, direction);
+                        logger.LogInformation("Job {JobKey}: deleted {Action}", job.Key, action.ToDisplayString());
 
                         if (!job.Options.NoPersistence)
                         {
@@ -368,22 +383,25 @@ public sealed class SyncActionExecutor(
         }
     }
 
-    /// <summary>
-    /// Returns a human-readable description of the item being acted on in <paramref name="action"/>.
-    /// For create/update the origin item is preferred; for delete the target item is preferred,
-    /// since the origin may be a tombstone or out-of-scope item whose name is no longer meaningful.
-    /// </summary>
-    private static string DescribeActionTarget<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem
+    private char PromptForConfirmation<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem
     {
-        var item = action.Kind == Delete
-            ? action.GetTargetItem() ?? action.GetOriginItem()
-            : action.GetOriginItem() ?? action.GetTargetItem();
-        return item switch
+        while (true)
         {
-            CanonicalContact contact => $"contact '{ContactNameHelper.GetNameOrId(contact)}'",
-            not null => $"item '{item.Provenance.ProviderId}'",
-            null => "item '(unknown)'",
-        };
+            writePrompt($"Planned action: {action.ToDisplayString()} Proceed (Y) (N) (A) (Q)");
+            var key = readKey();
+            Console.WriteLine();
+            switch (key.KeyChar)
+            {
+                case 'Y' or 'y':
+                    return 'Y';
+                case 'N' or 'n':
+                    return 'N';
+                case 'A' or 'a':
+                    return 'A';
+                case 'Q' or 'q':
+                    return 'Q';
+            }
+        }
     }
 
     /// <summary>

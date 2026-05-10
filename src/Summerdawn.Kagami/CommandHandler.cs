@@ -113,6 +113,7 @@ public sealed class CommandHandler<TItem>(
         string toEndpoint,
         SyncMode mode = SyncMode.Forward,
         bool whatIf = false,
+        bool confirm = false,
         IFilter<TItem>? filter = null,
         bool full = false,
         bool force = false,
@@ -143,8 +144,14 @@ public sealed class CommandHandler<TItem>(
             Filter = filter?.Scope,
         };
 
+        var executionFlags = whatIf ? JobExecutionFlags.WhatIf : JobExecutionFlags.None;
+        if (confirm)
+        {
+            executionFlags |= JobExecutionFlags.Confirm;
+        }
+
         return await jobExecutor.ExecuteJobAsync(new Job<TItem>(jobKey, jobOptions, sourceConnector, destinationConnector),
-            whatIf,
+            executionFlags,
             cancellationToken);
     }
 
@@ -169,6 +176,7 @@ public sealed class CommandHandler<TItem>(
         bool prune = false,
         IFilter<TItem>? filter = null,
         bool whatIf = false,
+        bool confirm = false,
         bool force = false,
         CancellationToken cancellationToken = default)
     {
@@ -200,9 +208,15 @@ public sealed class CommandHandler<TItem>(
 
         logger.LogInformation("Starting import from {SourceDir} to {Endpoint} (prune={Prune}, whatIf={WhatIf})", sourceDirectory, toEndpoint, prune, whatIf);
 
+        var executionFlags = whatIf ? JobExecutionFlags.WhatIf : JobExecutionFlags.None;
+        if (confirm)
+        {
+            executionFlags |= JobExecutionFlags.Confirm;
+        }
+
         return await jobExecutor.ExecuteJobAsync(
             new Job<TItem>(jobKey, jobOptions, sourceConnector, destinationConnector),
-            whatIf,
+            executionFlags,
             cancellationToken);
     }
 

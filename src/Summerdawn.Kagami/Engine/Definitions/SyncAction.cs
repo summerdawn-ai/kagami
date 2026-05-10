@@ -30,6 +30,16 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
     public string? Reason { get; set; }
 
     /// <summary>
+    /// Gets or sets the runtime-only source endpoint name for this action.
+    /// </summary>
+    public string? SourceEndpointName { get; set; }
+
+    /// <summary>
+    /// Gets or sets the runtime-only destination endpoint name for this action.
+    /// </summary>
+    public string? DestinationEndpointName { get; set; }
+
+    /// <summary>
     /// Gets the origin-side item (the item whose content is being pushed to the target).
     /// </summary>
     /// <remarks>
@@ -62,4 +72,72 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
         Direction == SyncDirection.SourceToDestination
             ? Link.DestinationItem
             : Link.SourceItem;
+
+    /// <summary>
+    /// Returns a human-readable display string for this action.
+    /// </summary>
+    public string ToDisplayString()
+    {
+        string action = Kind switch
+        {
+            Create => "Create",
+            Update => "Update",
+            Delete => "Delete",
+            Skip or None => "Skip",
+            _ => Kind.ToString(),
+        };
+
+        string item = ResolveDisplayItem()?.ToDisplayString()
+            ?? ResolvePersistedDisplayIdentifier()
+            ?? "unknown item";
+        string targetEndpoint = ResolveTargetEndpointName() ?? "unknown";
+        string reason = ResolveDisplayReason();
+
+        return $"{action} '{item}' on endpoint {targetEndpoint} (reason: {reason})";
+    }
+
+    private CanonicalItem? ResolveDisplayItem() =>
+        Kind == Delete
+            ? GetTargetItem()
+            : GetOriginItem() ?? GetTargetItem();
+
+    private string? ResolvePersistedDisplayIdentifier()
+    {
+        var persisted = Link.PersistedState;
+        if (persisted is null)
+        {
+            return null;
+        }
+
+        return Kind == Delete
+            ? (Direction == SyncDirection.SourceToDestination ? persisted.DestinationId : persisted.SourceId)
+                ?? (Direction == SyncDirection.SourceToDestination ? persisted.SourceId : persisted.DestinationId)
+            : (Direction == SyncDirection.SourceToDestination ? persisted.SourceId : persisted.DestinationId)
+                ?? (Direction == SyncDirection.SourceToDestination ? persisted.DestinationId : persisted.SourceId);
+    }
+
+    private string ResolveDisplayReason()
+    {
+        string itemType = typeof(TItem) == typeof(CanonicalContact) ? "Contact" : "Item";
+        string originEndpoint = ResolveOriginEndpointName() ?? "unknown";
+
+        return Kind switch
+        {
+            Create => $"New {itemType.ToLowerInvariant()} on endpoint {originEndpoint}",
+            Update => $"{itemType} updated on endpoint {originEndpoint}",
+            Delete => $"{itemType} deleted on endpoint {originEndpoint}",
+            Skip or None => Reason ?? $"{itemType} skipped",
+            _ => Reason ?? $"{itemType} changed",
+        };
+    }
+
+    private string? ResolveOriginEndpointName() =>
+        Direction == SyncDirection.SourceToDestination
+            ? Link.SourceItem?.Provenance.EndpointName ?? SourceEndpointName
+            : Link.DestinationItem?.Provenance.EndpointName ?? DestinationEndpointName;
+
+    private string? ResolveTargetEndpointName() =>
+        Direction == SyncDirection.SourceToDestination
+            ? Link.DestinationItem?.Provenance.EndpointName ?? DestinationEndpointName
+            : Link.SourceItem?.Provenance.EndpointName ?? SourceEndpointName;
 }

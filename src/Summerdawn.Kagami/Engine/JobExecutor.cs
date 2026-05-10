@@ -36,8 +36,19 @@ public sealed class JobExecutor(
     /// job is skipped and <see cref="JobExecutionResult.Skipped"/> is set to <c>true</c>.
     /// The lease is always released in a <c>finally</c> block.
     /// </remarks>
-    public async Task<JobExecutionResult> ExecuteJobAsync<TItem>(Job<TItem> job, bool whatIf = false, CancellationToken cancellationToken = default) where TItem : CanonicalItem
+    public Task<JobExecutionResult> ExecuteJobAsync<TItem>(Job<TItem> job, bool whatIf = false, CancellationToken cancellationToken = default) where TItem : CanonicalItem =>
+        ExecuteJobAsync(job, whatIf ? JobExecutionFlags.WhatIf : JobExecutionFlags.None, cancellationToken);
+
+    /// <summary>
+    /// Executes a sync job.
+    /// </summary>
+    public async Task<JobExecutionResult> ExecuteJobAsync<TItem>(Job<TItem> job, JobExecutionFlags executionFlags, CancellationToken cancellationToken = default) where TItem : CanonicalItem
     {
+        if (executionFlags.HasFlag(JobExecutionFlags.WhatIf) && executionFlags.HasFlag(JobExecutionFlags.Confirm))
+        {
+            throw new ArgumentException("What-if and confirm execution modes are mutually exclusive.", nameof(executionFlags));
+        }
+
         string holderId = Guid.NewGuid().ToString("N");
         bool leaseAcquired = await leaseRepo.TryAcquireAsync(job.Key, holderId, LeaseDuration, cancellationToken);
         if (!leaseAcquired)
@@ -48,7 +59,7 @@ public sealed class JobExecutor(
 
         try
         {
-            return await RunJobAsync(job, whatIf, cancellationToken);
+            return await RunJobAsync(job, executionFlags, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -98,9 +109,11 @@ public sealed class JobExecutor(
     /// destination→source pass so that newly created destination IDs are visible.
     /// </para>
     /// </remarks>
-    private async Task<JobExecutionResult> RunJobAsync<TItem>(Job<TItem> job, bool whatIf, CancellationToken cancellationToken) where TItem : CanonicalItem
+    private async Task<JobExecutionResult> RunJobAsync<TItem>(Job<TItem> job, JobExecutionFlags executionFlags, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
-        logger.LogInformation("Starting job {job.Key} (whatIf={WhatIf}, force={Force})", job.Key, whatIf, job.Options.Force);
+        bool whatIf = executionFlags.HasFlag(JobExecutionFlags.WhatIf);
+        bool confirm = executionFlags.HasFlag(JobExecutionFlags.Confirm);
+        logger.LogInformation("Starting job {job.Key} (whatIf={WhatIf}, confirm={Confirm}, force={Force})", job.Key, whatIf, confirm, job.Options.Force);
 
         var sourceConnector = job.SourceConnector;
         var destinationConnector = job.DestinationConnector;
@@ -160,6 +173,7 @@ public sealed class JobExecutor(
         try
         {
             actions = planner.PlanActions(job.Options, sourceItemSet.Items, destinationItemSet.Items, existingLinks, filter);
+            StampActionEndpointNames(actions, job.Options);
         }
         finally
         {
@@ -184,18 +198,18 @@ public sealed class JobExecutor(
         else if (job.Options.NoPersistence)
         {
             // --- Apply source→destination ---
-            await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job, cancellationToken);
+            confirm = await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job, confirm, cancellationToken);
 
             // --- Apply destination→source ---
-            await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job, cancellationToken);
+            _ = await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job, confirm, cancellationToken);
         }
         else
         {
             // --- Apply source→destination ---
-            await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job, cancellationToken);
+            confirm = await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job, confirm, cancellationToken);
 
             // --- Apply destination→source ---
-            await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job, cancellationToken);
+            _ = await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job, confirm, cancellationToken);
 
             // --- Record links for content-identical pairs ---
             // None actions carry both sides with identical content; update the link row so
@@ -215,8 +229,17 @@ public sealed class JobExecutor(
         }
 
         result.Succeeded = true;
-        logger.LogInformation("Job {job.Key} completed (whatIf={WhatIf}, actionsPlanned={Count})", job.Key, whatIf, result.ActionsPlanned);
+        logger.LogInformation("Job {job.Key} completed (whatIf={WhatIf}, confirm={Confirm}, actionsPlanned={Count})", job.Key, whatIf, executionFlags.HasFlag(JobExecutionFlags.Confirm), result.ActionsPlanned);
         return result;
+    }
+
+    private static void StampActionEndpointNames<TItem>(IEnumerable<SyncAction<TItem>> actions, JobOptions options) where TItem : CanonicalItem
+    {
+        foreach (var action in actions)
+        {
+            action.SourceEndpointName ??= options.SourceEndpointName;
+            action.DestinationEndpointName ??= options.DestinationEndpointName;
+        }
     }
 
     /// <summary>
