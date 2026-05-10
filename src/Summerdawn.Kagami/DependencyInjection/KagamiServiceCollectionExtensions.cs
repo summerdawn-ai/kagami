@@ -50,6 +50,7 @@ public static class KagamiServiceCollectionExtensions
 
         // Register a named HttpClient and a keyed IConnector singleton per endpoint
         services.AddHttpClient();
+        services.AddTransient<MicrosoftGraphBatchThrottleHandler>();
         foreach (var (endpointName, endpoint) in options.Endpoints)
         {
             RegisterEndpointHttpClient(services, endpointName);
@@ -141,5 +142,9 @@ public static class KagamiServiceCollectionExtensions
                 return ValueTask.FromResult<TimeSpan?>(defaultDelayForTooManyRequests);
             };
         });
+
+        // ThrottleHandler runs inside (closer to the network than) the resilience handler,
+        // so the synthesized 429 is visible to the resilience layer on its way back out.
+        builder.AddHttpMessageHandler<MicrosoftGraphBatchThrottleHandler>();
     }
 }
