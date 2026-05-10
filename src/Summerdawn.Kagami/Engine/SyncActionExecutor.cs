@@ -458,16 +458,16 @@ public sealed class SyncActionExecutor(
     /// </summary>
     private static TItem? GetItemToWrite<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem =>
         action.Direction == SourceToDestination
-            ? action.ExaminedLink.SourceItem
-            : action.ExaminedLink.DestinationItem;
+            ? action.Link.SourceItem
+            : action.Link.DestinationItem;
 
     /// <summary>
     /// Gets the currently loaded target-side item paired with this action, when available.
     /// </summary>
     private static TItem? GetMatchedTargetItem<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem =>
         action.Direction == SourceToDestination
-            ? action.ExaminedLink.DestinationItem
-            : action.ExaminedLink.SourceItem;
+            ? action.Link.DestinationItem
+            : action.Link.SourceItem;
 
     /// <summary>
     /// Gets the provider ID to delete for a delete action.
@@ -481,6 +481,6 @@ public sealed class SyncActionExecutor(
     /// </remarks>
     private static string? GetDeleteId<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem =>
         action.Direction == SourceToDestination
-            ? action.ExaminedLink.DestinationItem?.Provenance.ProviderId ?? action.ExaminedLink.PersistedState?.DestinationId
-            : action.ExaminedLink.SourceItem?.Provenance.ProviderId ?? action.ExaminedLink.PersistedState?.SourceId;
+            ? action.Link.DestinationItem?.Provenance.ProviderId ?? action.Link.PersistedState?.DestinationId
+            : action.Link.SourceItem?.Provenance.ProviderId ?? action.Link.PersistedState?.SourceId;
 }

@@ -80,7 +80,7 @@ public sealed class SyncActionPlannerTests
 
         Assert.Single(actions);
         Assert.Equal(Delete, actions[0].Kind);
-        Assert.Equal("b1", actions[0].ExaminedLink.DestinationId);
+        Assert.Equal("b1", actions[0].Link.DestinationId);
     }
 
     [Fact]
@@ -162,7 +162,7 @@ public sealed class SyncActionPlannerTests
         Assert.Single(actions);
         Assert.Equal(Update, actions[0].Kind);
         Assert.Equal(SourceToDestination, actions[0].Direction);
-        Assert.Equal("a1", actions[0].ExaminedLink.SourceId);
+        Assert.Equal("a1", actions[0].Link.SourceId);
     }
 
     [Fact]
@@ -179,7 +179,7 @@ public sealed class SyncActionPlannerTests
         Assert.Single(actions);
         Assert.Equal(Update, actions[0].Kind);
         Assert.Equal(DestinationToSource, actions[0].Direction);
-        Assert.Equal("b1", actions[0].ExaminedLink.DestinationId);
+        Assert.Equal("b1", actions[0].Link.DestinationId);
     }
 
     [Fact]
@@ -231,8 +231,8 @@ public sealed class SyncActionPlannerTests
         Assert.Single(actions);
         Assert.Equal(Update, actions[0].Kind);
         Assert.Equal(DestinationToSource, actions[0].Direction);
-        Assert.Equal("b1", actions[0].ExaminedLink.DestinationId);
-        Assert.Equal("a1", actions[0].ExaminedLink.SourceId);
+        Assert.Equal("b1", actions[0].Link.DestinationId);
+        Assert.Equal("a1", actions[0].Link.SourceId);
     }
 
     [Fact]
@@ -289,7 +289,7 @@ public sealed class SyncActionPlannerTests
         Assert.Single(actions);
         Assert.Equal(Create, actions[0].Kind);
         Assert.Equal(SourceToDestination, actions[0].Direction);
-        Assert.Equal("a2", actions[0].ExaminedLink.SourceId);
+        Assert.Equal("a2", actions[0].Link.SourceId);
     }
 
     [Fact]
@@ -311,7 +311,7 @@ public sealed class SyncActionPlannerTests
         Assert.Single(actions);
         Assert.Equal(Create, actions[0].Kind);
         Assert.Equal(DestinationToSource, actions[0].Direction);
-        Assert.Equal("b2", actions[0].ExaminedLink.DestinationId);
+        Assert.Equal("b2", actions[0].Link.DestinationId);
     }
 
     [Fact]
@@ -444,7 +444,7 @@ public sealed class SyncActionPlannerTests
         Assert.Single(actions);
         Assert.Equal(Delete, actions[0].Kind);
         Assert.Equal(SourceToDestination, actions[0].Direction);
-        Assert.Equal("b1", actions[0].ExaminedLink.DestinationId);
+        Assert.Equal("b1", actions[0].Link.DestinationId);
     }
 
     [Fact]
@@ -461,7 +461,7 @@ public sealed class SyncActionPlannerTests
         Assert.Single(actions);
         Assert.Equal(Create, actions[0].Kind);
         Assert.Equal(SourceToDestination, actions[0].Direction);
-        Assert.Equal("a1", actions[0].ExaminedLink.SourceId);
+        Assert.Equal("a1", actions[0].Link.SourceId);
     }
 
     [Fact]
@@ -560,7 +560,7 @@ public sealed class SyncActionPlannerTests
         Assert.Single(actions);
         Assert.Equal(Delete, actions[0].Kind);
         Assert.Equal(SourceToDestination, actions[0].Direction);
-        Assert.Equal("b1", actions[0].ExaminedLink.DestinationId);
+        Assert.Equal("b1", actions[0].Link.DestinationId);
     }
 
     [Fact]
@@ -611,8 +611,8 @@ public sealed class SyncActionPlannerTests
         Assert.Single(actions);
         Assert.Equal(Delete, actions[0].Kind);
         Assert.Equal(SourceToDestination, actions[0].Direction);
-        Assert.Null(actions[0].ExaminedLink.DestinationId);
-        Assert.Equal("b1", actions[0].ExaminedLink.PersistedState!.DestinationId);
+        Assert.Null(actions[0].Link.DestinationId);
+        Assert.Equal("b1", actions[0].Link.PersistedState!.DestinationId);
     }
 
     // -------------------------------------------------------------------------
@@ -673,11 +673,11 @@ public sealed class SyncActionPlannerTests
 
     private static string? GetWriteItemId(SyncAction<CanonicalContact> action) =>
         action.Direction == SourceToDestination
-            ? action.ExaminedLink.SourceItem?.Provenance.ProviderId
-            : action.ExaminedLink.DestinationItem?.Provenance.ProviderId;
+            ? action.Link.SourceItem?.Provenance.ProviderId
+            : action.Link.DestinationItem?.Provenance.ProviderId;
 
     private static string? GetMatchedTargetItemId(SyncAction<CanonicalContact> action) =>
         action.Direction == SourceToDestination
-            ? action.ExaminedLink.DestinationItem?.Provenance.ProviderId
-            : action.ExaminedLink.SourceItem?.Provenance.ProviderId;
+            ? action.Link.DestinationItem?.Provenance.ProviderId
+            : action.Link.SourceItem?.Provenance.ProviderId;
 }

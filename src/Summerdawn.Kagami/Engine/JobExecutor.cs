@@ -204,7 +204,7 @@ public sealed class JobExecutor(
             // Skip actions that carry both sides (i.e. a matched pair whose content was identical)
             // still need a link row so subsequent runs can track versions correctly.
             var skipsWithMatches = actionsSkip
-                .Where(a => a.ExaminedLink.SourceItem is not null && a.ExaminedLink.DestinationItem is not null)
+                .Where(a => a.Link.SourceItem is not null && a.Link.DestinationItem is not null)
                 .ToList();
             if (skipsWithMatches.Count > 0)
             {
@@ -342,11 +342,11 @@ public sealed class JobExecutor(
         foreach (var action in unchangedActions)
         {
             var sourceItem = direction == SourceToDestination
-                ? action.ExaminedLink.SourceItem
-                : action.ExaminedLink.DestinationItem;
+                ? action.Link.SourceItem
+                : action.Link.DestinationItem;
             var destinationItem = direction == SourceToDestination
-                ? action.ExaminedLink.DestinationItem
-                : action.ExaminedLink.SourceItem;
+                ? action.Link.DestinationItem
+                : action.Link.SourceItem;
 
             if (sourceItem is null || destinationItem is null)
             {

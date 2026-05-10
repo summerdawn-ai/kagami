@@ -20,7 +20,7 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
     /// <summary>
     /// Gets or sets the examined link context that led to this action.
     /// </summary>
-    public required ExaminedLink<TItem> ExaminedLink { get; set; }
+    public required ExaminedLink<TItem> Link { get; set; }
 
     /// <summary>
     /// Gets or sets a human-readable description of why this action was planned.
