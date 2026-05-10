@@ -119,32 +119,31 @@ public sealed class SyncActionExecutor(
         IConnector<TItem> targetConnector,
         CancellationToken cancellationToken) where TItem : CanonicalItem
     {
-        var itemToWrite = GetItemToWrite(action);
-        var matchedTargetItem = GetMatchedTargetItem(action);
-        string? deleteId = GetDeleteId(action);
+        var originItem = action.GetOriginItem();
+        var matchedTargetItem = action.GetTargetItem();
 
         try
         {
             switch (action.Kind)
             {
-                case Create when itemToWrite is not null:
+                case Create when originItem is not null:
                     {
-                        var created = await targetConnector.CreateItemAsync(itemToWrite, cancellationToken);
+                        var createdItem = await targetConnector.CreateItemAsync(originItem, cancellationToken);
                         logger.LogInformation("Job {JobKey}: created {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
 
                         if (!job.Options.NoPersistence)
                         {
-                            await opLog.AppendAsync(job.Key, entityType, "create", created.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+                            await opLog.AppendAsync(job.Key, entityType, "create", createdItem.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
                             var link = new LinkStateRow
                             {
                                 PartitionKey = job.PartitionKey,
-                                SourceId = direction == SourceToDestination ? itemToWrite.Provenance.ProviderId : created.Provenance.ProviderId,
-                                DestinationId = direction == SourceToDestination ? created.Provenance.ProviderId : itemToWrite.Provenance.ProviderId,
-                                SourceVersion = direction == SourceToDestination ? itemToWrite.Provenance.Version : created.Provenance.Version,
-                                DestinationVersion = direction == SourceToDestination ? created.Provenance.Version : itemToWrite.Provenance.Version,
-                                SourceHash = direction == SourceToDestination ? itemToWrite.Provenance.ContentHash : created.Provenance.ContentHash,
-                                DestinationHash = direction == SourceToDestination ? created.Provenance.ContentHash : itemToWrite.Provenance.ContentHash,
+                                SourceId = direction == SourceToDestination ? originItem.Provenance.ProviderId : createdItem.Provenance.ProviderId,
+                                DestinationId = direction == SourceToDestination ? createdItem.Provenance.ProviderId : originItem.Provenance.ProviderId,
+                                SourceVersion = direction == SourceToDestination ? originItem.Provenance.Version : createdItem.Provenance.Version,
+                                DestinationVersion = direction == SourceToDestination ? createdItem.Provenance.Version : originItem.Provenance.Version,
+                                SourceHash = direction == SourceToDestination ? originItem.Provenance.ContentHash : createdItem.Provenance.ContentHash,
+                                DestinationHash = direction == SourceToDestination ? createdItem.Provenance.ContentHash : originItem.Provenance.ContentHash,
                                 OriginSide = direction == SourceToDestination ? "Source" : "Destination",
                                 LastSyncedAt = DateTimeOffset.UtcNow,
                                 LastSyncResult = "created",
@@ -154,7 +153,7 @@ public sealed class SyncActionExecutor(
                         break;
                     }
 
-                case Update when itemToWrite is not null:
+                case Update when originItem is not null:
                     {
                         var link = action.Link.PersistedState;
                         if (link is null)
@@ -164,71 +163,74 @@ public sealed class SyncActionExecutor(
                                 return true;
                             }
 
-                            var matchedTarget = CreateTargetItem(itemToWrite, null, direction, matchedTargetItem);
+                            var targetItemToWrite = CreateTargetItemToWrite(originItem, null, direction, matchedTargetItem);
 
-                            DetachPhotoIfUnchanged(action, matchedTarget);
+                            DetachPhotoIfUnchanged(action, targetItemToWrite);
 
-                            var matchedUpdate = await targetConnector.UpdateItemAsync(matchedTarget, cancellationToken);
+                            var updatedTargetItem = await targetConnector.UpdateItemAsync(targetItemToWrite, cancellationToken);
                             logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
 
                             if (!job.Options.NoPersistence)
                             {
-                                await opLog.AppendAsync(job.Key, entityType, "update", matchedUpdate.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+                                await opLog.AppendAsync(job.Key, entityType, "update", updatedTargetItem.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
                                 var matchedLink = new LinkStateRow
                                 {
                                     PartitionKey = job.PartitionKey,
-                                    SourceId = direction == SourceToDestination ? itemToWrite.Provenance.ProviderId : matchedUpdate.Provenance.ProviderId,
-                                    DestinationId = direction == SourceToDestination ? matchedUpdate.Provenance.ProviderId : itemToWrite.Provenance.ProviderId,
-                                    SourceVersion = direction == SourceToDestination ? itemToWrite.Provenance.Version : matchedUpdate.Provenance.Version,
-                                    DestinationVersion = direction == SourceToDestination ? matchedUpdate.Provenance.Version : itemToWrite.Provenance.Version,
-                                    SourceHash = direction == SourceToDestination ? itemToWrite.Provenance.ContentHash : matchedUpdate.Provenance.ContentHash,
-                                    DestinationHash = direction == SourceToDestination ? matchedUpdate.Provenance.ContentHash : itemToWrite.Provenance.ContentHash,
+                                    SourceId = direction == SourceToDestination ? originItem.Provenance.ProviderId : updatedTargetItem.Provenance.ProviderId,
+                                    DestinationId = direction == SourceToDestination ? updatedTargetItem.Provenance.ProviderId : originItem.Provenance.ProviderId,
+                                    SourceVersion = direction == SourceToDestination ? originItem.Provenance.Version : updatedTargetItem.Provenance.Version,
+                                    DestinationVersion = direction == SourceToDestination ? updatedTargetItem.Provenance.Version : originItem.Provenance.Version,
+                                    SourceHash = direction == SourceToDestination ? originItem.Provenance.ContentHash : updatedTargetItem.Provenance.ContentHash,
+                                    DestinationHash = direction == SourceToDestination ? updatedTargetItem.Provenance.ContentHash : originItem.Provenance.ContentHash,
                                     OriginSide = direction == SourceToDestination ? "Source" : "Destination",
                                     LastSyncedAt = DateTimeOffset.UtcNow,
                                     LastSyncResult = "updated",
                                 };
                                 await linkStateRepo.UpsertAsync(matchedLink, cancellationToken);
                             }
-                            break;
                         }
-
-                        var targetItem = CreateTargetItem(itemToWrite, link, direction, matchedTargetItem);
-
-                        DetachPhotoIfUnchanged(action, targetItem);
-
-                        var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
-                        logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
-
-                        if (!job.Options.NoPersistence)
+                        else
                         {
-                            await opLog.AppendAsync(job.Key, entityType, "update", updated.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+                            var targetItemToWrite = CreateTargetItemToWrite(originItem, link, direction, matchedTargetItem);
 
-                            if (direction == SourceToDestination)
-                            {
-                                link.SourceVersion = itemToWrite.Provenance.Version;
-                                link.SourceHash = itemToWrite.Provenance.ContentHash;
-                                link.DestinationVersion = updated.Provenance.Version;
-                                link.DestinationHash = updated.Provenance.ContentHash;
-                            }
-                            else
-                            {
-                                link.DestinationVersion = itemToWrite.Provenance.Version;
-                                link.DestinationHash = itemToWrite.Provenance.ContentHash;
-                                link.SourceVersion = updated.Provenance.Version;
-                                link.SourceHash = updated.Provenance.ContentHash;
-                            }
+                            DetachPhotoIfUnchanged(action, targetItemToWrite);
 
-                            link.LastSyncedAt = DateTimeOffset.UtcNow;
-                            link.LastSyncResult = "updated";
-                            await linkStateRepo.UpsertAsync(link, cancellationToken);
+                            var updatedTargetItem = await targetConnector.UpdateItemAsync(targetItemToWrite, cancellationToken);
+                            logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
+
+                            if (!job.Options.NoPersistence)
+                            {
+                                await opLog.AppendAsync(job.Key, entityType, "update", updatedTargetItem.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+
+                                if (direction == SourceToDestination)
+                                {
+                                    link.SourceVersion = originItem.Provenance.Version;
+                                    link.SourceHash = originItem.Provenance.ContentHash;
+                                    link.DestinationVersion = updatedTargetItem.Provenance.Version;
+                                    link.DestinationHash = updatedTargetItem.Provenance.ContentHash;
+                                }
+                                else
+                                {
+                                    link.DestinationVersion = originItem.Provenance.Version;
+                                    link.DestinationHash = originItem.Provenance.ContentHash;
+                                    link.SourceVersion = updatedTargetItem.Provenance.Version;
+                                    link.SourceHash = updatedTargetItem.Provenance.ContentHash;
+                                }
+
+                                link.LastSyncedAt = DateTimeOffset.UtcNow;
+                                link.LastSyncResult = "updated";
+                                await linkStateRepo.UpsertAsync(link, cancellationToken);
+                            }
                         }
 
                         break;
                     }
 
-                case Delete when deleteId is not null:
+                case Delete when matchedTargetItem is not null:
                     {
+                        string deleteId = matchedTargetItem.Provenance.ProviderId;
+
                         await targetConnector.DeleteItemAsync(deleteId, cancellationToken);
                         logger.LogInformation("Job {JobKey}: deleted item {ItemId} on side {Side}", job.Key, deleteId, direction);
 
@@ -267,7 +269,7 @@ public sealed class SyncActionExecutor(
         }
         catch (Exception ex)
         {
-            string itemId = itemToWrite?.Provenance.ProviderId ?? deleteId ?? "unknown";
+            string itemId = originItem?.Provenance.ProviderId ?? matchedTargetItem?.Provenance.ProviderId ?? "unknown";
             string operation = action.Kind switch
             {
                 Create => "create",
@@ -347,12 +349,12 @@ public sealed class SyncActionExecutor(
     {
         foreach (var action in actions)
         {
-            if (action.Kind is Create or Update && GetItemToWrite(action) is CanonicalContact contact)
+            if (action.Kind is Create or Update && action.GetOriginItem() is CanonicalContact contact)
             {
                 await ContactPhotoLoader.EnsureLoadedAsync(contact, cancellationToken);
             }
 
-            if (action.Kind == Update && GetMatchedTargetItem(action) is CanonicalContact targetContact)
+            if (action.Kind == Update && action.GetTargetItem() is CanonicalContact targetContact)
             {
                 await ContactPhotoLoader.EnsureLoadedAsync(targetContact, cancellationToken);
             }
@@ -364,7 +366,7 @@ public sealed class SyncActionExecutor(
     /// </summary>
     private static string DescribeActionTarget<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem
     {
-        var itemToWrite = GetItemToWrite(action);
+        var itemToWrite = action.GetOriginItem();
         if (itemToWrite is CanonicalContact contact)
         {
             string name = ContactNameHelper.GetName(contact);
@@ -381,14 +383,14 @@ public sealed class SyncActionExecutor(
             return $"item '{itemToWrite.Provenance.ProviderId}'";
         }
 
-        return $"item '{GetDeleteId(action)}'";
+        return $"item '{action.GetTargetItem()!.Provenance.ProviderId}'";
     }
 
     /// <summary>
     /// Builds the target item for an update by copying <paramref name="sourceItem"/> and
     /// overwriting the provenance with the target-side provider ID and version.
     /// </summary>
-    private static TItem CreateTargetItem<TItem>(
+    private static TItem CreateTargetItemToWrite<TItem>(
         TItem sourceItem,
         LinkStateRow? link,
         SyncDirection updateDirection,
@@ -419,40 +421,9 @@ public sealed class SyncActionExecutor(
             return;
         }
 
-        if (ContactPhotoMetadataHelper.PhotoHashesMatch(GetItemToWrite(action) as CanonicalContact, GetMatchedTargetItem(action) as CanonicalContact))
+        if (ContactPhotoMetadataHelper.PhotoHashesMatch(action.GetOriginItem() as CanonicalContact, action.GetTargetItem() as CanonicalContact))
         {
             ContactPhotoMetadataHelper.DetachPhoto((matchedTarget as CanonicalContact)!);
         }
     }
-
-    /// <summary>
-    /// Gets the item payload that should be written to the target side for this action.
-    /// </summary>
-    private static TItem? GetItemToWrite<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem =>
-        action.Direction == SourceToDestination
-            ? action.Link.SourceItem
-            : action.Link.DestinationItem;
-
-    /// <summary>
-    /// Gets the currently loaded target-side item paired with this action, when available.
-    /// </summary>
-    private static TItem? GetMatchedTargetItem<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem =>
-        action.Direction == SourceToDestination
-            ? action.Link.DestinationItem
-            : action.Link.SourceItem;
-
-    /// <summary>
-    /// Gets the provider ID to delete for a delete action.
-    /// </summary>
-    /// <remarks>
-    /// Uses currently loaded item IDs when available, otherwise falls back to persisted link
-    /// state IDs. This fallback is intentional for delete execution, because delete operations
-    /// may target a side that is not loaded in the current run and live-only
-    /// <see cref="Link{TItem}.SourceId"/> / <see cref="Link{TItem}.DestinationId"/> stay
-    /// <c>null</c> when that side is not loaded.
-    /// </remarks>
-    private static string? GetDeleteId<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem =>
-        action.Direction == SourceToDestination
-            ? action.Link.DestinationItem?.Provenance.ProviderId ?? action.Link.PersistedState?.DestinationId
-            : action.Link.SourceItem?.Provenance.ProviderId ?? action.Link.PersistedState?.SourceId;
 }

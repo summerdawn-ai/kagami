@@ -26,4 +26,20 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
     /// Gets or sets a human-readable description of why this action was planned.
     /// </summary>
     public string? Reason { get; set; }
+
+    /// <summary>
+    /// Gets the origin-side item, when available.
+    /// </summary>
+    public TItem? GetOriginItem() =>
+        Direction == SyncDirection.SourceToDestination
+            ? Link.SourceItem
+            : Link.DestinationItem;
+
+    /// <summary>
+    /// Gets the target-side item, when available.
+    /// </summary>
+    public TItem? GetTargetItem() =>
+        Direction == SyncDirection.SourceToDestination
+            ? Link.DestinationItem
+            : Link.SourceItem;
 }
