@@ -68,18 +68,12 @@ public sealed class SyncActionExecutor(
         IReadOnlyList<SyncAction<TItem>> actions,
         SyncDirection direction,
         Job<TItem> job,
-        IReadOnlyList<LinkStateRow> existingLinks,
         CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         await EnsureActionItemsLoadedAsync(actions, cancellationToken);
 
         string entityType = job.Options.EntityType;
         var targetConnector = direction == SourceToDestination ? job.DestinationConnector : job.SourceConnector;
-
-        var linksBySourceId = existingLinks.ToDictionary(l => l.SourceId);
-        var linksByDestinationId = existingLinks
-            .Where(l => l.DestinationId != null)
-            .ToDictionary(l => l.DestinationId!);
 
         bool failedActions = false;
 
@@ -91,9 +85,6 @@ public sealed class SyncActionExecutor(
                 job,
                 entityType,
                 targetConnector,
-                existingLinks,
-                linksBySourceId,
-                linksByDestinationId,
                 cancellationToken);
 
             if (!succeeded)
@@ -127,33 +118,33 @@ public sealed class SyncActionExecutor(
         Job<TItem> job,
         string entityType,
         IConnector<TItem> targetConnector,
-        IReadOnlyList<LinkStateRow> existingLinks,
-        Dictionary<string, LinkStateRow> linksBySourceId,
-        Dictionary<string, LinkStateRow> linksByDestinationId,
         CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         try
         {
             switch (action.Kind)
             {
-                case Create when action.Item is not null:
+                case Create:
                     {
-                        var created = await targetConnector.CreateItemAsync(action.Item, cancellationToken);
+                        var originItem = action.GetOriginItem()
+                            ?? throw new InvalidOperationException($"Create action has no origin item (job '{job.Key}', direction {direction}).");
+
+                        var createdItem = await targetConnector.CreateItemAsync(originItem, cancellationToken);
                         logger.LogInformation("Job {JobKey}: created {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
 
                         if (!job.Options.NoPersistence)
                         {
-                            await opLog.AppendAsync(job.Key, entityType, "create", created.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+                            await opLog.AppendAsync(job.Key, entityType, "create", createdItem.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
                             var link = new LinkStateRow
                             {
                                 PartitionKey = job.PartitionKey,
-                                SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : created.Provenance.ProviderId,
-                                DestinationId = direction == SourceToDestination ? created.Provenance.ProviderId : action.Item.Provenance.ProviderId,
-                                SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : created.Provenance.Version,
-                                DestinationVersion = direction == SourceToDestination ? created.Provenance.Version : action.Item.Provenance.Version,
-                                SourceHash = direction == SourceToDestination ? action.Item.Provenance.ContentHash : created.Provenance.ContentHash,
-                                DestinationHash = direction == SourceToDestination ? created.Provenance.ContentHash : action.Item.Provenance.ContentHash,
+                                SourceId = direction == SourceToDestination ? originItem.Provenance.ProviderId : createdItem.Provenance.ProviderId,
+                                DestinationId = direction == SourceToDestination ? createdItem.Provenance.ProviderId : originItem.Provenance.ProviderId,
+                                SourceVersion = direction == SourceToDestination ? originItem.Provenance.Version : createdItem.Provenance.Version,
+                                DestinationVersion = direction == SourceToDestination ? createdItem.Provenance.Version : originItem.Provenance.Version,
+                                SourceHash = direction == SourceToDestination ? originItem.Provenance.ContentHash : createdItem.Provenance.ContentHash,
+                                DestinationHash = direction == SourceToDestination ? createdItem.Provenance.ContentHash : originItem.Provenance.ContentHash,
                                 OriginSide = direction == SourceToDestination ? "Source" : "Destination",
                                 LastSyncedAt = DateTimeOffset.UtcNow,
                                 LastSyncResult = "created",
@@ -163,106 +154,110 @@ public sealed class SyncActionExecutor(
                         break;
                     }
 
-                case Update when action.Item is not null:
+                case Update:
                     {
-                        var link = FindLinkForUpdate(existingLinks, direction, action.Item.Provenance.ProviderId);
-                        if (link is null)
+                        var originItem = action.GetOriginItem()
+                            ?? throw new InvalidOperationException($"Update action has no origin item (job '{job.Key}', direction {direction}).");
+
+                        // matchedTargetItem may be null on delta runs for persisted links: the target
+                        // side was implicitly unchanged and not returned by the connector.
+                        // For inferred links both items are always loaded, so null here is a bug.
+                        var matchedTargetItem = action.GetTargetItem();
+                        var link = action.Link.PersistedState;
+
+                        if (link is null && matchedTargetItem is null)
                         {
-                            if (action.MatchedTargetItem is null)
-                            {
-                                return true;
-                            }
-
-                            var matchedTarget = CreateTargetItem(action.Item, null, direction, action.MatchedTargetItem);
-
-                            DetachPhotoIfUnchanged(action, matchedTarget);
-
-                            var matchedUpdate = await targetConnector.UpdateItemAsync(matchedTarget, cancellationToken);
-                            logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
-
-                            if (!job.Options.NoPersistence)
-                            {
-                                await opLog.AppendAsync(job.Key, entityType, "update", matchedUpdate.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
-
-                                var matchedLink = new LinkStateRow
-                                {
-                                    PartitionKey = job.PartitionKey,
-                                    SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : matchedUpdate.Provenance.ProviderId,
-                                    DestinationId = direction == SourceToDestination ? matchedUpdate.Provenance.ProviderId : action.Item.Provenance.ProviderId,
-                                    SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : matchedUpdate.Provenance.Version,
-                                    DestinationVersion = direction == SourceToDestination ? matchedUpdate.Provenance.Version : action.Item.Provenance.Version,
-                                    SourceHash = direction == SourceToDestination ? action.Item.Provenance.ContentHash : matchedUpdate.Provenance.ContentHash,
-                                    DestinationHash = direction == SourceToDestination ? matchedUpdate.Provenance.ContentHash : action.Item.Provenance.ContentHash,
-                                    OriginSide = direction == SourceToDestination ? "Source" : "Destination",
-                                    LastSyncedAt = DateTimeOffset.UtcNow,
-                                    LastSyncResult = "updated",
-                                };
-                                await linkStateRepo.UpsertAsync(matchedLink, cancellationToken);
-                            }
-                            break;
+                            throw new InvalidOperationException(
+                                $"Update action has neither a persisted link nor a live target item (job '{job.Key}', direction {direction}).");
                         }
 
-                        var targetItem = CreateTargetItem(action.Item, link, direction, action.MatchedTargetItem);
+                        var targetItemToWrite = CreateTargetItemToWrite(originItem, link, direction, matchedTargetItem);
 
-                        DetachPhotoIfUnchanged(action, targetItem);
+                        DetachPhotoIfUnchanged(action, targetItemToWrite);
 
-                        var updated = await targetConnector.UpdateItemAsync(targetItem, cancellationToken);
+                        var updatedTargetItem = await targetConnector.UpdateItemAsync(targetItemToWrite, cancellationToken);
                         logger.LogInformation("Job {JobKey}: updated {Description} on side {Side}", job.Key, DescribeActionTarget(action), direction);
 
                         if (!job.Options.NoPersistence)
                         {
-                            await opLog.AppendAsync(job.Key, entityType, "update", updated.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
-
-                            if (direction == SourceToDestination)
-                            {
-                                link.SourceVersion = action.Item.Provenance.Version;
-                                link.SourceHash = action.Item.Provenance.ContentHash;
-                                link.DestinationVersion = updated.Provenance.Version;
-                                link.DestinationHash = updated.Provenance.ContentHash;
-                            }
-                            else
-                            {
-                                link.DestinationVersion = action.Item.Provenance.Version;
-                                link.DestinationHash = action.Item.Provenance.ContentHash;
-                                link.SourceVersion = updated.Provenance.Version;
-                                link.SourceHash = updated.Provenance.ContentHash;
-                            }
-
-                            link.LastSyncedAt = DateTimeOffset.UtcNow;
-                            link.LastSyncResult = "updated";
-                            await linkStateRepo.UpsertAsync(link, cancellationToken);
-                        }
-
-                        break;
-                    }
-
-                case Delete when action.DeleteId is not null:
-                    {
-                        await targetConnector.DeleteItemAsync(action.DeleteId, cancellationToken);
-                        logger.LogInformation("Job {JobKey}: deleted item {ItemId} on side {Side}", job.Key, action.DeleteId, direction);
-
-                        if (!job.Options.NoPersistence)
-                        {
-                            await opLog.AppendAsync(job.Key, entityType, "delete", action.DeleteId, direction.ToString(), "ok", cancellationToken: cancellationToken);
-
-                            var link = direction == SourceToDestination
-                                ? linksByDestinationId.GetValueOrDefault(action.DeleteId)
-                                : linksBySourceId.GetValueOrDefault(action.DeleteId);
+                            await opLog.AppendAsync(job.Key, entityType, "update", updatedTargetItem.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
                             if (link is not null)
                             {
                                 if (direction == SourceToDestination)
                                 {
-                                    link.DestinationDeleted = true;
+                                    link.SourceVersion = originItem.Provenance.Version;
+                                    link.SourceHash = originItem.Provenance.ContentHash;
+                                    link.DestinationVersion = updatedTargetItem.Provenance.Version;
+                                    link.DestinationHash = updatedTargetItem.Provenance.ContentHash;
                                 }
                                 else
                                 {
-                                    link.SourceDeleted = true;
+                                    link.DestinationVersion = originItem.Provenance.Version;
+                                    link.DestinationHash = originItem.Provenance.ContentHash;
+                                    link.SourceVersion = updatedTargetItem.Provenance.Version;
+                                    link.SourceHash = updatedTargetItem.Provenance.ContentHash;
                                 }
 
                                 link.LastSyncedAt = DateTimeOffset.UtcNow;
-                                link.LastSyncResult = "deleted";
+                                link.LastSyncResult = "updated";
                                 await linkStateRepo.UpsertAsync(link, cancellationToken);
+                            }
+                            else
+                            {
+                                // Inferred link (no prior persisted state): create the link row now.
+                                var newLink = new LinkStateRow
+                                {
+                                    PartitionKey = job.PartitionKey,
+                                    SourceId = direction == SourceToDestination ? originItem.Provenance.ProviderId : updatedTargetItem.Provenance.ProviderId,
+                                    DestinationId = direction == SourceToDestination ? updatedTargetItem.Provenance.ProviderId : originItem.Provenance.ProviderId,
+                                    SourceVersion = direction == SourceToDestination ? originItem.Provenance.Version : updatedTargetItem.Provenance.Version,
+                                    DestinationVersion = direction == SourceToDestination ? updatedTargetItem.Provenance.Version : originItem.Provenance.Version,
+                                    SourceHash = direction == SourceToDestination ? originItem.Provenance.ContentHash : updatedTargetItem.Provenance.ContentHash,
+                                    DestinationHash = direction == SourceToDestination ? updatedTargetItem.Provenance.ContentHash : originItem.Provenance.ContentHash,
+                                    OriginSide = direction == SourceToDestination ? "Source" : "Destination",
+                                    LastSyncedAt = DateTimeOffset.UtcNow,
+                                    LastSyncResult = "updated",
+                                };
+                                await linkStateRepo.UpsertAsync(newLink, cancellationToken);
+                            }
+                        }
+
+                        break;
+                    }
+
+                case Delete:
+                    {
+                        // matchedTargetItem is null on delta runs: the target was implicitly unchanged
+                        // and not returned by the connector. Fall back to the persisted ID.
+                        var matchedTargetItem = action.GetTargetItem();
+                        var persistedLink = action.Link.PersistedState;
+                        string deleteId = matchedTargetItem?.Provenance.ProviderId
+                            ?? (direction == SourceToDestination ? persistedLink?.DestinationId : persistedLink?.SourceId)
+                            ?? throw new InvalidOperationException(
+                                $"Delete action has no target provider ID — neither a live target item nor a persisted link row with a target ID is available (job '{job.Key}', direction {direction}).");
+
+                        await targetConnector.DeleteItemAsync(deleteId, cancellationToken);
+                        logger.LogInformation("Job {JobKey}: deleted item {ItemId} on side {Side}", job.Key, deleteId, direction);
+
+                        if (!job.Options.NoPersistence)
+                        {
+                            await opLog.AppendAsync(job.Key, entityType, "delete", deleteId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+
+                            if (persistedLink is not null)
+                            {
+                                if (direction == SourceToDestination)
+                                {
+                                    persistedLink.DestinationDeleted = true;
+                                }
+                                else
+                                {
+                                    persistedLink.SourceDeleted = true;
+                                }
+
+                                persistedLink.LastSyncedAt = DateTimeOffset.UtcNow;
+                                persistedLink.LastSyncResult = "deleted";
+                                await linkStateRepo.UpsertAsync(persistedLink, cancellationToken);
                             }
                         }
 
@@ -278,7 +273,10 @@ public sealed class SyncActionExecutor(
         }
         catch (Exception ex)
         {
-            string itemId = action.Item?.Provenance.ProviderId ?? action.DeleteId ?? "unknown";
+            string itemId = action.GetOriginItem()?.Provenance.ProviderId
+                ?? action.GetTargetItem()?.Provenance.ProviderId
+                ?? action.Link.PersistedState?.SourceId
+                ?? "unknown";
             string operation = action.Kind switch
             {
                 Create => "create",
@@ -358,12 +356,12 @@ public sealed class SyncActionExecutor(
     {
         foreach (var action in actions)
         {
-            if (action.Kind is Create or Update && action.Item is CanonicalContact contact)
+            if (action.Kind is Create or Update && action.GetOriginItem() is CanonicalContact contact)
             {
                 await ContactPhotoLoader.EnsureLoadedAsync(contact, cancellationToken);
             }
 
-            if (action.Kind == Update && action.MatchedTargetItem is CanonicalContact targetContact)
+            if (action.Kind == Update && action.GetTargetItem() is CanonicalContact targetContact)
             {
                 await ContactPhotoLoader.EnsureLoadedAsync(targetContact, cancellationToken);
             }
@@ -371,48 +369,28 @@ public sealed class SyncActionExecutor(
     }
 
     /// <summary>
-    /// Returns a human-readable description of the target item in <paramref name="action"/>.
+    /// Returns a human-readable description of the item being acted on in <paramref name="action"/>.
+    /// For create/update the origin item is preferred; for delete the target item is preferred,
+    /// since the origin may be a tombstone or out-of-scope item whose name is no longer meaningful.
     /// </summary>
     private static string DescribeActionTarget<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem
     {
-        if (action.Item is CanonicalContact contact)
+        var item = action.Kind == Delete
+            ? action.GetTargetItem() ?? action.GetOriginItem()
+            : action.GetOriginItem() ?? action.GetTargetItem();
+        return item switch
         {
-            string name = ContactNameHelper.GetName(contact);
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                name = action.Item.Provenance.ProviderId;
-            }
-
-            return $"contact '{name}'";
-        }
-
-        if (action.Item is not null)
-        {
-            return $"item '{action.Item.Provenance.ProviderId}'";
-        }
-
-        return $"item '{action.DeleteId}'";
-    }
-
-    /// <summary>
-    /// Finds the persisted link row for an update action, or returns <c>null</c> when no link
-    /// exists yet.
-    /// </summary>
-    private static LinkStateRow? FindLinkForUpdate(
-        IReadOnlyList<LinkStateRow> existingLinks,
-        SyncDirection direction,
-        string providerId)
-    {
-        return direction == SourceToDestination
-            ? existingLinks.FirstOrDefault(link => link.SourceId == providerId)
-            : existingLinks.FirstOrDefault(link => link.DestinationId == providerId);
+            CanonicalContact contact => $"contact '{ContactNameHelper.GetNameOrId(contact)}'",
+            not null => $"item '{item.Provenance.ProviderId}'",
+            null => "item '(unknown)'",
+        };
     }
 
     /// <summary>
     /// Builds the target item for an update by copying <paramref name="sourceItem"/> and
     /// overwriting the provenance with the target-side provider ID and version.
     /// </summary>
-    private static TItem CreateTargetItem<TItem>(
+    private static TItem CreateTargetItemToWrite<TItem>(
         TItem sourceItem,
         LinkStateRow? link,
         SyncDirection updateDirection,
@@ -443,7 +421,7 @@ public sealed class SyncActionExecutor(
             return;
         }
 
-        if (ContactPhotoMetadataHelper.PhotoHashesMatch(action.Item as CanonicalContact, action.MatchedTargetItem as CanonicalContact))
+        if (ContactPhotoMetadataHelper.PhotoHashesMatch(action.GetOriginItem() as CanonicalContact, action.GetTargetItem() as CanonicalContact))
         {
             ContactPhotoMetadataHelper.DetachPhoto((matchedTarget as CanonicalContact)!);
         }

@@ -10,7 +10,7 @@ namespace Summerdawn.Kagami.Engine;
 /// A link may be backed by a persisted <see cref="LinkStateRow"/>, inferred by similarity
 /// matching, or represent a one-sided unmatched or ambiguous item.
 /// </remarks>
-public sealed class Link<TItem> where TItem : CanonicalItem
+public class Link<TItem> where TItem : CanonicalItem
 {
     /// <summary>
     /// Gets how this link was established.
@@ -31,6 +31,16 @@ public sealed class Link<TItem> where TItem : CanonicalItem
     /// Gets the persisted link state row for this pair, or <c>null</c> for inferred or unmatched links.
     /// </summary>
     public LinkStateRow? PersistedState { get; init; }
+
+    /// <summary>
+    /// Gets the provider ID of the currently loaded source item.
+    /// </summary>
+    public string? SourceId => SourceItem?.Provenance.ProviderId;
+
+    /// <summary>
+    /// Gets the provider ID of the currently loaded destination item.
+    /// </summary>
+    public string? DestinationId => DestinationItem?.Provenance.ProviderId;
 
     /// <summary>
     /// Returns a human-readable description of the link.

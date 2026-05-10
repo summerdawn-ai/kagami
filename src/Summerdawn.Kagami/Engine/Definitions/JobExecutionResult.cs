@@ -26,7 +26,7 @@ public sealed class JobExecutionResult
     public string? SkipReason { get; set; }
 
     /// <summary>
-    /// Gets or sets the total number of write actions planned (excludes Skip actions).
+    /// Gets or sets the total number of write actions planned (excludes Skip/None actions).
     /// </summary>
     public int ActionsPlanned { get; set; }
 

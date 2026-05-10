@@ -170,10 +170,11 @@ public sealed class JobExecutor(
         }
 
         var actionsSkip = actions.Where(a => a.Kind == Skip).ToList();
-        var actionsToDestination = actions.Where(a => a.Direction == SourceToDestination).Except(actionsSkip).ToList();
-        var actionsToSource = actions.Where(a => a.Direction == DestinationToSource).Except(actionsSkip).ToList();
+        var actionsNone = actions.Where(a => a.Kind == None).ToList();
+        var actionsToDestination = actions.Where(a => a.Direction == SourceToDestination).Except(actionsSkip).Except(actionsNone).ToList();
+        var actionsToSource = actions.Where(a => a.Direction == DestinationToSource).Except(actionsSkip).Except(actionsNone).ToList();
 
-        logger.LogInformation("Job {job.Key}: {CountDestination} actions targeting destination, {CountSource} targeting source, {CountSkip} skip", job.Key, actionsToDestination.Count, actionsToSource.Count, actionsSkip.Count);
+        logger.LogInformation("Job {job.Key}: {CountDestination} actions targeting destination, {CountSource} targeting source, {CountSkip} skip, {CountNone} already in sync", job.Key, actionsToDestination.Count, actionsToSource.Count, actionsSkip.Count, actionsNone.Count);
         result.ActionsPlanned += actionsToSource.Count + actionsToDestination.Count;
 
         if (whatIf)
@@ -183,43 +184,23 @@ public sealed class JobExecutor(
         else if (job.Options.NoPersistence)
         {
             // --- Apply source→destination ---
-            await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job, existingLinks, cancellationToken);
+            await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job, cancellationToken);
 
             // --- Apply destination→source ---
-            await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job, existingLinks, cancellationToken);
+            await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job, cancellationToken);
         }
         else
         {
             // --- Apply source→destination ---
-            await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job, existingLinks, cancellationToken);
-
-            // Refresh link state so that IDs created in the previous pass are visible when
-            // applying destination→source actions.
-            existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
+            await syncActionExecutor.ApplyActionsAsync(actionsToDestination, direction: SourceToDestination, job, cancellationToken);
 
             // --- Apply destination→source ---
-            await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job, existingLinks, cancellationToken);
+            await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job, cancellationToken);
 
-            // --- Record links for matched-but-unchanged pairs ---
-            // Skip actions that carry both sides (i.e. a matched pair whose content was identical)
-            // still need a link row so subsequent runs can track versions correctly.
-            var skipsWithMatches = actionsSkip.Where(a => a.Item is not null && a.MatchedTargetItem is not null).ToList();
-            if (skipsWithMatches.Count > 0)
-            {
-                existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
-
-                var destinationSkipsWithMatches = skipsWithMatches.Where(a => a.Direction == SourceToDestination).ToList();
-                if (destinationSkipsWithMatches.Count > 0)
-                {
-                    await RecordUnchangedLinksAsync(job.PartitionKey, destinationSkipsWithMatches, existingLinks, SourceToDestination, cancellationToken);
-                }
-
-                var sourceSkipsWithMatches = skipsWithMatches.Where(a => a.Direction == DestinationToSource).ToList();
-                if (sourceSkipsWithMatches.Count > 0)
-                {
-                    await RecordUnchangedLinksAsync(job.PartitionKey, sourceSkipsWithMatches, existingLinks, DestinationToSource, cancellationToken);
-                }
-            }
+            // --- Record links for content-identical pairs ---
+            // None actions carry both sides with identical content; update the link row so
+            // subsequent runs can short-circuit correctly via HasChanged.
+            await RecordNoneActionsAsync(job.PartitionKey, actionsNone, cancellationToken);
 
             // --- Persist cursors ---
             if (sourceItemSet.Cursor is not null)
@@ -323,57 +304,47 @@ public sealed class JobExecutor(
     }
 
     /// <summary>
-    /// Records or updates link rows for Skip actions where both matched items were already
-    /// content-identical, so no write action was emitted by the planner.
+    /// Records or updates link rows for <see cref="SyncActionKind.None"/> actions, where both
+    /// sides were already carrying identical content and no write was required.
     /// </summary>
     /// <remarks>
-    /// Ensures that the link table always reflects the latest observed IDs and hashes even when
-    /// nothing changed, so subsequent runs can short-circuit correctly via <c>HasChanged</c>.
+    /// Ensures that the link table always reflects the latest observed IDs and hashes so
+    /// subsequent runs can short-circuit correctly via <c>HasChanged</c>. Conflict-resolution
+    /// <see cref="SyncActionKind.Skip"/> actions are intentionally excluded: those represent
+    /// an unresolved disagreement, and omitting them causes <c>--full</c> resync to
+    /// re-surface the conflict rather than silently ignoring it.
     /// </remarks>
-    private async Task RecordUnchangedLinksAsync<TItem>(
+    private async Task RecordNoneActionsAsync<TItem>(
         string partitionKey,
         IReadOnlyList<SyncAction<TItem>> unchangedActions,
-        IReadOnlyList<LinkStateRow> existingLinks,
-        SyncDirection direction,
         CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         foreach (var action in unchangedActions)
         {
-            if (action.Item is null || action.MatchedTargetItem is null)
+            var sourceItem = action.Link.SourceItem;
+            var destinationItem = action.Link.DestinationItem;
+
+            if (sourceItem is null || destinationItem is null)
             {
                 continue;
             }
 
-            var link = FindLinkForUnchangedRecord(existingLinks, direction, action.Item.Provenance.ProviderId)
+            var link = action.Link.PersistedState
                 ?? new LinkStateRow
                 {
                     PartitionKey = partitionKey,
-                    OriginSide = direction == SourceToDestination ? "Source" : "Destination",
+                    OriginSide = action.Direction == SourceToDestination ? "Source" : "Destination",
                 };
 
-            link.SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : action.MatchedTargetItem.Provenance.ProviderId;
-            link.DestinationId = direction == SourceToDestination ? action.MatchedTargetItem.Provenance.ProviderId : action.Item.Provenance.ProviderId;
-            link.SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : action.MatchedTargetItem.Provenance.Version;
-            link.DestinationVersion = direction == SourceToDestination ? action.MatchedTargetItem.Provenance.Version : action.Item.Provenance.Version;
-            link.SourceHash = direction == SourceToDestination ? action.Item.Provenance.ContentHash : action.MatchedTargetItem.Provenance.ContentHash;
-            link.DestinationHash = direction == SourceToDestination ? action.MatchedTargetItem.Provenance.ContentHash : action.Item.Provenance.ContentHash;
+            link.SourceId = sourceItem.Provenance.ProviderId;
+            link.DestinationId = destinationItem.Provenance.ProviderId;
+            link.SourceVersion = sourceItem.Provenance.Version;
+            link.DestinationVersion = destinationItem.Provenance.Version;
+            link.SourceHash = sourceItem.Provenance.ContentHash;
+            link.DestinationHash = destinationItem.Provenance.ContentHash;
             link.LastSyncedAt = DateTimeOffset.UtcNow;
             link.LastSyncResult = "unchanged";
             await linkStateRepo.UpsertAsync(link, cancellationToken);
         }
-    }
-
-    /// <summary>
-    /// Finds the persisted link row for a skip/unchanged action, or returns <c>null</c> when no
-    /// link yet exists.
-    /// </summary>
-    private static LinkStateRow? FindLinkForUnchangedRecord(
-        IReadOnlyList<LinkStateRow> existingLinks,
-        SyncDirection direction,
-        string providerId)
-    {
-        return direction == SourceToDestination
-            ? existingLinks.FirstOrDefault(link => link.SourceId == providerId)
-            : existingLinks.FirstOrDefault(link => link.DestinationId == providerId);
     }
 }
