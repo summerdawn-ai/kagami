@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Summerdawn.Kagami.Connectors;
@@ -90,6 +92,28 @@ public sealed class ContactsExportTests : IDisposable
         Assert.True(File.Exists(Path.Combine(exportDir, "alice_smith.png")));
     }
 
+    [Fact]
+    public async Task ExportAsync_PreservesSourceEndpointNameInJsonProvenance()
+    {
+        sourceConnector.Seed(MakeContact("a1", "Alice", "Smith"));
+
+        await service.ExportAsync("Source", exportDir);
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(exportDir, "alice_smith.json")));
+        Assert.Equal("fake", document.RootElement.GetProperty("provenance").GetProperty("endpointName").GetString());
+    }
+
+    [Fact]
+    public async Task ExportAsync_PreservesNullEndpointNameWhenSourceItemDoesNotHaveOne()
+    {
+        sourceConnector.Seed(MakeContact("a1", "Alice", "Smith", endpointName: null));
+
+        await service.ExportAsync("Source", exportDir);
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(exportDir, "alice_smith.json")));
+        Assert.True(document.RootElement.GetProperty("provenance").GetProperty("endpointName").ValueKind is JsonValueKind.Null or JsonValueKind.Undefined);
+    }
+
     // ── Export: do-not-clobber regression tests ───────────────────────────
 
     /// <summary>
@@ -160,7 +184,7 @@ public sealed class ContactsExportTests : IDisposable
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
-    private static CanonicalContact MakeContact(string id, string firstName, string lastName) => new()
+    private static CanonicalContact MakeContact(string id, string firstName, string lastName, string? endpointName = "fake") => new()
     {
         GivenName = firstName,
         FamilyName = lastName,
@@ -169,6 +193,7 @@ public sealed class ContactsExportTests : IDisposable
         Provenance =
         {
             ProviderId = id,
+            EndpointName = endpointName,
             Version = "v1",
         }
     };

@@ -22,7 +22,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     private const int ConnectionsPageSize = 200;
     // Google batchGet limits matching to 50 ids.
     private const int MaxBatchSize = 50;
-    private static readonly DateOnly DefaultBirthday = new(1900, 1, 1);
+    private static readonly DateOnly DefaultBirthday = new(1604, 1, 1);
 
     private static readonly HashSet<string> SystemGroupResourceNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -86,7 +86,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         string requestUri = $"https://people.googleapis.com/v1/{id}?personFields={Uri.EscapeDataString(PersonFields)}";
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         using var document = await SendForJsonAsync(request, cancellationToken);
-        var item = ConvertPerson(document.RootElement, groupNamesByResource!);
+        var item = ConvertPerson(document.RootElement, groupNamesByResource!, EndpointName);
         if (item is not null && !item.IsDeleted)
         {
             await PopulatePhotoAsync(item, document.RootElement, cancellationToken);
@@ -103,7 +103,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         using var request = await CreateRequestAsync(HttpMethod.Post, requestUri, cancellationToken);
         request.Content = CreateJsonContent(body);
         using var document = await SendForJsonAsync(request, cancellationToken);
-        var created = ConvertPerson(document.RootElement, groupNamesByResource!) ?? throw new InvalidOperationException("Google createContact returned no person payload.");
+        var created = ConvertPerson(document.RootElement, groupNamesByResource!, EndpointName) ?? throw new InvalidOperationException("Google createContact returned no person payload.");
         await SyncPhotoAsync(created.Provenance.ProviderId, contact, deleteWhenAbsent: false, cancellationToken);
         return await GetItemAsync(created.Provenance.ProviderId, cancellationToken)
             ?? throw new InvalidOperationException("Google createContact succeeded but the created item could not be reloaded.");
@@ -274,7 +274,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                     continue;
                 }
 
-                var item = ConvertPerson(person, groupNamesByResource!);
+                var item = ConvertPerson(person, groupNamesByResource!, EndpointName);
                 if (item is not null)
                 {
                     if (!item.IsDeleted)
@@ -396,15 +396,21 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
         if (contact.Birthday is not null)
         {
+            JsonObject date = new()
+            {
+                ["month"] = contact.Birthday.Value.Month,
+                ["day"] = contact.Birthday.Value.Day,
+            };
+
+            if (contact.Birthday.Value.Year != DefaultBirthday.Year)
+            {
+                date["year"] = contact.Birthday.Value.Year;
+            }
+
             person["birthdays"] = CreateArray(
                 new JsonObject
                 {
-                    ["date"] = new JsonObject
-                    {
-                        ["year"] = contact.Birthday.Value.Year,
-                        ["month"] = contact.Birthday.Value.Month,
-                        ["day"] = contact.Birthday.Value.Day,
-                    },
+                    ["date"] = date,
                 });
         }
 
@@ -461,7 +467,8 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     /// System groups (<c>contactGroups/myContacts</c>, <c>contactGroups/starred</c>) are filtered out;
     /// custom groups are translated using this mapping, falling back to the raw resource name if unknown.
     /// </param>
-    internal static CanonicalContact? ConvertPerson(JsonElement person, IReadOnlyDictionary<string, string> groupNamesByResource)
+    /// <param name="endpointName">The name of the endpoint from which this contact was retrieved.</param>
+    internal static CanonicalContact? ConvertPerson(JsonElement person, IReadOnlyDictionary<string, string> groupNamesByResource, string endpointName)
     {
         string? resourceName = person.TryGetProperty("resourceName", out var resourceNameElement)
             ? resourceNameElement.GetString()
@@ -479,16 +486,19 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             return new CanonicalContact
             {
                 IsDeleted = true,
-                Provenance = { ProviderId = resourceName }
+                Provenance = {
+                    ProviderId = resourceName,
+                    EndpointName = endpointName
+                }
             };
         }
 
         CanonicalContact contact = new()
         {
-            GivenName = ReadFirstNestedString(person, "names", "givenName"),
-            MiddleName = ReadFirstNestedString(person, "names", "middleName"),
-            FamilyName = ReadFirstNestedString(person, "names", "familyName"),
-            DisplayName = ReadFirstNestedString(person, "names", "displayName") ?? string.Empty,
+            GivenName = NullIfEmpty(ReadFirstNestedString(person, "names", "givenName")?.Trim()),
+            MiddleName = NullIfEmpty(ReadFirstNestedString(person, "names", "middleName")?.Trim()),
+            FamilyName = NullIfEmpty(ReadFirstNestedString(person, "names", "familyName")?.Trim()),
+            DisplayName = NormalizeDisplayName(ReadFirstNestedString(person, "names", "displayName")),
             Organization = ReadFirstNestedString(person, "organizations", "name"),
             Title = ReadFirstNestedString(person, "organizations", "title"),
             Notes = ReadFirstNestedString(person, "biographies", "value"),
@@ -498,6 +508,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             Provenance =
             {
                 ProviderId = resourceName,
+                EndpointName = endpointName,
                 Version = person.TryGetProperty("etag", out var etagElement) ? etagElement.GetString() : null,
                 LastModified = ReadLastModified(person),
             }
@@ -811,6 +822,12 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         var first = array[0];
         return first.TryGetProperty(propertyName, out var propertyElement) ? propertyElement.GetString() : null;
     }
+
+    private static string NormalizeDisplayName(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? string.Empty : string.Join(' ', value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+
+    private static string? NullIfEmpty(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
 
     private static StringContent CreateJsonContent(JsonNode body) =>
         new(body.ToJsonString(), Encoding.UTF8, "application/json");

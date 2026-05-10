@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Encodings.Web;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -30,6 +31,7 @@ public sealed class ContactsImportTests : IDisposable
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
     private readonly TestDatabasePath databasePath = new();
@@ -214,6 +216,20 @@ public sealed class ContactsImportTests : IDisposable
     {
         string json = JsonSerializer.Serialize(contact, JsonOptions);
         await File.WriteAllTextAsync(Path.Combine(importDir, $"{baseName}.json"), json);
+    }
+
+    [Fact]
+    public async Task ImportAsync_WritesReadablePlusSignsInExportedJson()
+    {
+        var contact = MakeContact("plus1", "C++", "Team");
+
+        var connector = new ImportExportContactsConnector(importDir);
+
+        var exported = await connector.CreateItemAsync(contact);
+
+        string json = await File.ReadAllTextAsync(Path.Combine(importDir, $"{exported.Provenance.ProviderId}.json"));
+        Assert.Contains("C++", json);
+        Assert.DoesNotContain("\\u002B", json);
     }
 
     private static CanonicalContact MakeContact(string id, string firstName, string lastName) => new()

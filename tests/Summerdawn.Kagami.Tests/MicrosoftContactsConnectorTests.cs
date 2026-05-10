@@ -35,6 +35,7 @@ public sealed class MicrosoftContactsConnectorTests
         string? mobile = null,
         IEnumerable<string>? businessPhones = null,
         IEnumerable<string>? homePhones = null,
+        string? birthday = null,
         DateTimeOffset? lastModified = null,
         IEnumerable<(string id, string? value)>? extendedProps = null)
     {
@@ -52,7 +53,7 @@ public sealed class MicrosoftContactsConnectorTests
             ["companyName"] = null,
             ["jobTitle"] = null,
             ["personalNotes"] = null,
-            ["birthday"] = null,
+            ["birthday"] = birthday,
             ["categories"] = new JsonArray(),
             ["homeAddress"] = null,
             ["businessAddress"] = null,
@@ -488,12 +489,30 @@ public sealed class MicrosoftContactsConnectorTests
             """;
 
         using var document = JsonDocument.Parse(contactJson);
-        var contact = MicrosoftContactsConnector.ConvertContact(document.RootElement);
+        var contact = MicrosoftContactsConnector.ConvertContact(document.RootElement, "Microsoft");
 
         Assert.NotNull(contact);
         string actual = SerializeCore(contact);
         string expected = """{"givenName":"Yvonne","middleName":null,"familyName":"Pignolet","displayName":"Yvonne Pignolet","emails":[],"phones":[{"label":"mobile","number":"+41 78 743 07 46"}],"addresses":[],"organization":null,"title":null,"notes":"- Some notes","categories":[],"birthday":null}""";
         Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void BuildWritableContact_UsesSentinelYearForYearlessBirthday()
+    {
+        var contact = new CanonicalContact
+        {
+            DisplayName = "Birthday Contact",
+            Birthday = new DateOnly(1604, 5, 10),
+            Provenance = { ProviderId = "people/123" },
+        };
+
+        var payload = InvokeInternalBuildWritableContact(contact);
+
+        var birthday = payload["birthday"]!.GetValue<DateTime>();
+        Assert.Equal(1604, birthday.Year);
+        Assert.Equal(5, birthday.Month);
+        Assert.Equal(10, birthday.Day);
     }
 
     [Fact]
@@ -518,7 +537,7 @@ public sealed class MicrosoftContactsConnectorTests
             """;
 
         using var document = JsonDocument.Parse(contactJson);
-        var contact = MicrosoftContactsConnector.ConvertContact(document.RootElement);
+        var contact = MicrosoftContactsConnector.ConvertContact(document.RootElement, "Microsoft");
 
         Assert.NotNull(contact);
         string actual = SerializeCore(contact);

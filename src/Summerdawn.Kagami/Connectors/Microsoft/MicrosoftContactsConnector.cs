@@ -106,7 +106,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         string uri = $"{collectionPath}/{Uri.EscapeDataString(id)}?$select={Uri.EscapeDataString(ContactSelectFields)}&{ExtendedPropertiesExpand}";
         using var request = await CreateRequestAsync(HttpMethod.Get, uri, cancellationToken);
         using var document = await SendForJsonAsync(request, cancellationToken);
-        var contact = ConvertContact(document.RootElement);
+        var contact = ConvertContact(document.RootElement, EndpointName);
         if (contact is not null && !contact.IsDeleted)
         {
             ApplyExtendedPhoneProperties(contact, document.RootElement);
@@ -121,7 +121,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         using var request = await CreateRequestAsync(HttpMethod.Post, collectionPath, cancellationToken);
         request.Content = CreateJsonContent(BuildWritableContact(contact));
         using var document = await SendForJsonAsync(request, cancellationToken);
-        var created = ConvertContact(document.RootElement) ?? throw new InvalidOperationException("Microsoft Contacts create returned no payload.");
+        var created = ConvertContact(document.RootElement, EndpointName) ?? throw new InvalidOperationException("Microsoft Contacts create returned no payload.");
         await SyncPhotoAsync(created.Provenance.ProviderId, contact, deleteWhenAbsent: false, cancellationToken);
         return await GetItemAsync(created.Provenance.ProviderId, cancellationToken)
             ?? throw new InvalidOperationException("Microsoft Contacts create succeeded but the created contact could not be reloaded.");
@@ -212,7 +212,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         {
             foreach (var element in values.EnumerateArray())
             {
-                var contact = ConvertContact(element);
+                var contact = ConvertContact(element, EndpointName);
                 if (contact is null || contact.IsDeleted)
                 {
                     continue;
@@ -294,7 +294,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
                 throw new InvalidOperationException($"Microsoft Graph batch response for '{ids[i]}' did not include a contact payload.");
             }
 
-            var contact = ConvertContact(body);
+            var contact = ConvertContact(body, EndpointName);
             if (contact is null)
             {
                 continue;
@@ -407,7 +407,11 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             ["companyName"] = contact.Organization,
             ["jobTitle"] = contact.Title,
             ["personalNotes"] = contact.Notes,
-            ["birthday"] = JsonValue.Create(contact.Birthday?.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)),
+            ["birthday"] = JsonValue.Create(contact.Birthday is null
+                ? null
+                : contact.Birthday.Value.Year == 1604
+                    ? new DateOnly(1604, contact.Birthday.Value.Month, contact.Birthday.Value.Day).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)
+                    : contact.Birthday.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)),
             ["categories"] = CreateStringArray(contact.Categories),
             ["homeAddress"] = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "home", StringComparison.OrdinalIgnoreCase))),
             ["businessAddress"] = ToMicrosoftAddress(contact.Addresses.FirstOrDefault(address => string.Equals(address.Label, "work", StringComparison.OrdinalIgnoreCase))),
@@ -474,7 +478,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         return array;
     }
 
-    internal static CanonicalContact? ConvertContact(JsonElement element)
+    internal static CanonicalContact? ConvertContact(JsonElement element, string endpointName)
     {
         string? id = element.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
         if (string.IsNullOrWhiteSpace(id))
@@ -487,28 +491,30 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             return new CanonicalContact
             {
                 IsDeleted = true,
-                Provenance =
+                Provenance = new()
                 {
                     ProviderId = id,
+                    EndpointName = endpointName,
                 }
             };
         }
 
         CanonicalContact contact = new()
         {
-            GivenName = NullIfEmpty(ReadString(element, "givenName")),
-            MiddleName = NullIfEmpty(ReadString(element, "middleName")),
-            FamilyName = NullIfEmpty(ReadString(element, "surname")),
-            DisplayName = ReadString(element, "displayName") ?? string.Empty,
+            GivenName = NullIfEmpty(ReadString(element, "givenName")?.Trim()),
+            MiddleName = NullIfEmpty(ReadString(element, "middleName")?.Trim()),
+            FamilyName = NullIfEmpty(ReadString(element, "surname")?.Trim()),
+            DisplayName = NormalizeDisplayName(ReadString(element, "displayName")),
             Organization = NullIfEmpty(ReadString(element, "companyName")),
             Title = NullIfEmpty(ReadString(element, "jobTitle")),
             Notes = NullIfEmpty(ReadString(element, "personalNotes")),
             Birthday = ReadDateOnly(element, "birthday"),
             Categories = ReadStringArray(element, "categories"),
 
-            Provenance =
+            Provenance = new()
             {
                 ProviderId = id,
+                EndpointName = endpointName,
                 Version = ReadString(element, "@odata.etag"),
                 LastModified = ReadDateTimeOffset(element, "lastModifiedDateTime"),
             }
@@ -685,6 +691,9 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         element.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.GetString()
             : null;
+
+    private static string NormalizeDisplayName(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? string.Empty : string.Join(' ', value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     private static string? NullIfEmpty(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;

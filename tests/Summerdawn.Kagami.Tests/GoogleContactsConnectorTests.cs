@@ -34,12 +34,30 @@ public sealed class GoogleContactsConnectorTests
         };
 
         using var document = JsonDocument.Parse(personJson);
-        var contact = GoogleContactsConnector.ConvertPerson(document.RootElement, groupNamesByResource);
+        var contact = GoogleContactsConnector.ConvertPerson(document.RootElement, groupNamesByResource, "google");
 
         Assert.NotNull(contact);
         string actual = SerializeCore(contact);
         string expected = """{"givenName":"Adriana","middleName":null,"familyName":"De Matteis","displayName":"Adriana De Matteis","emails":[],"phones":[{"label":"mobile","number":"+41794318938"}],"addresses":[],"organization":null,"title":null,"notes":"- Met 2024-02-03 at Heavenly Heat","categories":["Heavenly Heat"],"birthday":null}""";
         Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void ConvertPerson_UsesSentinelYearForYearlessBirthday()
+    {
+        string personJson = """
+            {
+                "resourceName": "people/123",
+                "names": [{"displayName": "Birthday Contact"}],
+                "birthdays": [{"date": {"month": 5, "day": 10}}]
+            }
+            """;
+
+        using var document = JsonDocument.Parse(personJson);
+        var contact = GoogleContactsConnector.ConvertPerson(document.RootElement, new Dictionary<string, string>(), "google");
+
+        Assert.NotNull(contact);
+        Assert.Equal(new DateOnly(1604, 5, 10), contact!.Birthday);
     }
 
     [Fact]
@@ -62,7 +80,8 @@ public sealed class GoogleContactsConnectorTests
         using var document = JsonDocument.Parse(personJson);
         var contact = GoogleContactsConnector.ConvertPerson(
             document.RootElement,
-            new Dictionary<string, string>());
+            new Dictionary<string, string>(),
+            "google");
 
         Assert.NotNull(contact);
         // myContacts filtered; unknown custom group skipped.
@@ -86,7 +105,8 @@ public sealed class GoogleContactsConnectorTests
         using var document = JsonDocument.Parse(personJson);
         var contact = GoogleContactsConnector.ConvertPerson(
             document.RootElement,
-            new Dictionary<string, string>());
+            new Dictionary<string, string>(),
+            "google");
 
         Assert.NotNull(contact);
         Assert.Empty(contact.Categories);
@@ -161,6 +181,25 @@ public sealed class GoogleContactsConnectorTests
         var person = GoogleContactsConnector.BuildWritablePerson(contact, new Dictionary<string, string>());
 
         Assert.False(person.ContainsKey("memberships"));
+    }
+
+    [Fact]
+    public void BuildWritablePerson_OmitsYearForSentinelBirthday()
+    {
+        var contact = new CanonicalContact
+        {
+            DisplayName = "Birthday Contact",
+            Birthday = new DateOnly(1604, 5, 10),
+            Provenance = { ProviderId = "people/123" },
+        };
+
+        var person = GoogleContactsConnector.BuildWritablePerson(contact, new Dictionary<string, string>());
+
+        Assert.True(person.TryGetPropertyValue("birthdays", out var birthdays));
+        var birthdayDate = birthdays!.AsArray()[0]!["date"]!.AsObject();
+        Assert.False(birthdayDate.ContainsKey("year"));
+        Assert.Equal(5, birthdayDate["month"]!.GetValue<int>());
+        Assert.Equal(10, birthdayDate["day"]!.GetValue<int>());
     }
 
     // ── helpers ───────────────────────────────────────────────────────────

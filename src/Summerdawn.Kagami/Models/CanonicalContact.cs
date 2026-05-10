@@ -38,7 +38,9 @@ public sealed record CanonicalContact : CanonicalItem
     /// <summary>Categories or labels attached to the contact.</summary>
     public List<string> Categories { get; set; } = [];
 
-    /// <summary>Birthday.</summary>
+    /// <summary>
+    /// Birthday. A year value of 1604 is used as the sentinel for yearless birthdays.
+    /// </summary>
     public DateOnly? Birthday { get; set; }
 
     /// <summary>
