@@ -170,10 +170,11 @@ public sealed class JobExecutor(
         }
 
         var actionsSkip = actions.Where(a => a.Kind == Skip).ToList();
-        var actionsToDestination = actions.Where(a => a.Direction == SourceToDestination).Except(actionsSkip).ToList();
-        var actionsToSource = actions.Where(a => a.Direction == DestinationToSource).Except(actionsSkip).ToList();
+        var actionsNone = actions.Where(a => a.Kind == None).ToList();
+        var actionsToDestination = actions.Where(a => a.Direction == SourceToDestination).Except(actionsSkip).Except(actionsNone).ToList();
+        var actionsToSource = actions.Where(a => a.Direction == DestinationToSource).Except(actionsSkip).Except(actionsNone).ToList();
 
-        logger.LogInformation("Job {job.Key}: {CountDestination} actions targeting destination, {CountSource} targeting source, {CountSkip} skip", job.Key, actionsToDestination.Count, actionsToSource.Count, actionsSkip.Count);
+        logger.LogInformation("Job {job.Key}: {CountDestination} actions targeting destination, {CountSource} targeting source, {CountSkip} skip, {CountNone} already in sync", job.Key, actionsToDestination.Count, actionsToSource.Count, actionsSkip.Count, actionsNone.Count);
         result.ActionsPlanned += actionsToSource.Count + actionsToDestination.Count;
 
         if (whatIf)
@@ -196,10 +197,10 @@ public sealed class JobExecutor(
             // --- Apply destination→source ---
             await syncActionExecutor.ApplyActionsAsync(actionsToSource, direction: DestinationToSource, job, cancellationToken);
 
-            // --- Record links for matched-but-unchanged pairs ---
-            // Skip actions that carry both sides (i.e. a matched pair whose content was identical)
-            // still need a link row so subsequent runs can track versions correctly.
-            await RecordUnchangedLinksAsync(job.PartitionKey, actionsSkip, cancellationToken);
+            // --- Record links for content-identical pairs ---
+            // None actions carry both sides with identical content; update the link row so
+            // subsequent runs can short-circuit correctly via HasChanged.
+            await RecordNoneActionsAsync(job.PartitionKey, actionsNone, cancellationToken);
 
             // --- Persist cursors ---
             if (sourceItemSet.Cursor is not null)
@@ -303,14 +304,17 @@ public sealed class JobExecutor(
     }
 
     /// <summary>
-    /// Records or updates link rows for Skip actions where both matched items were already
-    /// content-identical, so no write action was emitted by the planner.
+    /// Records or updates link rows for <see cref="SyncActionKind.None"/> actions, where both
+    /// sides were already carrying identical content and no write was required.
     /// </summary>
     /// <remarks>
-    /// Ensures that the link table always reflects the latest observed IDs and hashes even when
-    /// nothing changed, so subsequent runs can short-circuit correctly via <c>HasChanged</c>.
+    /// Ensures that the link table always reflects the latest observed IDs and hashes so
+    /// subsequent runs can short-circuit correctly via <c>HasChanged</c>. Conflict-resolution
+    /// <see cref="SyncActionKind.Skip"/> actions are intentionally excluded: those represent
+    /// an unresolved disagreement, and omitting them causes <c>--full</c> resync to
+    /// re-surface the conflict rather than silently ignoring it.
     /// </remarks>
-    private async Task RecordUnchangedLinksAsync<TItem>(
+    private async Task RecordNoneActionsAsync<TItem>(
         string partitionKey,
         IReadOnlyList<SyncAction<TItem>> unchangedActions,
         CancellationToken cancellationToken) where TItem : CanonicalItem

@@ -248,7 +248,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             var skipDirection = jobOptions.SyncMode == Reverse ? DestinationToSource : SourceToDestination;
             return new SyncAction<TItem>
             {
-                Kind = SyncActionKind.Skip,
+                Kind = None,
                 Direction = skipDirection,
                 Link = examined,
                 Reason = "Content identical on both sides",
@@ -333,7 +333,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             var skipDirection = jobOptions.SyncMode == Reverse ? DestinationToSource : SourceToDestination;
             return new SyncAction<TItem>
             {
-                Kind = SyncActionKind.Skip,
+                Kind = None,
                 Direction = skipDirection,
                 Link = examined,
                 Reason = "Content identical on both sides",

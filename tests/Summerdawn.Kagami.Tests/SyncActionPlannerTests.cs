@@ -189,8 +189,8 @@ public sealed class SyncActionPlannerTests
 
         var actions = planner.PlanActions(
             CreateJob(conflictPolicy: ConflictPolicy.Skip),
-            [CreateItem("a1", "v2")],
-            [CreateItem("b1", "v2b")],
+            [CreateItem("a1", "v2") with { Notes = "source note" }],
+            [CreateItem("b1", "v2b") with { Notes = "destination note" }],
             [link]);
 
         Assert.Single(actions);
