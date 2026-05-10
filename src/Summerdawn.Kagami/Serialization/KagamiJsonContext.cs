@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using System.Text.Encodings.Web;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Models;
@@ -30,6 +31,7 @@ internal partial class KagamiJsonContext : JsonSerializerContext
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
 
         // Needed to enable AOT-compatible JSON serialization
         TypeInfoResolver = new KagamiJsonContext()
