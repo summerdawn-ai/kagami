@@ -491,10 +491,10 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
         CanonicalContact contact = new()
         {
-            GivenName = ReadFirstNestedString(person, "names", "givenName"),
-            MiddleName = ReadFirstNestedString(person, "names", "middleName"),
-            FamilyName = ReadFirstNestedString(person, "names", "familyName"),
-            DisplayName = ReadFirstNestedString(person, "names", "displayName") ?? string.Empty,
+            GivenName = NullIfEmpty(ReadFirstNestedString(person, "names", "givenName")?.Trim()),
+            MiddleName = NullIfEmpty(ReadFirstNestedString(person, "names", "middleName")?.Trim()),
+            FamilyName = NullIfEmpty(ReadFirstNestedString(person, "names", "familyName")?.Trim()),
+            DisplayName = (ReadFirstNestedString(person, "names", "displayName") ?? string.Empty).Trim(),
             Organization = ReadFirstNestedString(person, "organizations", "name"),
             Title = ReadFirstNestedString(person, "organizations", "title"),
             Notes = ReadFirstNestedString(person, "biographies", "value"),
@@ -817,6 +817,9 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         var first = array[0];
         return first.TryGetProperty(propertyName, out var propertyElement) ? propertyElement.GetString() : null;
     }
+
+    private static string? NullIfEmpty(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
 
     private static StringContent CreateJsonContent(JsonNode body) =>
         new(body.ToJsonString(), Encoding.UTF8, "application/json");

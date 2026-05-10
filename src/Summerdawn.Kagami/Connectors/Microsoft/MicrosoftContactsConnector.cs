@@ -500,10 +500,10 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
 
         CanonicalContact contact = new()
         {
-            GivenName = NullIfEmpty(ReadString(element, "givenName")),
-            MiddleName = NullIfEmpty(ReadString(element, "middleName")),
-            FamilyName = NullIfEmpty(ReadString(element, "surname")),
-            DisplayName = ReadString(element, "displayName") ?? string.Empty,
+            GivenName = NullIfEmpty(ReadString(element, "givenName")?.Trim()),
+            MiddleName = NullIfEmpty(ReadString(element, "middleName")?.Trim()),
+            FamilyName = NullIfEmpty(ReadString(element, "surname")?.Trim()),
+            DisplayName = (ReadString(element, "displayName") ?? string.Empty).Trim(),
             Organization = NullIfEmpty(ReadString(element, "companyName")),
             Title = NullIfEmpty(ReadString(element, "jobTitle")),
             Notes = NullIfEmpty(ReadString(element, "personalNotes")),
