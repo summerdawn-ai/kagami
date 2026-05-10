@@ -18,19 +18,9 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
     public required SyncDirection Direction { get; set; }
 
     /// <summary>
-    /// Gets or sets the canonical item to write on the target side.
+    /// Gets or sets the examined link context that led to this action.
     /// </summary>
-    public required TItem? Item { get; set; }
-
-    /// <summary>
-    /// Gets or sets the already-observed target item for update actions not backed by an existing link.
-    /// </summary>
-    public TItem? MatchedTargetItem { get; set; }
-
-    /// <summary>
-    /// Gets or sets the provider ID of the item to delete (used for Delete actions).
-    /// </summary>
-    public string? DeleteId { get; set; }
+    public required ExaminedLink<TItem> ExaminedLink { get; set; }
 
     /// <summary>
     /// Gets or sets a human-readable description of why this action was planned.

@@ -99,7 +99,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             return null;
         }
 
-        return examined.Link.Kind switch
+        return examined.Kind switch
         {
             LinkKind.Persisted => PlanPersistedLink(examined, jobOptions),
             LinkKind.Inferred => PlanInferredLink(examined, jobOptions),
@@ -119,7 +119,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     private static SyncAction<TItem>? PlanPersistedLink<TItem>(ExaminedLink<TItem> examined, JobOptions jobOptions)
         where TItem : CanonicalItem
     {
-        var link = examined.Link;
+        var link = examined;
         var row = link.PersistedState!;
         bool force = jobOptions.Force;
 
@@ -149,7 +149,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                     {
                         Kind = Create,
                         Direction = SourceToDestination,
-                        Item = link.SourceItem,
+                        ExaminedLink = examined,
                         Reason = "Destination absent; recreating per --force",
                     };
                 }
@@ -174,8 +174,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                     {
                         Kind = Delete,
                         Direction = SourceToDestination,
-                        Item = link.DestinationItem,
-                        DeleteId = row.DestinationId,
+                        ExaminedLink = examined,
                         Reason = "Source item absent (deleted or out of filter scope)",
                     };
                 }
@@ -188,7 +187,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 {
                     Kind = SyncActionKind.Skip,
                     Direction = SourceToDestination,
-                    Item = link.DestinationItem,
+                    ExaminedLink = examined,
                     Reason = sourceSkipReason,
                 };
             }
@@ -205,7 +204,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                         {
                             Kind = Create,
                             Direction = SourceToDestination,
-                            Item = link.SourceItem,
+                            ExaminedLink = examined,
                             Reason = "Destination not yet created",
                         };
                     }
@@ -220,8 +219,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                     {
                         Kind = Delete,
                         Direction = DestinationToSource,
-                        Item = link.SourceItem,
-                        DeleteId = row.SourceId,
+                        ExaminedLink = examined,
                         Reason = "Destination item absent (deleted or out of filter scope)",
                     };
                 }
@@ -234,7 +232,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 {
                     Kind = SyncActionKind.Skip,
                     Direction = DestinationToSource,
-                    Item = link.SourceItem,
+                    ExaminedLink = examined,
                     Reason = destinationSkipReason,
                 };
             }
@@ -253,8 +251,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             {
                 Kind = SyncActionKind.Skip,
                 Direction = skipDirection,
-                Item = link.SourceItem,
-                MatchedTargetItem = link.DestinationItem,
+                ExaminedLink = examined,
                 Reason = "Content identical on both sides",
             };
         }
@@ -262,24 +259,22 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
         return jobOptions.SyncMode switch
         {
             Forward when !sourceChanged => null,
-            Forward when destinationChanged => ResolveConflict(link.SourceItem, link.DestinationItem, SourceToDestination, jobOptions),
+            Forward when destinationChanged => ResolveConflict(examined, SourceToDestination, jobOptions),
             Forward => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = SourceToDestination,
-                Item = link.SourceItem,
-                MatchedTargetItem = link.DestinationItem,
+                ExaminedLink = examined,
                 Reason = "Item changed on source side",
             },
 
             Reverse when !destinationChanged => null,
-            Reverse when sourceChanged => ResolveConflict(link.SourceItem, link.DestinationItem, DestinationToSource, jobOptions),
+            Reverse when sourceChanged => ResolveConflict(examined, DestinationToSource, jobOptions),
             Reverse => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = DestinationToSource,
-                Item = link.DestinationItem,
-                MatchedTargetItem = link.SourceItem,
+                ExaminedLink = examined,
                 Reason = "Item changed on destination side",
             },
 
@@ -289,27 +284,24 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             {
                 Kind = Update,
                 Direction = SourceToDestination,
-                Item = link.SourceItem,
-                MatchedTargetItem = link.DestinationItem,
+                ExaminedLink = examined,
                 Reason = "Item changed on source side",
             },
             _ when !sourceChanged => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = DestinationToSource,
-                Item = link.DestinationItem,
-                MatchedTargetItem = link.SourceItem,
+                ExaminedLink = examined,
                 Reason = "Item changed on destination side",
             },
             _ when jobOptions.ConflictPolicy == DestinationWins && link.DestinationItem != null => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = DestinationToSource,
-                Item = link.DestinationItem,
-                MatchedTargetItem = link.SourceItem,
+                ExaminedLink = examined,
                 Reason = "Conflict: destination wins per policy",
             },
-            _ => ResolveConflict(link.SourceItem!, link.DestinationItem, SourceToDestination, jobOptions),
+            _ => ResolveConflict(examined, SourceToDestination, jobOptions),
         };
     }
 
@@ -330,7 +322,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     private static SyncAction<TItem>? PlanInferredLink<TItem>(ExaminedLink<TItem> examined, JobOptions jobOptions)
         where TItem : CanonicalItem
     {
-        var link = examined.Link;
+        var link = examined;
 
         // An inferred link may only be produced when neither side was previously linked.
         // Both sides are present (Created), so SourceItem and DestinationItem are non-null.
@@ -346,8 +338,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             {
                 Kind = SyncActionKind.Skip,
                 Direction = skipDirection,
-                Item = source,
-                MatchedTargetItem = dest,
+                ExaminedLink = examined,
                 Reason = "Content identical on both sides",
             };
         }
@@ -357,16 +348,14 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             {
                 Kind = Update,
                 Direction = DestinationToSource,
-                Item = dest,
-                MatchedTargetItem = source,
+                ExaminedLink = examined,
                 Reason = "Matched existing contact on target side",
             }
             : new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = SourceToDestination,
-                Item = source,
-                MatchedTargetItem = dest,
+                ExaminedLink = examined,
                 Reason = "Matched existing contact on target side",
             };
     }
@@ -381,7 +370,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     private static SyncAction<TItem>? PlanUnmatchedLink<TItem>(ExaminedLink<TItem> examined, JobOptions jobOptions)
         where TItem : CanonicalItem
     {
-        var link = examined.Link;
+        var link = examined;
 
         if (link.SourceItem != null)
         {
@@ -395,7 +384,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             {
                 Kind = Create,
                 Direction = SourceToDestination,
-                Item = link.SourceItem,
+                ExaminedLink = examined,
                 Reason = "New item on source side",
             };
         }
@@ -413,8 +402,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                     {
                         Kind = Delete,
                         Direction = SourceToDestination,
-                        Item = link.DestinationItem,
-                        DeleteId = link.DestinationItem.Provenance.ProviderId,
+                        ExaminedLink = examined,
                         Reason = "Destination-only item; source is authoritative (--prune)",
                     };
                 }
@@ -426,7 +414,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             {
                 Kind = Create,
                 Direction = DestinationToSource,
-                Item = link.DestinationItem,
+                ExaminedLink = examined,
                 Reason = "New item on destination side",
             };
         }
@@ -445,7 +433,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     private static SyncAction<TItem>? PlanAmbiguousLink<TItem>(ExaminedLink<TItem> examined, JobOptions jobOptions)
         where TItem : CanonicalItem
     {
-        var link = examined.Link;
+        var link = examined;
 
         if (link.SourceItem != null)
         {
@@ -459,7 +447,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             {
                 Kind = SyncActionKind.Skip,
                 Direction = SourceToDestination,
-                Item = link.SourceItem,
+                ExaminedLink = examined,
                 Reason = "Multiple matching contacts on target side",
             };
         }
@@ -476,7 +464,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             {
                 Kind = SyncActionKind.Skip,
                 Direction = DestinationToSource,
-                Item = link.DestinationItem,
+                ExaminedLink = examined,
                 Reason = "Target contact matches multiple source contacts",
             };
         }
@@ -492,8 +480,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     /// Resolves a conflict using the configured <see cref="JobOptions.ConflictPolicy"/>.
     /// </summary>
     private static SyncAction<TItem> ResolveConflict<TItem>(
-        TItem? sourceItem,
-        TItem? destinationItem,
+        ExaminedLink<TItem> examined,
         SyncDirection direction,
         JobOptions jobOptions) where TItem : CanonicalItem =>
         jobOptions.ConflictPolicy switch
@@ -502,40 +489,38 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             {
                 Kind = Update,
                 Direction = SourceToDestination,
-                Item = sourceItem,
-                MatchedTargetItem = destinationItem,
+                ExaminedLink = examined,
                 Reason = "Conflict: source wins per policy",
             },
             SourceWins => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
                 Direction = DestinationToSource,
-                Item = destinationItem,
+                ExaminedLink = examined,
                 Reason = "Conflict: source wins per policy",
             },
             DestinationWins when direction == DestinationToSource => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = DestinationToSource,
-                Item = destinationItem,
-                MatchedTargetItem = sourceItem,
+                ExaminedLink = examined,
                 Reason = "Conflict: destination wins per policy",
             },
             DestinationWins => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
                 Direction = SourceToDestination,
-                Item = sourceItem,
+                ExaminedLink = examined,
                 Reason = "Conflict: destination wins per policy",
             },
             ConflictPolicy.Skip => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
                 Direction = direction,
-                Item = direction == SourceToDestination ? sourceItem : destinationItem,
+                ExaminedLink = examined,
                 Reason = "Conflict: skipped per policy",
             },
-            _ => ResolveLastWriteWinsConflict(sourceItem, destinationItem, direction),
+            _ => ResolveLastWriteWinsConflict(examined, direction),
         };
 
     /// <summary>
@@ -543,10 +528,11 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     /// <see cref="ItemProvenance.LastModified"/> timestamp wins.
     /// </summary>
     private static SyncAction<TItem> ResolveLastWriteWinsConflict<TItem>(
-        TItem? sourceItem,
-        TItem? destinationItem,
+        ExaminedLink<TItem> examined,
         SyncDirection direction) where TItem : CanonicalItem
     {
+        var sourceItem = examined.SourceItem;
+        var destinationItem = examined.DestinationItem;
         var sourceLastModified = sourceItem?.Provenance.LastModified;
         var destinationLastModified = destinationItem?.Provenance.LastModified;
 
@@ -560,30 +546,28 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             {
                 Kind = Update,
                 Direction = SourceToDestination,
-                Item = sourceItem,
-                MatchedTargetItem = destinationItem,
+                ExaminedLink = examined,
                 Reason = "Conflict: last write wins per policy",
             },
             true => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
                 Direction = DestinationToSource,
-                Item = destinationItem,
+                ExaminedLink = examined,
                 Reason = "Conflict: source wins per last-write-wins policy",
             },
             false when direction == SourceToDestination => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
                 Direction = SourceToDestination,
-                Item = sourceItem,
+                ExaminedLink = examined,
                 Reason = "Conflict: destination wins but sync mode does not permit reverse write",
             },
             false => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = DestinationToSource,
-                Item = destinationItem,
-                MatchedTargetItem = sourceItem,
+                ExaminedLink = examined,
                 Reason = "Conflict: last write wins per policy",
             }
         };

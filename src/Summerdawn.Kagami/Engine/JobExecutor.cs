@@ -203,7 +203,9 @@ public sealed class JobExecutor(
             // --- Record links for matched-but-unchanged pairs ---
             // Skip actions that carry both sides (i.e. a matched pair whose content was identical)
             // still need a link row so subsequent runs can track versions correctly.
-            var skipsWithMatches = actionsSkip.Where(a => a.Item is not null && a.MatchedTargetItem is not null).ToList();
+            var skipsWithMatches = actionsSkip
+                .Where(a => a.ExaminedLink.SourceItem is not null && a.ExaminedLink.DestinationItem is not null)
+                .ToList();
             if (skipsWithMatches.Count > 0)
             {
                 existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
@@ -339,24 +341,31 @@ public sealed class JobExecutor(
     {
         foreach (var action in unchangedActions)
         {
-            if (action.Item is null || action.MatchedTargetItem is null)
+            var sourceItem = direction == SourceToDestination
+                ? action.ExaminedLink.SourceItem
+                : action.ExaminedLink.DestinationItem;
+            var destinationItem = direction == SourceToDestination
+                ? action.ExaminedLink.DestinationItem
+                : action.ExaminedLink.SourceItem;
+
+            if (sourceItem is null || destinationItem is null)
             {
                 continue;
             }
 
-            var link = FindLinkForUnchangedRecord(existingLinks, direction, action.Item.Provenance.ProviderId)
+            var link = FindLinkForUnchangedRecord(existingLinks, direction, sourceItem.Provenance.ProviderId)
                 ?? new LinkStateRow
                 {
                     PartitionKey = partitionKey,
                     OriginSide = direction == SourceToDestination ? "Source" : "Destination",
                 };
 
-            link.SourceId = direction == SourceToDestination ? action.Item.Provenance.ProviderId : action.MatchedTargetItem.Provenance.ProviderId;
-            link.DestinationId = direction == SourceToDestination ? action.MatchedTargetItem.Provenance.ProviderId : action.Item.Provenance.ProviderId;
-            link.SourceVersion = direction == SourceToDestination ? action.Item.Provenance.Version : action.MatchedTargetItem.Provenance.Version;
-            link.DestinationVersion = direction == SourceToDestination ? action.MatchedTargetItem.Provenance.Version : action.Item.Provenance.Version;
-            link.SourceHash = direction == SourceToDestination ? action.Item.Provenance.ContentHash : action.MatchedTargetItem.Provenance.ContentHash;
-            link.DestinationHash = direction == SourceToDestination ? action.MatchedTargetItem.Provenance.ContentHash : action.Item.Provenance.ContentHash;
+            link.SourceId = direction == SourceToDestination ? sourceItem.Provenance.ProviderId : destinationItem.Provenance.ProviderId;
+            link.DestinationId = direction == SourceToDestination ? destinationItem.Provenance.ProviderId : sourceItem.Provenance.ProviderId;
+            link.SourceVersion = direction == SourceToDestination ? sourceItem.Provenance.Version : destinationItem.Provenance.Version;
+            link.DestinationVersion = direction == SourceToDestination ? destinationItem.Provenance.Version : sourceItem.Provenance.Version;
+            link.SourceHash = direction == SourceToDestination ? sourceItem.Provenance.ContentHash : destinationItem.Provenance.ContentHash;
+            link.DestinationHash = direction == SourceToDestination ? destinationItem.Provenance.ContentHash : sourceItem.Provenance.ContentHash;
             link.LastSyncedAt = DateTimeOffset.UtcNow;
             link.LastSyncResult = "unchanged";
             await linkStateRepo.UpsertAsync(link, cancellationToken);
