@@ -1,5 +1,5 @@
-using System.Text.Json;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -188,8 +188,9 @@ public sealed class ContactsImportTests : IDisposable
 
         var result = await failingService.ImportAsync(importDir, "Destination");
 
-        // Job faults because alice_smith's create threw, but processing continued for bob_jones
-        Assert.False(result.Succeeded);
+        // alice_smith's create threw (permanent per-item failure), but the run still completes
+        // successfully and processing continued for bob_jones
+        Assert.True(result.Succeeded);
         Assert.Contains(failingConnector.Items, i => i is { DisplayName: "Bob Jones", IsDeleted: false });
     }
 

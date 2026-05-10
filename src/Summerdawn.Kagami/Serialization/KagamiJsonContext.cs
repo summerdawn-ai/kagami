@@ -1,7 +1,7 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using System.Text.Encodings.Web;
 
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Models;
