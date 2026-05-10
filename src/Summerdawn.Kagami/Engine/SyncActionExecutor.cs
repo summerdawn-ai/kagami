@@ -474,7 +474,10 @@ public sealed class SyncActionExecutor(
     /// </summary>
     /// <remarks>
     /// Uses currently loaded item IDs when available, otherwise falls back to persisted link
-    /// state IDs because delete operations may target a side that is not loaded in the current run.
+    /// state IDs. This fallback is intentional for delete execution, because delete operations
+    /// may target a side that is not loaded in the current run and live-only
+    /// <see cref="Link{TItem}.SourceId"/> / <see cref="Link{TItem}.DestinationId"/> stay
+    /// <c>null</c> when that side is not loaded.
     /// </remarks>
     private static string? GetDeleteId<TItem>(SyncAction<TItem> action) where TItem : CanonicalItem =>
         action.Direction == SourceToDestination
