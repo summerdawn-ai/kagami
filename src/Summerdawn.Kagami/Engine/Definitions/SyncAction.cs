@@ -109,11 +109,21 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
             return null;
         }
 
-        return Kind == Delete
-            ? (Direction == SyncDirection.SourceToDestination ? persisted.DestinationId : persisted.SourceId)
-                ?? (Direction == SyncDirection.SourceToDestination ? persisted.SourceId : persisted.DestinationId)
-            : (Direction == SyncDirection.SourceToDestination ? persisted.SourceId : persisted.DestinationId)
-                ?? (Direction == SyncDirection.SourceToDestination ? persisted.DestinationId : persisted.SourceId);
+        string? preferredId;
+        string? fallbackId;
+
+        if (Kind == Delete)
+        {
+            preferredId = Direction == SyncDirection.SourceToDestination ? persisted.DestinationId : persisted.SourceId;
+            fallbackId = Direction == SyncDirection.SourceToDestination ? persisted.SourceId : persisted.DestinationId;
+        }
+        else
+        {
+            preferredId = Direction == SyncDirection.SourceToDestination ? persisted.SourceId : persisted.DestinationId;
+            fallbackId = Direction == SyncDirection.SourceToDestination ? persisted.DestinationId : persisted.SourceId;
+        }
+
+        return preferredId ?? fallbackId;
     }
 
     private string ResolveDisplayReason()

@@ -59,6 +59,10 @@ public sealed class SyncActionExecutor(
     /// processed and a summary warning is emitted after the pass.  Cursors are advanced
     /// regardless of permanent per-item failures.
     /// </remarks>
+    /// <returns>
+    /// <c>true</c> when confirm mode remains enabled for subsequent actions; <c>false</c> when
+    /// the user selected <c>A</c> to approve the remaining actions for the current run.
+    /// </returns>
     /// <exception cref="OperationFaultedException">
     /// Thrown only when a transient failure aborts the pass.
     /// </exception>
