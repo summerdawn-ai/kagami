@@ -95,6 +95,40 @@ public sealed class MicrosoftContactsConnectorTests
         }.ToJsonString();
     }
 
+    private static string ThrottledBatchResponse(string retryAfterSeconds, params string[] contactJsons)
+    {
+        var responses = new JsonArray();
+        responses.Add(new JsonObject
+        {
+            ["id"] = "1",
+            ["status"] = 429,
+            ["headers"] = new JsonObject { ["Retry-After"] = retryAfterSeconds },
+            ["body"] = new JsonObject
+            {
+                ["error"] = new JsonObject
+                {
+                    ["code"] = "ApplicationThrottled",
+                    ["message"] = "Application is over its MailboxConcurrency limit.",
+                }
+            },
+        });
+
+        for (int i = 0; i < contactJsons.Length; i++)
+        {
+            responses.Add(new JsonObject
+            {
+                ["id"] = (i + 2).ToString(),
+                ["status"] = 200,
+                ["body"] = JsonNode.Parse(contactJsons[i]),
+            });
+        }
+
+        return new JsonObject
+        {
+            ["responses"] = responses,
+        }.ToJsonString();
+    }
+
     private static JsonArray CreateStringArray(IEnumerable<string> values)
     {
         var array = new JsonArray();
@@ -218,6 +252,20 @@ public sealed class MicrosoftContactsConnectorTests
         Assert.Contains(phones, p => p.Label == "radio" && p.Number == "555-radio");
         Assert.Contains(phones, p => p.Label == "assistant" && p.Number == "555-assistant");
         Assert.Contains(phones, p => p.Label == "main" && p.Number == "555-main");
+    }
+
+    [Fact]
+    public async Task GetInitialPage_ThrottledBatchResponse_ThrowsInvalidOperationException()
+    {
+        string deltaContact = ContactJson("c1");
+        string enrichment = ThrottledBatchResponse("6", ContactJson("c1", extendedProps: [("String 0x3A1F", "555-other")]));
+        var connector = CreateConnector(
+            (DeltaPage("delta1", deltaContact)),
+            (enrichment));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => connector.GetCursorItemsAsync(cursor: null));
+
+        Assert.Contains("429", ex.Message);
     }
 
     [Fact]

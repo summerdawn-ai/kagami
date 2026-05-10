@@ -50,6 +50,7 @@ public static class KagamiServiceCollectionExtensions
 
         // Register a named HttpClient and a keyed IConnector singleton per endpoint
         services.AddHttpClient();
+        services.AddTransient<MicrosoftGraphBatchThrottleHandler>();
         foreach (var (endpointName, endpoint) in options.Endpoints)
         {
             RegisterEndpointHttpClient(services, endpointName);
@@ -122,6 +123,8 @@ public static class KagamiServiceCollectionExtensions
         {
             client.DefaultRequestHeaders.UserAgent.ParseAdd("kagami/0.1");
         });
+
+        builder.AddHttpMessageHandler<MicrosoftGraphBatchThrottleHandler>();
 
         builder.AddStandardResilienceHandler(options =>
         {
