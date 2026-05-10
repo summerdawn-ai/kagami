@@ -44,6 +44,7 @@ internal sealed class MicrosoftGraphBatchThrottleHandler : DelegatingHandler
 
             retryAfter = Max(retryAfter, ReadRetryAfter(subResponse));
             response.StatusCode = HttpStatusCode.TooManyRequests;
+            response.ReasonPhrase = "Too Many Requests";
         }
 
         if (retryAfter is not null)

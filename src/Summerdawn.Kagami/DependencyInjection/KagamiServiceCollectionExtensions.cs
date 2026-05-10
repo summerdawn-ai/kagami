@@ -124,8 +124,6 @@ public static class KagamiServiceCollectionExtensions
             client.DefaultRequestHeaders.UserAgent.ParseAdd("kagami/0.1");
         });
 
-        builder.AddHttpMessageHandler<MicrosoftGraphBatchThrottleHandler>();
-
         builder.AddStandardResilienceHandler(options =>
         {
             options.Retry.DelayGenerator = args =>
@@ -144,5 +142,9 @@ public static class KagamiServiceCollectionExtensions
                 return ValueTask.FromResult<TimeSpan?>(defaultDelayForTooManyRequests);
             };
         });
+
+        // ThrottleHandler runs inside (closer to the network than) the resilience handler,
+        // so the synthesized 429 is visible to the resilience layer on its way back out.
+        builder.AddHttpMessageHandler<MicrosoftGraphBatchThrottleHandler>();
     }
 }

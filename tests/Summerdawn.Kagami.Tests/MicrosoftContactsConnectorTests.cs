@@ -254,8 +254,11 @@ public sealed class MicrosoftContactsConnectorTests
         Assert.Contains(phones, p => p.Label == "main" && p.Number == "555-main");
     }
 
+    // This test validates that the connector itself surfaces a clear error when a throttled
+    // batch response reaches it (e.g. when the handler pipeline is bypassed in tests).
+    // Promotion of the outer response to 429 is covered by MicrosoftGraphBatchThrottleHandlerTests.
     [Fact]
-    public async Task GetInitialPage_ThrottledBatchResponse_ThrowsInvalidOperationException()
+    public async Task GetInitialPage_ThrottledBatchSubResponse_ThrowsInvalidOperationException()
     {
         string deltaContact = ContactJson("c1");
         string enrichment = ThrottledBatchResponse("6", ContactJson("c1", extendedProps: [("String 0x3A1F", "555-other")]));
