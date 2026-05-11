@@ -167,7 +167,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri.ToString(), cancellationToken);
         using var response = await httpClient.SendAsync(request, cancellationToken);
-        if (response.StatusCode == HttpStatusCode.Gone && cursor.SyncToken is not null)
+        if (cursor.SyncToken is not null && await IsExpiredSyncTokenResponseAsync(response, cancellationToken))
         {
             logger.LogWarning("Google People sync token expired.");
             throw new ExpiredCursorException("Google People sync token expired.");
@@ -322,6 +322,52 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
         string detail = await response.Content.ReadAsStringAsync(cancellationToken);
         throw new InvalidOperationException($"Google People API request failed with {(int)response.StatusCode} {response.ReasonPhrase}: {detail}");
+    }
+
+    private static async Task<bool> IsExpiredSyncTokenResponseAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.StatusCode == HttpStatusCode.Gone)
+        {
+            return true;
+        }
+
+        if (response.StatusCode != HttpStatusCode.BadRequest)
+        {
+            return false;
+        }
+
+        string detail = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(detail);
+            if (!document.RootElement.TryGetProperty("error", out var error)
+                || !error.TryGetProperty("details", out var details)
+                || details.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            foreach (var entry in details.EnumerateArray())
+            {
+                if (entry.TryGetProperty("reason", out var reasonElement)
+                    && reasonElement.ValueKind == JsonValueKind.String
+                    && reasonElement.ValueEquals("EXPIRED_SYNC_TOKEN"))
+                {
+                    return true;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall through to return false and preserve the standard error path.
+        }
+
+        return false;
     }
 
     /// <summary>
