@@ -479,7 +479,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
     internal static void MergeExistingSystemMemberships(JsonObject writablePerson, JsonElement existingPerson)
     {
-        List<string> writableMemberships = ReadMembershipResourceNames(writablePerson);
+        var writableMemberships = ReadMembershipResourceNames(writablePerson);
         HashSet<string> writableMembershipSet = new(writableMemberships, StringComparer.OrdinalIgnoreCase);
         foreach (string resourceName in ReadMembershipResourceNames(existingPerson).Where(SystemGroupResourceNames.Contains))
         {
@@ -804,12 +804,12 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     private static List<string> ReadMembershipResourceNames(JsonObject person)
     {
         List<string> resourceNames = [];
-        if (!person.TryGetPropertyValue("memberships", out JsonNode? membershipsNode) || membershipsNode is not JsonArray memberships)
+        if (!person.TryGetPropertyValue("memberships", out var membershipsNode) || membershipsNode is not JsonArray memberships)
         {
             return resourceNames;
         }
 
-        foreach (JsonNode? membership in memberships)
+        foreach (var membership in memberships)
         {
             string? resourceName = membership?["contactGroupMembership"]?["contactGroupResourceName"]?.GetValue<string>();
             if (!string.IsNullOrWhiteSpace(resourceName))
