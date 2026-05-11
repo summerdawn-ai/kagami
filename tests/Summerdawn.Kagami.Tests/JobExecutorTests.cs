@@ -92,7 +92,7 @@ public sealed class JobExecutorTests : IDisposable
 
         await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
-        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would create contact 'Alice Logging'", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would Create 'Alice Logging' on endpoint endpointB", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public sealed class JobExecutorTests : IDisposable
 
         await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
-        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would create contact 'Contoso Ltd'", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would Create 'Contoso Ltd' on endpoint endpointB", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -124,8 +124,92 @@ public sealed class JobExecutorTests : IDisposable
         await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, conflictPolicy: ConflictPolicy.SourceWins),
             true);
 
-        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' in direction SourceToDestination", StringComparison.Ordinal));
-        Assert.DoesNotContain(syncLogger.Entries, entry => entry.Contains("would update contact 'Ada Langenfeld' in direction DestinationToSource", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would Update 'Ada Langenfeld' on endpoint endpointB", StringComparison.Ordinal));
+        Assert.DoesNotContain(syncLogger.Entries, entry => entry.Contains("would Update 'Ada Langenfeld' on endpoint endpointA", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Confirm_Y_ExecutesPlannedAction()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice Confirmed"));
+
+        List<string> prompts = [];
+        var executor = CreateExecutor(
+            readKey: CreateKeyReader('Y'),
+            writePrompt: prompts.Add);
+
+        var result = await executor.ExecuteJobAsync(
+            CreateJob("job-1", sourceConnector, destinationConnector),
+            JobExecutionFlags.Confirm);
+
+        Assert.True(result.Succeeded);
+        Assert.Contains(destinationConnector.Items, item => item.DisplayName == "Alice Confirmed" && !item.IsDeleted);
+        Assert.Single(prompts);
+        Assert.Equal("Planned action: Create 'Alice Confirmed' on endpoint endpointB (reason: New contact on endpoint endpointA) Proceed (Y) (N) (A) (Q)", prompts[0]);
+    }
+
+    [Fact]
+    public async Task Confirm_N_SkipsActionWithoutPersistingLinkState()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice Skipped"));
+
+        var executor = CreateExecutor(readKey: CreateKeyReader('N'));
+
+        var result = await executor.ExecuteJobAsync(
+            CreateJob("job-1", sourceConnector, destinationConnector),
+            JobExecutionFlags.Confirm);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(destinationConnector.Items);
+        Assert.Empty(await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Confirm_A_DisablesFurtherPromptsForCurrentRun()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice First"));
+        sourceConnector.Seed(CreateContactItem("a2", "v1", "Bob Second"));
+
+        List<string> prompts = [];
+        var executor = CreateExecutor(
+            readKey: CreateKeyReader('A'),
+            writePrompt: prompts.Add);
+
+        var result = await executor.ExecuteJobAsync(
+            CreateJob("job-1", sourceConnector, destinationConnector),
+            JobExecutionFlags.Confirm);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, destinationConnector.Items.Count(item => !item.IsDeleted));
+        Assert.Single(prompts);
+    }
+
+    [Fact]
+    public async Task Confirm_Q_FaultsRunAndPreventsCursorAdvancement()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice Quit"));
+        sourceConnector.Seed(CreateContactItem("a2", "v1", "Bob Later"));
+
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, "-1", CancellationToken.None);
+
+        var executor = CreateExecutor(readKey: CreateKeyReader('Q'));
+
+        var result = await executor.ExecuteJobAsync(
+            CreateJob("job-1", sourceConnector, destinationConnector),
+            JobExecutionFlags.Confirm);
+
+        Assert.False(result.Succeeded);
+        Assert.Empty(destinationConnector.Items);
+        var cursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None);
+        Assert.Equal("-1", cursor?.Cursor);
     }
 
     [Fact]
@@ -500,13 +584,17 @@ public sealed class JobExecutorTests : IDisposable
         // (Verified indirectly by ActionsPlanned == 1)
     }
 
-    private JobExecutor CreateExecutor(ILogger<JobExecutor>? logger = null, ILogger<SyncActionExecutor>? syncLogger = null) =>
+    private JobExecutor CreateExecutor(
+        ILogger<JobExecutor>? logger = null,
+        ILogger<SyncActionExecutor>? syncLogger = null,
+        Func<ConsoleKeyInfo>? readKey = null,
+        Action<string>? writePrompt = null) =>
         new(
             new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
             linkStateRepository,
             endpointCursorRepository,
             leaseRepository,
-            new SyncActionExecutor(linkStateRepository, operationLogRepository, syncLogger ?? NullLogger<SyncActionExecutor>.Instance),
+            new SyncActionExecutor(linkStateRepository, operationLogRepository, syncLogger ?? NullLogger<SyncActionExecutor>.Instance, readKey, writePrompt),
             logger ?? NullLogger<JobExecutor>.Instance);
 
     private static Job<CanonicalContact> CreateJob(
@@ -560,6 +648,28 @@ public sealed class JobExecutorTests : IDisposable
 
     private static string GenerateTestEmail(string displayName) =>
         $"{displayName.Replace(" ", ".", StringComparison.OrdinalIgnoreCase).ToLowerInvariant()}@example.com";
+
+    private static Func<ConsoleKeyInfo> CreateKeyReader(params char[] keys)
+    {
+        Queue<char> remaining = new(keys);
+        return () =>
+        {
+            if (remaining.Count == 0)
+            {
+                throw new InvalidOperationException("No confirmation keys remain.");
+            }
+
+            char key = remaining.Dequeue();
+            return new ConsoleKeyInfo(key, char.ToUpperInvariant(key) switch
+            {
+                'Y' => ConsoleKey.Y,
+                'N' => ConsoleKey.N,
+                'A' => ConsoleKey.A,
+                'Q' => ConsoleKey.Q,
+                _ => ConsoleKey.NoName,
+            }, false, false, false);
+        };
+    }
 
     private sealed class PagedConnector(params ItemSet<CanonicalContact>[] pageSets) : IConnector<CanonicalContact>
     {

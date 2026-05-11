@@ -48,6 +48,17 @@ public sealed record CanonicalContact : CanonicalItem
     /// </summary>
     public override string ToString() =>
         $"Contact {{ DisplayName={DisplayName}, Id={Provenance.ProviderId} }}";
+
+    /// <summary>
+    /// Returns a human-readable display string for this contact.
+    /// </summary>
+    public override string ToDisplayString()
+    {
+        string name = ContactNameHelper.GetName(this);
+        return string.IsNullOrWhiteSpace(name)
+            ? base.ToDisplayString()
+            : name;
+    }
 }
 
 /// <summary>Email address entry.</summary>

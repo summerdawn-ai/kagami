@@ -23,4 +23,12 @@ public abstract record CanonicalItem
     /// </summary>
     [JsonIgnore]
     public Dictionary<string, string> Metadata { get; set; } = [];
+
+    /// <summary>
+    /// Returns a human-readable display string for this item.
+    /// </summary>
+    public virtual string ToDisplayString() =>
+        string.IsNullOrWhiteSpace(Provenance.ProviderId)
+            ? "unknown"
+            : Provenance.ProviderId;
 }

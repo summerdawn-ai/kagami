@@ -20,12 +20,18 @@ public sealed class SyncHost(
     /// <summary>
     /// Runs the enabled jobs once and returns.
     /// </summary>
-    public async Task RunOnceAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
+    public Task RunOnceAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default) =>
+        RunOnceAsync(whatIf ? JobExecutionFlags.WhatIf : JobExecutionFlags.None, jobKeyFilter, cancellationToken);
+
+    /// <summary>
+    /// Runs the enabled jobs once and returns.
+    /// </summary>
+    public async Task RunOnceAsync(JobExecutionFlags executionFlags, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
     {
         await stateDb.InitializeAsync(cancellationToken);
         var jobs = GetEnabledJobs(jobKeyFilter);
-        logger.LogInformation("RunOnce: executing {Count} job(s), whatIf={WhatIf}", jobs.Count, whatIf);
-        await ExecuteJobsAsync(jobs, whatIf, cancellationToken);
+        logger.LogInformation("RunOnce: executing {Count} job(s), whatIf={WhatIf}, confirm={Confirm}", jobs.Count, executionFlags.HasFlag(JobExecutionFlags.WhatIf), executionFlags.HasFlag(JobExecutionFlags.Confirm));
+        await ExecuteJobsAsync(jobs, executionFlags, cancellationToken);
     }
 
     /// <summary>
@@ -35,12 +41,19 @@ public sealed class SyncHost(
     /// The scheduler loop checks at most every <see cref="KagamiHostOptions.SchedulerIntervalSeconds"/>
     /// seconds for jobs whose interval has elapsed since their last run.
     /// </remarks>
-    public async Task RunContinuousAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
+    public Task RunContinuousAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default) =>
+        RunContinuousAsync(whatIf ? JobExecutionFlags.WhatIf : JobExecutionFlags.None, jobKeyFilter, cancellationToken);
+
+    /// <summary>
+    /// Runs continuously, polling the enabled jobs on their configured schedules.
+    /// </summary>
+    public async Task RunContinuousAsync(JobExecutionFlags executionFlags, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
     {
         await stateDb.InitializeAsync(cancellationToken);
         logger.LogInformation(
-            "Kagami run mode started (whatIf={WhatIf}, jobFilter={JobKeyFilter})",
-            whatIf,
+            "Kagami run mode started (whatIf={WhatIf}, confirm={Confirm}, jobFilter={JobKeyFilter})",
+            executionFlags.HasFlag(JobExecutionFlags.WhatIf),
+            executionFlags.HasFlag(JobExecutionFlags.Confirm),
             jobKeyFilter ?? "<all>");
 
         var lastRun = new Dictionary<string, DateTimeOffset>();
@@ -58,7 +71,7 @@ public sealed class SyncHost(
                     lastRun[jobKey] = now;
                 }
 
-                await ExecuteJobsAsync(dueJobs, whatIf, cancellationToken);
+                await ExecuteJobsAsync(dueJobs, executionFlags, cancellationToken);
             }
 
             await Task.Delay(TimeSpan.FromSeconds(options.Host.SchedulerIntervalSeconds), cancellationToken);
@@ -70,7 +83,7 @@ public sealed class SyncHost(
     /// </summary>
     private async Task ExecuteJobsAsync(
         IReadOnlyList<KeyValuePair<string, JobOptions>> jobs,
-        bool whatIf,
+        JobExecutionFlags executionFlags,
         CancellationToken cancellationToken)
     {
         using var semaphore = new SemaphoreSlim(Math.Max(1, options.Host.MaxConcurrentJobs));
@@ -79,7 +92,7 @@ public sealed class SyncHost(
             await semaphore.WaitAsync(cancellationToken);
             try
             {
-                await ExecuteJobAsync(kvp.Key, kvp.Value, whatIf, cancellationToken);
+                await ExecuteJobAsync(kvp.Key, kvp.Value, executionFlags, cancellationToken);
             }
             finally
             {
@@ -124,14 +137,14 @@ public sealed class SyncHost(
     /// <summary>
     /// Dispatches the job to the correct typed <see cref="ExecuteJobAsync{TItem}"/> overload based on <see cref="JobOptions.EntityType"/>.
     /// </summary>
-    private Task ExecuteJobAsync(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken)
+    private Task ExecuteJobAsync(string jobKey, JobOptions jobOptions, JobExecutionFlags executionFlags, CancellationToken cancellationToken)
     {
         try
         {
             return jobOptions.EntityType switch
             {
-                EntityType.Contact => ExecuteJobAsync<CanonicalContact>(jobKey, jobOptions, whatIf, cancellationToken),
-                EntityType.CalendarEvent => ExecuteJobAsync<CanonicalCalendarEvent>(jobKey, jobOptions, whatIf, cancellationToken),
+                EntityType.Contact => ExecuteJobAsync<CanonicalContact>(jobKey, jobOptions, executionFlags, cancellationToken),
+                EntityType.CalendarEvent => ExecuteJobAsync<CanonicalCalendarEvent>(jobKey, jobOptions, executionFlags, cancellationToken),
                 _ => throw new InvalidOperationException($"Unknown entity type {jobOptions.EntityType}.")
             };
         }
@@ -144,9 +157,9 @@ public sealed class SyncHost(
     }
 
     /// <summary>
-    /// Resolves the connectors for a typed job and delegates execution to <see cref="JobExecutor.ExecuteJobAsync{TItem}"/>.
+    /// Resolves the connectors for a typed job and delegates execution to the runtime-flags job executor overload.
     /// </summary>
-    private async Task ExecuteJobAsync<TItem>(string jobKey, JobOptions jobOptions, bool whatIf, CancellationToken cancellationToken) where TItem : CanonicalItem
+    private async Task ExecuteJobAsync<TItem>(string jobKey, JobOptions jobOptions, JobExecutionFlags executionFlags, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         try
         {
@@ -156,7 +169,7 @@ public sealed class SyncHost(
 
             var job = new Job<TItem>(jobKey, jobOptions, sourceConnector, destinationConnector);
 
-            await executor.ExecuteJobAsync(job, whatIf, cancellationToken);
+            await executor.ExecuteJobAsync(job, executionFlags, cancellationToken);
         }
         catch (Exception ex)
         {

@@ -78,7 +78,7 @@ Kagami exposes two top-level command groups:
 ```text
 # Scheduled-job management
 kagami jobs list
-kagami jobs run [--job=<key>] [--once] [--all] [--what-if]
+kagami jobs run [--job=<key>] [--once] [--all] [--what-if|--confirm]
 kagami jobs reset --job=<key>
 kagami jobs reset --all
 kagami jobs unlock
@@ -86,10 +86,10 @@ kagami jobs unlock
 # Interactive contact operations
 kagami contacts list   --from=<endpoint> [--filter=<expr>] [--all]
 kagami contacts export --from=<endpoint> --to=<dir> [--filter=<expr>]
-kagami contacts import --from=<dir> --to=<endpoint> [--prune] [--filter=<expr>] [--what-if]
+kagami contacts import --from=<dir> --to=<endpoint> [--prune] [--filter=<expr>] [--what-if|--confirm]
 kagami contacts sync   --from=<endpoint> --to=<endpoint> [--bidirectional]
                        [--prune] [--on-conflict=last-write-wins|source-wins|dest-wins|skip]
-                       [--what-if] [--filter=<expr>] [--force]
+                       [--what-if|--confirm] [--filter=<expr>] [--force]
 ```
 
 #### `kagami jobs list`

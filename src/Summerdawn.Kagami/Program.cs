@@ -20,6 +20,24 @@ public static class Program
     /// <summary>Main entry point.</summary>
     public static int Main(string[] args)
     {
+        var rootCommand = CreateRootCommand();
+
+        try
+        {
+            return rootCommand.Parse(args).Invoke(new InvocationConfiguration { EnableDefaultExceptionHandler = false });
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>
+    /// Creates the root CLI command.
+    /// </summary>
+    public static RootCommand CreateRootCommand()
+    {
         // ── Shared options ────────────────────────────────────────────────
         var settingsOption = new Option<string[]>("--settings")
         {
@@ -31,6 +49,12 @@ public static class Program
         var whatIfOption = new Option<bool>("--what-if")
         {
             Description = "Plan actions without writing any changes",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var confirmOption = new Option<bool>("--confirm")
+        {
+            Description = "Prompt before each action is executed",
             Arity = ArgumentArity.Zero,
         };
 
@@ -83,14 +107,16 @@ public static class Program
         {
             settingsOption,
             whatIfOption,
+            confirmOption,
             jobOption,
             jobsRunOnceOption,
             jobsRunAllOption,
         };
+        AddMutuallyExclusiveExecutionModeValidation(jobsRunCommand, whatIfOption, confirmOption);
         jobsRunCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
-            bool whatIf = parseResult.GetValue(whatIfOption);
+            var executionFlags = GetExecutionFlags(parseResult, whatIfOption, confirmOption);
             string? jobKey = parseResult.GetValue(jobOption);
             bool runOnce = parseResult.GetValue(jobsRunOnceOption);
             _ = parseResult.GetValue(jobsRunAllOption);
@@ -99,12 +125,12 @@ public static class Program
             if (runOnce)
             {
                 // One-shot mode: run targeted jobs immediately and exit.
-                await host.RunOnceAsync(whatIf, jobKey, CancellationToken.None);
+                await host.RunOnceAsync(executionFlags, jobKey, CancellationToken.None);
             }
             else
             {
                 // Default: poll continuously, optionally narrowed to a single named job.
-                await host.RunContinuousAsync(whatIf, jobKey, CancellationToken.None);
+                await host.RunContinuousAsync(executionFlags, jobKey, CancellationToken.None);
             }
         });
 
@@ -313,10 +339,12 @@ public static class Program
             pruneOption,
             onConflictOption,
             whatIfOption,
+            confirmOption,
             filterOption,
             fullOption,
             forceOption,
         };
+        AddMutuallyExclusiveExecutionModeValidation(contactsSyncCommand, whatIfOption, confirmOption);
         contactsSyncCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
@@ -326,6 +354,7 @@ public static class Program
             bool prune = parseResult.GetValue(pruneOption);
             string onConflictStr = parseResult.GetValue(onConflictOption)!;
             bool whatIf = parseResult.GetValue(whatIfOption);
+            bool confirm = parseResult.GetValue(confirmOption);
             bool full = parseResult.GetValue(fullOption);
             bool force = parseResult.GetValue(forceOption);
             string? filter = parseResult.GetValue(filterOption);
@@ -344,7 +373,7 @@ public static class Program
 
             var svc = BuildContactsService(settingsFiles);
             var contactFilter = ContactFilter.Parse(filter);
-            var result = await svc.SyncAsync(from, to, mode, whatIf, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
+            var result = await svc.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
             Console.WriteLine(result.Succeeded
                 ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
                 : $"Sync failed or skipped: {result.SkipReason}");
@@ -359,8 +388,10 @@ public static class Program
             pruneOption,
             filterOption,
             whatIfOption,
+            confirmOption,
             forceOption,
         };
+        AddMutuallyExclusiveExecutionModeValidation(contactsImportCommand, whatIfOption, confirmOption);
         contactsImportCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
@@ -369,10 +400,11 @@ public static class Program
             bool prune = parseResult.GetValue(pruneOption);
             string? filter = parseResult.GetValue(filterOption);
             bool whatIf = parseResult.GetValue(whatIfOption);
+            bool confirm = parseResult.GetValue(confirmOption);
             bool force = parseResult.GetValue(forceOption);
             var svc = BuildContactsService(settingsFiles);
             var contactFilter = ContactFilter.Parse(filter);
-            var result = await svc.ImportAsync(from, to, prune, contactFilter, whatIf, force, CancellationToken.None);
+            var result = await svc.ImportAsync(from, to, prune, contactFilter, whatIf, confirm, force, CancellationToken.None);
             Console.WriteLine(result.Succeeded
                 ? $"Import completed. Actions planned: {result.ActionsPlanned}"
                 : $"Import failed: {result.Error ?? result.SkipReason}");
@@ -393,16 +425,7 @@ public static class Program
             jobsCommand,
             contactsCommand,
         };
-
-        try
-        {
-            return rootCommand.Parse(args).Invoke(new InvocationConfiguration { EnableDefaultExceptionHandler = false });
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Error: {ex.Message}");
-            return 1;
-        }
+        return rootCommand;
     }
 
     private static ServiceProvider BuildServiceProvider(string[] settingsFiles)
@@ -429,4 +452,30 @@ public static class Program
 
     private static KagamiOptions BuildKagamiOptions(string[] settingsFiles) =>
         BuildServiceProvider(settingsFiles).GetRequiredService<KagamiOptions>();
+
+    private static void AddMutuallyExclusiveExecutionModeValidation(Command command, Option<bool> whatIfOption, Option<bool> confirmOption) =>
+        command.Validators.Add(parseResult =>
+        {
+            if (parseResult.GetValue(whatIfOption) && parseResult.GetValue(confirmOption))
+            {
+                parseResult.AddError("The --what-if and --confirm options are mutually exclusive.");
+            }
+        });
+
+    private static JobExecutionFlags GetExecutionFlags(ParseResult parseResult, Option<bool> whatIfOption, Option<bool> confirmOption)
+    {
+        var executionFlags = JobExecutionFlags.None;
+
+        if (parseResult.GetValue(whatIfOption))
+        {
+            executionFlags |= JobExecutionFlags.WhatIf;
+        }
+
+        if (parseResult.GetValue(confirmOption))
+        {
+            executionFlags |= JobExecutionFlags.Confirm;
+        }
+
+        return executionFlags;
+    }
 }
