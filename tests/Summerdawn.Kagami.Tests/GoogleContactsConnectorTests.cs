@@ -14,6 +14,8 @@ namespace Summerdawn.Kagami.Tests;
 
 public sealed class GoogleContactsConnectorTests
 {
+    private const string TestEndpointNamePrefix = "google-test-";
+
     // ── ConvertPerson ─────────────────────────────────────────────────────
 
     [Fact]
@@ -320,7 +322,7 @@ public sealed class GoogleContactsConnectorTests
 
     private static GoogleContactsConnector CreateConnector(params HttpResponseMessage[] responses)
     {
-        string endpointName = $"google-test-{Guid.NewGuid():N}";
+        string endpointName = $"{TestEndpointNamePrefix}{Guid.NewGuid():N}";
         GoogleTokenCache.Save(endpointName, new GoogleTokenCache
         {
             AccessToken = "fake-token",
@@ -366,7 +368,7 @@ public sealed class GoogleContactsConnectorTests
             .ToList();
 
     /// <summary>
-    /// Returns queued HTTP responses in request order and fails on unexpected extra requests.
+    /// Represents a test HTTP message handler that returns queued responses in request order and fails on unexpected extra requests.
     /// </summary>
     private sealed class SequenceHttpHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
     {
