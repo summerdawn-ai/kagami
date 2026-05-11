@@ -126,6 +126,9 @@ public static class KagamiServiceCollectionExtensions
 
         builder.AddStandardResilienceHandler(options =>
         {
+            // Keep total timeout above normal retry/backoff so quick transient 5xx responses surface as HTTP failures, not outer timeout exceptions.
+            options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(2);
+
             options.Retry.DelayGenerator = args =>
             {
                 // Use Retry-After header if available

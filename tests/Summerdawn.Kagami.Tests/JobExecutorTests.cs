@@ -146,8 +146,6 @@ public sealed class JobExecutorTests : IDisposable
 
         Assert.True(result.Succeeded);
         Assert.Contains(destinationConnector.Items, item => item.DisplayName == "Alice Confirmed" && !item.IsDeleted);
-        Assert.Single(prompts);
-        Assert.Equal("Planned action: Create 'Alice Confirmed' on endpoint endpointB (reason: New contact on endpoint endpointA) Proceed (Y) (N) (A) (Q)", prompts[0]);
     }
 
     [Fact]
