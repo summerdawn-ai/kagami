@@ -169,8 +169,8 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         using var response = await httpClient.SendAsync(request, cancellationToken);
         if (response.StatusCode == HttpStatusCode.Gone && cursor.SyncToken is not null)
         {
-            logger.LogWarning("Google People sync token expired; falling back to a new full sync.");
-            return await GetConnectionsPageAsync(new GoogleCursor(null, null, true), cancellationToken);
+            logger.LogWarning("Google People sync token expired.");
+            throw new ExpiredCursorException("Google People sync token expired.");
         }
 
         await EnsureSuccessAsync(response, cancellationToken);

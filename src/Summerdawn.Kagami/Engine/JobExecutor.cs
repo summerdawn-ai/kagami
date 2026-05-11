@@ -135,24 +135,17 @@ public sealed class JobExecutor(
 
         JobExecutionResult result = new() { JobKey = job.Key };
 
-        // A run is a delta run only when usable cursors are available for both sides and neither
-        // Full nor Force is set.  Any other combination is treated as a full scan so the planner
-        // can use authoritative absence semantics.
-        bool isDeltaRun = !job.Options.Full && !job.Options.Force
-            && sourceCursor != null && destinationCursor != null;
+        // --- Single read pass per connector (planning + cursor advancement) ---
+        (var sourceItemSet, var destinationItemSet, bool isDeltaRun) = await LoadItemSetsAsync(job, sourceCursor, destinationCursor, cancellationToken);
 
-        // When this is not a delta run (first sync, scope changed, or explicit Full/Force), set
-        // Full=true on the job options so the examiner treats absent items as
-        // deleted/out-of-scope rather than implicitly unchanged.
+        // When this is not a delta run (first sync, scope changed, explicit Full/Force, or an
+        // expired-cursor fallback), set Full=true on the job options so the examiner treats
+        // absent items as deleted/out-of-scope rather than implicitly unchanged.
         bool shouldRestoreFullFlag = !job.Options.Full && !isDeltaRun;
         if (shouldRestoreFullFlag)
         {
             job.Options.Full = true;
         }
-
-        // --- Single read pass per connector (planning + cursor advancement) ---
-        var sourceItemSet = await LoadItemsAsync(job, sourceConnector, sourceCursor, cancellationToken);
-        var destinationItemSet = await LoadItemsAsync(job, destinationConnector, destinationCursor, cancellationToken);
 
         // --- Plan actions using raw (unfiltered) items + filter ---
         // The filter is forwarded to LinkExaminer so it can detect items that moved out of scope.
@@ -267,6 +260,53 @@ public sealed class JobExecutor(
         }
 
         return await connector.GetCursorItemsAsync(cursor, cancellationToken);
+    }
+
+    private async Task<(ItemSet<TItem> SourceItemSet, ItemSet<TItem> DestinationItemSet, bool IsDeltaRun)> LoadItemSetsAsync<TItem>(
+        Job<TItem> job,
+        string? sourceCursor,
+        string? destinationCursor,
+        CancellationToken cancellationToken) where TItem : CanonicalItem
+    {
+        // A run is a delta run only when usable cursors are available for both sides and neither
+        // Full nor Force is set.  Any other combination is treated as a full scan so the planner
+        // can use authoritative absence semantics.
+        bool isDeltaRun = !job.Options.NoPersistence
+                          && !job.Options.Full
+                          && !job.Options.Force
+                          && sourceCursor is not null
+                          && destinationCursor is not null;
+
+        if (!isDeltaRun && !job.Options.NoPersistence && (sourceCursor is not null || destinationCursor is not null))
+        {
+            logger.LogInformation(
+                "Job {JobKey} will ignore stored cursors and perform a full load on both endpoints because this run is not a delta run.",
+                job.Key);
+        }
+
+        string? effectiveSourceCursor = isDeltaRun ? sourceCursor : null;
+        string? effectiveDestinationCursor = isDeltaRun ? destinationCursor : null;
+
+        try
+        {
+            var sourceItemSet = await LoadItemsAsync(job, job.SourceConnector, effectiveSourceCursor, cancellationToken);
+            var destinationItemSet = await LoadItemsAsync(job, job.DestinationConnector, effectiveDestinationCursor, cancellationToken);
+            return (sourceItemSet, destinationItemSet, isDeltaRun);
+        }
+        catch (ExpiredCursorException ex) when (isDeltaRun)
+        {
+            logger.LogWarning(
+                ex,
+                "Job {JobKey} detected an expired cursor; clearing both cursors and retrying a full load.",
+                job.Key);
+
+            await cursorRepo.DeleteCursorAsync(job.Key, job.Options.SourceEndpointName, cancellationToken);
+            await cursorRepo.DeleteCursorAsync(job.Key, job.Options.DestinationEndpointName, cancellationToken);
+
+            var sourceItemSet = await LoadItemsAsync(job, job.SourceConnector, cursor: null, cancellationToken);
+            var destinationItemSet = await LoadItemsAsync(job, job.DestinationConnector, cursor: null, cancellationToken);
+            return (sourceItemSet, destinationItemSet, false);
+        }
     }
 
     /// <summary>
