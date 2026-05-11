@@ -611,7 +611,7 @@ public sealed class JobExecutorTests : IDisposable
     private sealed class ExpiringCursorConnector : IConnector<CanonicalContact>
     {
         private readonly FakeConnector inner = new();
-        private bool shouldExpire = true;
+        private bool expireOnNextDeltaRead = true;
 
         public int DeltaReadCount { get; private set; }
 
@@ -637,9 +637,9 @@ public sealed class JobExecutorTests : IDisposable
             }
 
             DeltaReadCount++;
-            if (shouldExpire)
+            if (expireOnNextDeltaRead)
             {
-                shouldExpire = false;
+                expireOnNextDeltaRead = false;
                 throw new ExpiredCursorException("Test cursor expired.");
             }
 
