@@ -428,6 +428,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                 },
             },
         ];
+        HashSet<string> membershipResources = ["contactGroups/myContacts"];
 
         if (contact.Categories.Count > 0)
         {
@@ -452,12 +453,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                     continue;
                 }
 
-                bool alreadyIncluded = membershipNodes.Any(node =>
-                    string.Equals(
-                        node?["contactGroupMembership"]?["contactGroupResourceName"]?.GetValue<string>(),
-                        resourceName,
-                        StringComparison.OrdinalIgnoreCase));
-                if (alreadyIncluded)
+                if (!membershipResources.Add(resourceName))
                 {
                     continue;
                 }
