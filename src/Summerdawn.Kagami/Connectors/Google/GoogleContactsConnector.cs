@@ -112,7 +112,11 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     public async Task<CanonicalContact> UpdateItemAsync(CanonicalContact contact, CancellationToken cancellationToken = default)
     {
         await EnsureGroupsWrittenAsync(contact.Categories, cancellationToken);
+        string existingPersonRequestUri = $"https://people.googleapis.com/v1/{contact.Provenance.ProviderId}?personFields={Uri.EscapeDataString("memberships")}";
+        using var existingPersonRequest = await CreateRequestAsync(HttpMethod.Get, existingPersonRequestUri, cancellationToken);
+        using var existingPersonDocument = await SendForJsonAsync(existingPersonRequest, cancellationToken);
         var person = BuildWritablePerson(contact, groupNamesByResource!);
+        MergeExistingSystemMemberships(person, existingPersonDocument.RootElement);
         person["resourceName"] = contact.Provenance.ProviderId;
         if (!string.IsNullOrWhiteSpace(contact.Provenance.Version))
         {
@@ -414,9 +418,19 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                 });
         }
 
+        List<JsonNode?> membershipNodes =
+        [
+            new JsonObject
+            {
+                ["contactGroupMembership"] = new JsonObject
+                {
+                    ["contactGroupResourceName"] = "contactGroups/myContacts",
+                },
+            },
+        ];
+
         if (contact.Categories.Count > 0)
         {
-            List<JsonNode?> membershipNodes = [];
             foreach (string category in contact.Categories
                 .Where(c => !string.IsNullOrWhiteSpace(c))
                 .Distinct(StringComparer.OrdinalIgnoreCase))
@@ -438,6 +452,16 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                     continue;
                 }
 
+                bool alreadyIncluded = membershipNodes.Any(node =>
+                    string.Equals(
+                        node?["contactGroupMembership"]?["contactGroupResourceName"]?.GetValue<string>(),
+                        resourceName,
+                        StringComparison.OrdinalIgnoreCase));
+                if (alreadyIncluded)
+                {
+                    continue;
+                }
+
                 membershipNodes.Add(new JsonObject
                 {
                     ["contactGroupMembership"] = new JsonObject
@@ -446,14 +470,32 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                     },
                 });
             }
+        }
 
-            if (membershipNodes.Count > 0)
+        person["memberships"] = CreateArray(membershipNodes);
+
+        return person;
+    }
+
+    internal static void MergeExistingSystemMemberships(JsonObject writablePerson, JsonElement existingPerson)
+    {
+        List<string> writableMemberships = ReadMembershipResourceNames(writablePerson);
+        HashSet<string> writableMembershipSet = new(writableMemberships, StringComparer.OrdinalIgnoreCase);
+        foreach (string resourceName in ReadMembershipResourceNames(existingPerson).Where(SystemGroupResourceNames.Contains))
+        {
+            if (writableMembershipSet.Add(resourceName))
             {
-                person["memberships"] = CreateArray(membershipNodes);
+                writableMemberships.Add(resourceName);
             }
         }
 
-        return person;
+        writablePerson["memberships"] = CreateArray(writableMemberships.Select(resourceName => (JsonNode?)new JsonObject
+        {
+            ["contactGroupMembership"] = new JsonObject
+            {
+                ["contactGroupResourceName"] = resourceName,
+            },
+        }));
     }
 
     /// <summary>
@@ -715,24 +757,9 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     private static List<string> ReadMemberships(JsonElement person, IReadOnlyDictionary<string, string> groupNamesByResource)
     {
         List<string> categories = [];
-        if (!person.TryGetProperty("memberships", out var memberships))
+        foreach (string resourceName in ReadMembershipResourceNames(person))
         {
-            return categories;
-        }
-
-        foreach (var membership in memberships.EnumerateArray())
-        {
-            if (!membership.TryGetProperty("contactGroupMembership", out var contactGroupMembership))
-            {
-                continue;
-            }
-
-            string? resourceName = contactGroupMembership.TryGetProperty("contactGroupResourceName", out var resourceNameElement)
-                ? resourceNameElement.GetString()
-                : null;
-
-            // Skip missing resource names and system groups (myContacts, starred).
-            if (string.IsNullOrWhiteSpace(resourceName) || SystemGroupResourceNames.Contains(resourceName))
+            if (SystemGroupResourceNames.Contains(resourceName))
             {
                 continue;
             }
@@ -745,6 +772,53 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         }
 
         return categories.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static List<string> ReadMembershipResourceNames(JsonElement person)
+    {
+        List<string> resourceNames = [];
+        if (!person.TryGetProperty("memberships", out var memberships))
+        {
+            return resourceNames;
+        }
+
+        foreach (var membership in memberships.EnumerateArray())
+        {
+            if (!membership.TryGetProperty("contactGroupMembership", out var contactGroupMembership))
+            {
+                continue;
+            }
+
+            string? resourceName = contactGroupMembership.TryGetProperty("contactGroupResourceName", out var resourceNameElement)
+                ? resourceNameElement.GetString()
+                : null;
+            if (!string.IsNullOrWhiteSpace(resourceName))
+            {
+                resourceNames.Add(resourceName);
+            }
+        }
+
+        return resourceNames;
+    }
+
+    private static List<string> ReadMembershipResourceNames(JsonObject person)
+    {
+        List<string> resourceNames = [];
+        if (!person.TryGetPropertyValue("memberships", out JsonNode? membershipsNode) || membershipsNode is not JsonArray memberships)
+        {
+            return resourceNames;
+        }
+
+        foreach (JsonNode? membership in memberships)
+        {
+            string? resourceName = membership?["contactGroupMembership"]?["contactGroupResourceName"]?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(resourceName))
+            {
+                resourceNames.Add(resourceName);
+            }
+        }
+
+        return resourceNames;
     }
 
     private static DateOnly? ReadBirthday(JsonElement person)
