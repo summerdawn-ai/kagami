@@ -23,11 +23,13 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     // Google batchGet limits matching to 50 ids.
     private const int MaxBatchSize = 50;
     private static readonly DateOnly DefaultBirthday = new(1604, 1, 1);
+    private const string MyContactsGroupResourceName = "contactGroups/myContacts";
+    private const string StarredGroupResourceName = "contactGroups/starred";
 
     private static readonly HashSet<string> SystemGroupResourceNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "contactGroups/myContacts",
-        "contactGroups/starred",
+        MyContactsGroupResourceName,
+        StarredGroupResourceName,
     };
 
     private Dictionary<string, string>? groupNamesByResource;
@@ -424,11 +426,11 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             {
                 ["contactGroupMembership"] = new JsonObject
                 {
-                    ["contactGroupResourceName"] = "contactGroups/myContacts",
+                    ["contactGroupResourceName"] = MyContactsGroupResourceName,
                 },
             },
         ];
-        HashSet<string> membershipResources = ["contactGroups/myContacts"];
+        HashSet<string> membershipResources = [MyContactsGroupResourceName];
 
         if (contact.Categories.Count > 0)
         {
@@ -473,6 +475,13 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         return person;
     }
 
+    /// <summary>
+    /// Merges system contact-group memberships from the current Google person into the writable update payload.
+    /// </summary>
+    /// <remarks>
+    /// This preserves Google-only system memberships (such as <c>contactGroups/starred</c>) while still allowing
+    /// canonical category writes to replace custom group memberships.
+    /// </remarks>
     internal static void MergeExistingSystemMemberships(JsonObject writablePerson, JsonElement existingPerson)
     {
         var writableMemberships = ReadMembershipResourceNames(writablePerson);
