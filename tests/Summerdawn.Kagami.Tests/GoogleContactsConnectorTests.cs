@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
@@ -132,10 +133,10 @@ public sealed class GoogleContactsConnectorTests
         var person = GoogleContactsConnector.BuildWritablePerson(contact, groupNamesByResource);
 
         Assert.True(person.TryGetPropertyValue("memberships", out var memberships));
-        var array = memberships!.AsArray();
-        Assert.Single(array);
-        string resourceName = array[0]!["contactGroupMembership"]!["contactGroupResourceName"]!.GetValue<string>();
-        Assert.Equal("contactGroups/357e2b95895a4962", resourceName);
+        var resourceNames = ReadMembershipResourceNames(memberships!.AsArray());
+        Assert.Equal(2, resourceNames.Count);
+        Assert.Contains("contactGroups/myContacts", resourceNames);
+        Assert.Contains("contactGroups/357e2b95895a4962", resourceNames);
     }
 
     [Fact]
@@ -160,18 +161,16 @@ public sealed class GoogleContactsConnectorTests
         var person = GoogleContactsConnector.BuildWritablePerson(contact, groupNamesByResource);
 
         Assert.True(person.TryGetPropertyValue("memberships", out var memberships));
-        var array = memberships!.AsArray();
-        // Only the custom group should appear — the two system groups are filtered.
-        Assert.Single(array);
-        string resourceName = array[0]!["contactGroupMembership"]!["contactGroupResourceName"]!.GetValue<string>();
-        Assert.Equal("contactGroups/357e2b95895a4962", resourceName);
+        var resourceNames = ReadMembershipResourceNames(memberships!.AsArray());
+        Assert.Equal(2, resourceNames.Count);
+        Assert.Contains("contactGroups/myContacts", resourceNames);
+        Assert.Contains("contactGroups/357e2b95895a4962", resourceNames);
+        Assert.DoesNotContain("contactGroups/starred", resourceNames);
     }
 
     [Fact]
-    public void BuildWritablePerson_NoCategories_OmitsMemberships()
+    public void BuildWritablePerson_NoCategories_AddsMyContactsMembership()
     {
-        // When the contact has no categories, the memberships key should be absent entirely
-        // (myContacts must not be injected).
         var contact = new CanonicalContact
         {
             DisplayName = "Empty",
@@ -180,7 +179,50 @@ public sealed class GoogleContactsConnectorTests
 
         var person = GoogleContactsConnector.BuildWritablePerson(contact, new Dictionary<string, string>());
 
-        Assert.False(person.ContainsKey("memberships"));
+        Assert.True(person.TryGetPropertyValue("memberships", out var memberships));
+        var resourceNames = ReadMembershipResourceNames(memberships!.AsArray());
+        Assert.Single(resourceNames);
+        Assert.Equal("contactGroups/myContacts", resourceNames[0]);
+    }
+
+    [Fact]
+    public void MergeExistingSystemMemberships_PreservesStarredAndDropsOldCustomMemberships()
+    {
+        var contact = new CanonicalContact
+        {
+            DisplayName = "Adriana De Matteis",
+            Categories = ["Heavenly Heat"],
+            Provenance = { ProviderId = "people/123" },
+        };
+
+        var groupNamesByResource = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["contactGroups/357e2b95895a4962"] = "Heavenly Heat",
+        };
+
+        var writablePerson = GoogleContactsConnector.BuildWritablePerson(contact, groupNamesByResource);
+
+        string existingPersonJson = """
+            {
+                "resourceName": "people/123",
+                "memberships": [
+                    {"contactGroupMembership": {"contactGroupResourceName": "contactGroups/myContacts"}},
+                    {"contactGroupMembership": {"contactGroupResourceName": "contactGroups/starred"}},
+                    {"contactGroupMembership": {"contactGroupResourceName": "contactGroups/old-group"}}
+                ]
+            }
+            """;
+
+        using var existingPersonDocument = JsonDocument.Parse(existingPersonJson);
+        GoogleContactsConnector.MergeExistingSystemMemberships(writablePerson, existingPersonDocument.RootElement);
+
+        Assert.True(writablePerson.TryGetPropertyValue("memberships", out var memberships));
+        var resourceNames = ReadMembershipResourceNames(memberships!.AsArray());
+        Assert.Equal(3, resourceNames.Count);
+        Assert.Contains("contactGroups/myContacts", resourceNames);
+        Assert.Contains("contactGroups/starred", resourceNames);
+        Assert.Contains("contactGroups/357e2b95895a4962", resourceNames);
+        Assert.DoesNotContain("contactGroups/old-group", resourceNames);
     }
 
     [Fact]
@@ -206,4 +248,11 @@ public sealed class GoogleContactsConnectorTests
 
     private static string SerializeCore(CanonicalContact contact) =>
         CanonicalContactTestHelpers.SerializeCore(contact);
+
+    private static List<string> ReadMembershipResourceNames(JsonArray memberships) =>
+        memberships
+            .Select(node => node?["contactGroupMembership"]?["contactGroupResourceName"]?.GetValue<string>())
+            .Where(resourceName => !string.IsNullOrWhiteSpace(resourceName))
+            .Select(resourceName => resourceName!)
+            .ToList();
 }
