@@ -210,6 +210,85 @@ public sealed class JobExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task UnpairedCursorRun_FallsBackToFullLoadOnBothSides()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, "0", CancellationToken.None);
+
+        var executor = CreateExecutor();
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.ActionsPlanned);
+        Assert.Equal(1, sourceConnector.GetCursorItemsCallCountWithNullCursor);
+        Assert.Equal(1, destinationConnector.GetCursorItemsCallCountWithNullCursor);
+    }
+
+    [Fact]
+    public async Task ExpiredSourceCursor_RetriesWithFullLoadOnBothSides()
+    {
+        ExpiringCursorConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, "0", CancellationToken.None);
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointB", string.Empty, "0", CancellationToken.None);
+
+        var executor = CreateExecutor();
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.ActionsPlanned);
+        Assert.Equal(1, sourceConnector.DeltaReadCount);
+        Assert.Equal(1, sourceConnector.FullReadCount);
+        Assert.Equal(1, destinationConnector.GetCursorItemsCallCountWithNullCursor);
+    }
+
+    [Fact]
+    public async Task ExpiredDestinationCursor_RetriesWithFullLoadOnBothSides()
+    {
+        FakeConnector sourceConnector = new();
+        ExpiringCursorConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, "0", CancellationToken.None);
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointB", string.Empty, "0", CancellationToken.None);
+
+        var executor = CreateExecutor();
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.ActionsPlanned);
+        Assert.Equal(1, sourceConnector.GetCursorItemsCallCountWithNullCursor);
+        Assert.Equal(1, destinationConnector.DeltaReadCount);
+        Assert.Equal(1, destinationConnector.FullReadCount);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task FullAndForceRuns_IgnoreStoredCursorsAndUseFullLoad(bool full, bool force)
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice", email: "alice@example.com"));
+
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, "0", CancellationToken.None);
+        await endpointCursorRepository.SetCursorAsync("job-1", "endpointB", string.Empty, "0", CancellationToken.None);
+
+        var executor = CreateExecutor();
+        var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, full: full, force: force));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.ActionsPlanned);
+        Assert.Equal(1, sourceConnector.GetCursorItemsCallCountWithNullCursor);
+        Assert.Equal(1, destinationConnector.GetCursorItemsCallCountWithNullCursor);
+    }
+
+    [Fact]
     public async Task NoPersistenceRun_UsesFullLoadPathWithoutAdvancingCursors()
     {
         FakeConnector sourceConnector = new();
@@ -437,16 +516,20 @@ public sealed class JobExecutorTests : IDisposable
         ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
         string? filter = null,
         SyncMode syncMode = SyncMode.Bidirectional,
-        bool noPersistence = false)
+        bool noPersistence = false,
+        bool full = false,
+        bool force = false)
     {
-        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy, filter, syncMode, noPersistence), sourceConnector, destinationConnector);
+        return new Job<CanonicalContact>(jobKey, CreateJobOptions(conflictPolicy, filter, syncMode, noPersistence, full, force), sourceConnector, destinationConnector);
     }
 
     private static JobOptions CreateJobOptions(
         ConflictPolicy conflictPolicy = ConflictPolicy.LastWriteWins,
         string? filter = null,
         SyncMode syncMode = SyncMode.Bidirectional,
-        bool noPersistence = false) =>
+        bool noPersistence = false,
+        bool full = false,
+        bool force = false) =>
         new()
         {
             Enabled = true,
@@ -458,6 +541,8 @@ public sealed class JobExecutorTests : IDisposable
             ConflictPolicy = conflictPolicy,
             Filter = filter,
             NoPersistence = noPersistence,
+            Full = full,
+            Force = force,
         };
 
     private static CanonicalContact CreateContactItem(string id, string version, string displayName, string? organization = null, string? email = null) => new()
@@ -521,5 +606,59 @@ public sealed class JobExecutorTests : IDisposable
             index++;
             return pageSets[currentIndex];
         }
+    }
+
+    private sealed class ExpiringCursorConnector : IConnector<CanonicalContact>
+    {
+        private readonly FakeConnector inner = new();
+        private bool shouldExpire = true;
+
+        public int DeltaReadCount { get; private set; }
+
+        public int FullReadCount { get; private set; }
+
+        public ConnectorCapabilities Capabilities => inner.Capabilities;
+
+        public string EndpointName => inner.EndpointName;
+
+        public IReadOnlyList<CanonicalContact> Items => inner.Items;
+
+        public void Seed(CanonicalContact item) => inner.Seed(item);
+
+        public Task AuthenticateAsync(CancellationToken cancellationToken = default) =>
+            inner.AuthenticateAsync(cancellationToken);
+
+        public Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
+        {
+            if (cursor is null)
+            {
+                FullReadCount++;
+                return inner.GetCursorItemsAsync(cursor, cancellationToken);
+            }
+
+            DeltaReadCount++;
+            if (shouldExpire)
+            {
+                shouldExpire = false;
+                throw new ExpiredCursorException("Test cursor expired.");
+            }
+
+            return inner.GetCursorItemsAsync(cursor, cancellationToken);
+        }
+
+        public Task<IReadOnlyList<CanonicalContact>> GetAllItemsAsync(CancellationToken cancellationToken = default) =>
+            inner.GetAllItemsAsync(cancellationToken);
+
+        public Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default) =>
+            inner.GetItemAsync(id, cancellationToken);
+
+        public Task<CanonicalContact> CreateItemAsync(CanonicalContact item, CancellationToken cancellationToken = default) =>
+            inner.CreateItemAsync(item, cancellationToken);
+
+        public Task<CanonicalContact> UpdateItemAsync(CanonicalContact item, CancellationToken cancellationToken = default) =>
+            inner.UpdateItemAsync(item, cancellationToken);
+
+        public Task DeleteItemAsync(string id, CancellationToken cancellationToken = default) =>
+            inner.DeleteItemAsync(id, cancellationToken);
     }
 }

@@ -67,12 +67,13 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
 
     public async Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
     {
+        bool usingSavedCursor = cursor is not null;
         string requestUri = cursor ?? $"{collectionPath}/delta?$select={Uri.EscapeDataString(DeltaSelectFields)}";
         List<CanonicalContact> items = [];
         string? finalCursor = cursor;
         while (true)
         {
-            var page = await GetCursorPageAsync(requestUri, cancellationToken);
+            var page = await GetCursorPageAsync(requestUri, usingSavedCursor, cancellationToken);
             items.AddRange(page.Items);
             finalCursor = page.Cursor;
             if (!page.HasMore)
@@ -151,11 +152,11 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
     }
 
     [SuppressMessage("ReSharper", "StringLiteralTypo")]
-    private async Task<CursorItemsPage> GetCursorPageAsync(string requestUri, CancellationToken cancellationToken)
+    private async Task<CursorItemsPage> GetCursorPageAsync(string requestUri, bool usingSavedCursor, CancellationToken cancellationToken)
     {
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         request.Headers.TryAddWithoutValidation("Prefer", $"odata.maxpagesize={DeltaPageSize}");
-        using var document = await SendForJsonAsync(request, cancellationToken);
+        using var document = await SendForJsonAsync(request, cancellationToken, treatGoneAsExpiredCursor: usingSavedCursor);
 
         List<CanonicalContact> items = [];
         List<string> idsToHydrate = [];
@@ -363,9 +364,17 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         return request;
     }
 
-    private async Task<JsonDocument> SendForJsonAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    private async Task<JsonDocument> SendForJsonAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken,
+        bool treatGoneAsExpiredCursor = false)
     {
-        var response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (treatGoneAsExpiredCursor && response.StatusCode == HttpStatusCode.Gone)
+        {
+            throw new ExpiredCursorException("Microsoft Graph delta cursor expired.");
+        }
+
         await EnsureSuccessAsync(response, cancellationToken);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
