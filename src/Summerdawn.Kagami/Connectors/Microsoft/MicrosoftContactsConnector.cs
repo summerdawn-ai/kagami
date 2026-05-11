@@ -449,11 +449,11 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         return array;
     }
 
-    private static JsonObject? ToMicrosoftAddress(ContactAddress? address)
+    private static JsonObject ToMicrosoftAddress(ContactAddress? address)
     {
         if (address is null)
         {
-            return null;
+            return [];
         }
 
         return new JsonObject
