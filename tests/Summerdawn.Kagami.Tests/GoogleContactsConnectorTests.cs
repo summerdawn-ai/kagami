@@ -365,6 +365,9 @@ public sealed class GoogleContactsConnectorTests
             .Select(resourceName => resourceName!)
             .ToList();
 
+    /// <summary>
+    /// Returns queued HTTP responses in request order and fails on unexpected extra requests.
+    /// </summary>
     private sealed class SequenceHttpHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
     {
         private readonly Queue<HttpResponseMessage> queuedResponses = new(responses);

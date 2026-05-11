@@ -355,7 +355,8 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             foreach (var entry in details.EnumerateArray())
             {
                 if (entry.TryGetProperty("reason", out var reasonElement)
-                    && string.Equals(reasonElement.GetString(), "EXPIRED_SYNC_TOKEN", StringComparison.OrdinalIgnoreCase))
+                    && reasonElement.ValueKind == JsonValueKind.String
+                    && reasonElement.ValueEquals("EXPIRED_SYNC_TOKEN"))
                 {
                     return true;
                 }
