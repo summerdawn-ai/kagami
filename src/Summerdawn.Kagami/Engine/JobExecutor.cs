@@ -135,17 +135,8 @@ public sealed class JobExecutor(
 
         JobExecutionResult result = new() { JobKey = job.Key };
 
-        // A run is a delta run only when usable cursors are available for both sides and neither
-        // Full nor Force is set.  Any other combination is treated as a full scan so the planner
-        // can use authoritative absence semantics.
-        bool isDeltaRun = !job.Options.Full && !job.Options.Force
-            && sourceCursor != null && destinationCursor != null;
-
         // --- Single read pass per connector (planning + cursor advancement) ---
-        var readResult = await LoadItemSetsAsync(job, sourceCursor, destinationCursor, cancellationToken);
-        var sourceItemSet = readResult.SourceItemSet;
-        var destinationItemSet = readResult.DestinationItemSet;
-        isDeltaRun = readResult.IsDeltaRun;
+        (var sourceItemSet, var destinationItemSet, bool isDeltaRun) = await LoadItemSetsAsync(job, sourceCursor, destinationCursor, cancellationToken);
 
         // When this is not a delta run (first sync, scope changed, explicit Full/Force, or an
         // expired-cursor fallback), set Full=true on the job options so the examiner treats
@@ -277,16 +268,19 @@ public sealed class JobExecutor(
         string? destinationCursor,
         CancellationToken cancellationToken) where TItem : CanonicalItem
     {
+        // A run is a delta run only when usable cursors are available for both sides and neither
+        // Full nor Force is set.  Any other combination is treated as a full scan so the planner
+        // can use authoritative absence semantics.
         bool isDeltaRun = !job.Options.NoPersistence
-            && !job.Options.Full
-            && !job.Options.Force
-            && sourceCursor is not null
-            && destinationCursor is not null;
+                          && !job.Options.Full
+                          && !job.Options.Force
+                          && sourceCursor is not null
+                          && destinationCursor is not null;
 
         if (!isDeltaRun && !job.Options.NoPersistence && (sourceCursor is not null || destinationCursor is not null))
         {
             logger.LogInformation(
-                "Job {JobKey} will ignore unpaired cursors and perform a full load on both endpoints.",
+                "Job {JobKey} will ignore stored cursors and perform a full load on both endpoints because this run is not a delta run.",
                 job.Key);
         }
 
