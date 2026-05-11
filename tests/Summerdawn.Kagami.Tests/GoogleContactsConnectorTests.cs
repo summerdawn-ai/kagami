@@ -1,6 +1,12 @@
+using System.Net;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
+using Summerdawn.Kagami.Authentication;
+using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
 using Summerdawn.Kagami.Models;
 
@@ -244,7 +250,110 @@ public sealed class GoogleContactsConnectorTests
         Assert.Equal(10, birthdayDate["day"]!.GetValue<int>());
     }
 
+    [Fact]
+    public async Task GetCursorItemsAsync_ExpiredSyncTokenBadRequest_ThrowsExpiredCursorException()
+    {
+        var connector = CreateConnector(
+            CreateJsonResponse(HttpStatusCode.OK, """{"contactGroups":[]}"""),
+            CreateJsonResponse(HttpStatusCode.BadRequest, """
+                {
+                  "error": {
+                    "code": 400,
+                    "message": "Sync token is expired. Clear local cache and retry call without the sync token.",
+                    "status": "FAILED_PRECONDITION",
+                    "details": [
+                      {
+                        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                        "reason": "EXPIRED_SYNC_TOKEN",
+                        "domain": "people.googleapis.com"
+                      }
+                    ]
+                  }
+                }
+                """));
+
+        var ex = await Assert.ThrowsAsync<ExpiredCursorException>(() => connector.GetCursorItemsAsync("""{"syncToken":"expired-token","requestSyncToken":false}"""));
+
+        Assert.Contains("expired", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetCursorItemsAsync_NonExpiredBadRequest_ThrowsInvalidOperationException()
+    {
+        var connector = CreateConnector(
+            CreateJsonResponse(HttpStatusCode.OK, """{"contactGroups":[]}"""),
+            CreateJsonResponse(HttpStatusCode.BadRequest, """
+                {
+                  "error": {
+                    "code": 400,
+                    "message": "Request contains an invalid argument.",
+                    "status": "INVALID_ARGUMENT",
+                    "details": [
+                      {
+                        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                        "reason": "INVALID_ARGUMENT",
+                        "domain": "people.googleapis.com"
+                      }
+                    ]
+                  }
+                }
+                """));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => connector.GetCursorItemsAsync("""{"syncToken":"sync-token","requestSyncToken":false}"""));
+
+        Assert.Contains("400", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetCursorItemsAsync_GoneWithSyncToken_ThrowsExpiredCursorException()
+    {
+        var connector = CreateConnector(
+            CreateJsonResponse(HttpStatusCode.OK, """{"contactGroups":[]}"""),
+            CreateJsonResponse(HttpStatusCode.Gone, """{"error":{"code":410}}"""));
+
+        var ex = await Assert.ThrowsAsync<ExpiredCursorException>(() => connector.GetCursorItemsAsync("""{"syncToken":"expired-token","requestSyncToken":false}"""));
+
+        Assert.Contains("expired", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────
+
+    private static GoogleContactsConnector CreateConnector(params HttpResponseMessage[] responses)
+    {
+        string endpointName = $"google-test-{Guid.NewGuid():N}";
+        GoogleTokenCache.Save(endpointName, new GoogleTokenCache
+        {
+            AccessToken = "fake-token",
+            RefreshToken = "fake-refresh-token",
+            Expiry = DateTimeOffset.UtcNow.AddHours(1),
+        });
+
+        var credential = new GoogleOAuthCredential(
+            "client-id",
+            "client-secret",
+            endpointName,
+            ["https://www.googleapis.com/auth/contacts.readonly"],
+            new HttpClient(new SequenceHttpHandler()));
+
+        var endpoint = new EndpointOptions
+        {
+            Type = EndpointOptions.GoogleContacts,
+            Properties = new Dictionary<string, string>(),
+        };
+
+        return new GoogleContactsConnector(
+            new HttpClient(new SequenceHttpHandler(responses)),
+            "google",
+            endpoint,
+            credential,
+            NullLogger<GoogleContactsConnector>.Instance);
+    }
+
+    private static HttpResponseMessage CreateJsonResponse(HttpStatusCode statusCode, string json) =>
+        new(statusCode)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+        };
 
     private static string SerializeCore(CanonicalContact contact) =>
         CanonicalContactTestHelpers.SerializeCore(contact);
@@ -255,4 +364,19 @@ public sealed class GoogleContactsConnectorTests
             .Where(resourceName => !string.IsNullOrWhiteSpace(resourceName))
             .Select(resourceName => resourceName!)
             .ToList();
+
+    private sealed class SequenceHttpHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
+    {
+        private readonly Queue<HttpResponseMessage> queuedResponses = new(responses);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (!queuedResponses.TryDequeue(out var response))
+            {
+                throw new InvalidOperationException($"Unexpected HTTP request to {request.RequestUri}");
+            }
+
+            return Task.FromResult(response);
+        }
+    }
 }
