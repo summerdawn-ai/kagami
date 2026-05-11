@@ -206,7 +206,7 @@ public sealed class CommandHandler<TItem>(
             NoPersistence = true,
         };
 
-        logger.LogInformation("Starting import from {SourceDir} to {Endpoint} (prune={Prune}, whatIf={WhatIf})", sourceDirectory, toEndpoint, prune, whatIf);
+        logger.LogInformation("Starting import from {SourceDir} to {Endpoint} (prune={Prune}, whatIf={WhatIf}, confirm={Confirm})", sourceDirectory, toEndpoint, prune, whatIf, confirm);
 
         var executionFlags = whatIf ? JobExecutionFlags.WhatIf : JobExecutionFlags.None;
         if (confirm)

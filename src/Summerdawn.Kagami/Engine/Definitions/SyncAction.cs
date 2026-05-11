@@ -78,14 +78,7 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
     /// </summary>
     public string ToDisplayString()
     {
-        string action = Kind switch
-        {
-            Create => "Create",
-            Update => "Update",
-            Delete => "Delete",
-            Skip or None => "Skip",
-            _ => Kind.ToString(),
-        };
+        string action = Kind.ToString();
 
         string item = ResolveDisplayItem()?.ToDisplayString()
             ?? ResolvePersistedDisplayIdentifier()
