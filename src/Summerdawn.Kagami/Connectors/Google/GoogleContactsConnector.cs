@@ -414,44 +414,49 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                 });
         }
 
-        if (contact.Categories.Count > 0)
+        // Always include myContacts so the contact remains in at least one group (required by Google).
+        List<JsonNode?> membershipNodes =
+        [
+            new JsonObject
+            {
+                ["contactGroupMembership"] = new JsonObject
+                {
+                    ["contactGroupResourceName"] = "contactGroups/myContacts",
+                },
+            },
+        ];
+
+        foreach (string category in contact.Categories
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            List<JsonNode?> membershipNodes = [];
-            foreach (string category in contact.Categories
-                .Where(c => !string.IsNullOrWhiteSpace(c))
-                .Distinct(StringComparer.OrdinalIgnoreCase))
+            // Reverse-lookup: find the resource name whose display name matches this category.
+            string? resourceName = null;
+            foreach (var kv in groupNamesByResource)
             {
-                // Reverse-lookup: find the resource name whose display name matches this category.
-                string? resourceName = null;
-                foreach (var kv in groupNamesByResource)
+                if (string.Equals(kv.Value, category, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (string.Equals(kv.Value, category, StringComparison.OrdinalIgnoreCase))
-                    {
-                        resourceName = kv.Key;
-                        break;
-                    }
+                    resourceName = kv.Key;
+                    break;
                 }
-
-                // Skip unknown categories and system groups — orchestration must have ensured groups exist.
-                if (resourceName is null || SystemGroupResourceNames.Contains(resourceName))
-                {
-                    continue;
-                }
-
-                membershipNodes.Add(new JsonObject
-                {
-                    ["contactGroupMembership"] = new JsonObject
-                    {
-                        ["contactGroupResourceName"] = resourceName,
-                    },
-                });
             }
 
-            if (membershipNodes.Count > 0)
+            // Skip unknown categories and system groups — orchestration must have ensured groups exist.
+            if (resourceName is null || SystemGroupResourceNames.Contains(resourceName))
             {
-                person["memberships"] = CreateArray(membershipNodes);
+                continue;
             }
+
+            membershipNodes.Add(new JsonObject
+            {
+                ["contactGroupMembership"] = new JsonObject
+                {
+                    ["contactGroupResourceName"] = resourceName,
+                },
+            });
         }
+
+        person["memberships"] = CreateArray(membershipNodes);
 
         return person;
     }

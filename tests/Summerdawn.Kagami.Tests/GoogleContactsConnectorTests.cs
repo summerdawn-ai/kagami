@@ -133,16 +133,21 @@ public sealed class GoogleContactsConnectorTests
 
         Assert.True(person.TryGetPropertyValue("memberships", out var memberships));
         var array = memberships!.AsArray();
-        Assert.Single(array);
-        string resourceName = array[0]!["contactGroupMembership"]!["contactGroupResourceName"]!.GetValue<string>();
-        Assert.Equal("contactGroups/357e2b95895a4962", resourceName);
+        // myContacts is always included, plus the resolved custom group.
+        Assert.Equal(2, array.Count);
+        var resourceNames = array
+            .Select(n => n!["contactGroupMembership"]!["contactGroupResourceName"]!.GetValue<string>())
+            .ToHashSet();
+        Assert.Contains("contactGroups/myContacts", resourceNames);
+        Assert.Contains("contactGroups/357e2b95895a4962", resourceNames);
     }
 
     [Fact]
     public void BuildWritablePerson_DoesNotEmitSystemGroupsEvenWhenPresentAsCategories()
     {
         // Even if "My Contacts" / "Starred" appear as canonical categories (e.g. from a full cache
-        // where those system groups are mapped), they must not be written back as memberships.
+        // where those system groups are mapped), they must not be written back as duplicate or extra
+        // memberships — myContacts is always emitted exactly once, and other system groups are filtered.
         var contact = new CanonicalContact
         {
             DisplayName = "Test",
@@ -161,17 +166,21 @@ public sealed class GoogleContactsConnectorTests
 
         Assert.True(person.TryGetPropertyValue("memberships", out var memberships));
         var array = memberships!.AsArray();
-        // Only the custom group should appear — the two system groups are filtered.
-        Assert.Single(array);
-        string resourceName = array[0]!["contactGroupMembership"]!["contactGroupResourceName"]!.GetValue<string>();
-        Assert.Equal("contactGroups/357e2b95895a4962", resourceName);
+        // myContacts (always present) + Heavenly Heat; Starred is filtered as a system group.
+        Assert.Equal(2, array.Count);
+        var resourceNames = array
+            .Select(n => n!["contactGroupMembership"]!["contactGroupResourceName"]!.GetValue<string>())
+            .ToHashSet();
+        Assert.Contains("contactGroups/myContacts", resourceNames);
+        Assert.Contains("contactGroups/357e2b95895a4962", resourceNames);
+        Assert.DoesNotContain("contactGroups/starred", resourceNames);
     }
 
     [Fact]
-    public void BuildWritablePerson_NoCategories_OmitsMemberships()
+    public void BuildWritablePerson_NoCategories_AlwaysIncludesMyContacts()
     {
-        // When the contact has no categories, the memberships key should be absent entirely
-        // (myContacts must not be injected).
+        // Even when the contact has no custom categories, myContacts must always be emitted
+        // so Google does not reject the update for having zero contact group memberships.
         var contact = new CanonicalContact
         {
             DisplayName = "Empty",
@@ -180,7 +189,11 @@ public sealed class GoogleContactsConnectorTests
 
         var person = GoogleContactsConnector.BuildWritablePerson(contact, new Dictionary<string, string>());
 
-        Assert.False(person.ContainsKey("memberships"));
+        Assert.True(person.TryGetPropertyValue("memberships", out var memberships));
+        var array = memberships!.AsArray();
+        Assert.Single(array);
+        string resourceName = array[0]!["contactGroupMembership"]!["contactGroupResourceName"]!.GetValue<string>();
+        Assert.Equal("contactGroups/myContacts", resourceName);
     }
 
     [Fact]
