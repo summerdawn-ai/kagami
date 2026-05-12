@@ -15,12 +15,17 @@ internal static class ConfigurationBuilderExtensions
     /// <summary>
     /// Adds Kagami settings from embedded defaults and specified settings files to the configuration.
     /// </summary>
-    public static void AddKagamiSettings(this IConfigurationBuilder configurationBuilder, bool noDefaultSettings, string[] settingsFileNames)
+    public static void AddKagamiSettings(this IConfigurationBuilder configurationBuilder, bool noDefaultSettings, string[] settingsFileNames, bool verbose)
     {
         // Load embedded appsettings.json as first configuration source (unless disabled)
         if (!noDefaultSettings)
         {
             configurationBuilder.AddJsonResource("appsettings.json");
+
+            if (verbose)
+            {
+                configurationBuilder.AddJsonResource("appsettings.Verbose.json");
+            }
         }
 
         // Load custom appsettings.json if specified
@@ -28,7 +33,7 @@ internal static class ConfigurationBuilderExtensions
     }
 
     /// <summary>
-    /// Inserts an embedded JSON resource as the first configuration source.
+    /// Adds an embedded JSON resource as a configuration source.
     /// </summary>
     public static void AddJsonResource(this IConfigurationBuilder configurationBuilder, string resourceName)
     {
@@ -46,8 +51,9 @@ internal static class ConfigurationBuilderExtensions
         resourceStream.CopyTo(memoryStream);
         memoryStream.Position = 0;
 
-        // Insert at position 0 to make it the first source
-        configurationBuilder.Sources.Insert(0, new JsonStreamConfigurationSource
+        // Append sources in call order so later resources (for example, appsettings.Verbose.json)
+        // override earlier embedded defaults, while still allowing user-provided settings files to win.
+        configurationBuilder.Add(new JsonStreamConfigurationSource
         {
             Stream = memoryStream
         });
