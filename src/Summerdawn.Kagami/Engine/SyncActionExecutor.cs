@@ -416,7 +416,7 @@ public sealed class SyncActionExecutor(
     {
         while (true)
         {
-            writePromptAction($"Executing: {action.ToDisplayString()}{Environment.NewLine}Proceed? [Y]es [N]o [A]ll [Q]uit: ");
+            writePromptAction($"Planned action: {action.ToDisplayString()}{Environment.NewLine}Proceed? [Y]es [N]o [A]ll [Q]uit: ");
             var key = readKeyFunc();
             Console.WriteLine();
             switch (key.KeyChar)

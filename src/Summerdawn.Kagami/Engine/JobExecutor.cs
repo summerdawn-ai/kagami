@@ -114,7 +114,7 @@ public sealed class JobExecutor(
     {
         bool whatIf = executionFlags.HasFlag(JobExecutionFlags.WhatIf);
         bool confirm = executionFlags.HasFlag(JobExecutionFlags.Confirm);
-        string entityTypeDisplay = job.Options.EntityType.ToLowerInvariant();
+        string entityTypeForLogging = job.Options.EntityType.ToLowerInvariant();
         logger.LogInformation("Authenticating to {Endpoint}...", job.SourceConnector.EndpointName);
         await job.SourceConnector.AuthenticateAsync(cancellationToken);
         logger.LogInformation("Authenticated to {Endpoint}.", job.SourceConnector.EndpointName);
@@ -241,7 +241,7 @@ public sealed class JobExecutor(
             "Completed sync for job {JobKey}: executed {ActionCount} action(s) for {EntityType}.",
             job.Key,
             result.ActionsPlanned,
-            entityTypeDisplay);
+            entityTypeForLogging);
         return result;
     }
 
@@ -281,15 +281,15 @@ public sealed class JobExecutor(
 
     private async Task<ItemSet<TItem>> LoadItemsAsync<TItem>(Job<TItem> job, IConnector<TItem> connector, string? cursor, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
-        string entityTypeDisplay = job.Options.EntityType.ToLowerInvariant();
-        logger.LogInformation("Reading {EntityType} from {Endpoint}...", entityTypeDisplay, connector.EndpointName);
+        string entityTypeForLogging = job.Options.EntityType.ToLowerInvariant();
+        logger.LogInformation("Reading {EntityType} from {Endpoint}...", entityTypeForLogging, connector.EndpointName);
 
         // Use optimized endpoint if cursor not needed.
         if (job.Options.NoPersistence)
         {
             logger.LogDebug("No persistence for {Endpoint}; performing full load without cursors.", connector.EndpointName);
             var items = await connector.GetAllItemsAsync(cancellationToken);
-            logger.LogInformation("Read {Count} {EntityType} from {Endpoint}.", items.Count, entityTypeDisplay, connector.EndpointName);
+            logger.LogInformation("Read {Count} {EntityType} from {Endpoint}.", items.Count, entityTypeForLogging, connector.EndpointName);
             return new ItemSet<TItem>(items, null);
         }
 
@@ -306,7 +306,7 @@ public sealed class JobExecutor(
         }
 
         var itemSet = await connector.GetCursorItemsAsync(cursor, cancellationToken);
-        logger.LogInformation("Read {Count} {EntityType} from {Endpoint}.", itemSet.Items.Count, entityTypeDisplay, connector.EndpointName);
+        logger.LogInformation("Read {Count} {EntityType} from {Endpoint}.", itemSet.Items.Count, entityTypeForLogging, connector.EndpointName);
         return itemSet;
     }
 
