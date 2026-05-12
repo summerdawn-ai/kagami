@@ -38,6 +38,17 @@ public static class Program
     /// </summary>
     public static RootCommand CreateRootCommand()
     {
+        var rootCommand = new RootCommand("Kagami — polling-first calendar and contact synchronization")
+        {
+            CreateJobsCommand(),
+            CreateContactsCommand(),
+        };
+
+        return rootCommand;
+    }
+
+    private static Command CreateJobsCommand()
+    {
         // ── Shared options ────────────────────────────────────────────────
         var settingsOption = new Option<string[]>("--settings")
         {
@@ -64,17 +75,25 @@ public static class Program
             Required = false,
         };
 
+        var verboseOption = new Option<bool>("--verbose")
+        {
+            Description = "Enable more detailed logging for this run",
+            Arity = ArgumentArity.Zero,
+        };
+
         // ── jobs command group ────────────────────────────────────────────
 
         // jobs list
         var jobsListCommand = new Command("list", "List all configured jobs")
         {
             settingsOption,
+            verboseOption,
         };
         jobsListCommand.SetAction(parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
-            var kagamiOptions = BuildKagamiOptions(settingsFiles);
+            bool verbose = parseResult.GetValue(verboseOption);
+            var kagamiOptions = BuildKagamiOptions(settingsFiles, verbose);
             if (kagamiOptions.Jobs.Count == 0)
             {
                 Console.WriteLine("No jobs configured.");
@@ -111,16 +130,18 @@ public static class Program
             jobOption,
             jobsRunOnceOption,
             jobsRunAllOption,
+            verboseOption,
         };
         AddMutuallyExclusiveExecutionModeValidation(jobsRunCommand, whatIfOption, confirmOption);
         jobsRunCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool verbose = parseResult.GetValue(verboseOption);
             var executionFlags = GetExecutionFlags(parseResult, whatIfOption, confirmOption);
             string? jobKey = parseResult.GetValue(jobOption);
             bool runOnce = parseResult.GetValue(jobsRunOnceOption);
             _ = parseResult.GetValue(jobsRunAllOption);
-            var host = BuildSyncHost(settingsFiles);
+            var host = BuildSyncHost(settingsFiles, verbose);
 
             if (runOnce)
             {
@@ -146,12 +167,14 @@ public static class Program
             settingsOption,
             jobOption,
             jobsResetAllOption,
+            verboseOption,
         };
         jobsResetCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             string? jobKey = parseResult.GetValue(jobOption);
             bool resetAll = parseResult.GetValue(jobsResetAllOption);
+            bool verbose = parseResult.GetValue(verboseOption);
 
             if (!resetAll && string.IsNullOrWhiteSpace(jobKey))
             {
@@ -159,8 +182,8 @@ public static class Program
                 return;
             }
 
-            var host = BuildSyncHost(settingsFiles);
-            var kagamiOptions = BuildKagamiOptions(settingsFiles);
+            var host = BuildSyncHost(settingsFiles, verbose);
+            var kagamiOptions = BuildKagamiOptions(settingsFiles, verbose);
 
             if (resetAll)
             {
@@ -181,11 +204,13 @@ public static class Program
         var jobsUnlockCommand = new Command("unlock", "Force-release all job locks (use after a crash to clear stuck leases)")
         {
             settingsOption,
+            verboseOption,
         };
         jobsUnlockCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
-            var host = BuildSyncHost(settingsFiles);
+            bool verbose = parseResult.GetValue(verboseOption);
+            var host = BuildSyncHost(settingsFiles, verbose);
             int cleared = await host.UnlockAllJobsAsync(CancellationToken.None);
             Console.WriteLine(cleared > 0
                 ? $"Cleared {cleared} job lock(s)."
@@ -200,7 +225,30 @@ public static class Program
             jobsUnlockCommand,
         };
 
+        return jobsCommand;
+    }
+
+    private static Command CreateContactsCommand()
+    {
         // ── contacts command group ────────────────────────────────────────
+        var settingsOption = new Option<string[]>("--settings")
+        {
+            Description = "Path to one or more settings JSON files to load",
+            Arity = ArgumentArity.ZeroOrMore,
+            AllowMultipleArgumentsPerToken = true,
+        };
+
+        var whatIfOption = new Option<bool>("--what-if")
+        {
+            Description = "Plan actions without writing any changes",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var confirmOption = new Option<bool>("--confirm")
+        {
+            Description = "Prompt before each action is executed",
+            Arity = ArgumentArity.Zero,
+        };
 
         var fromOption = new Option<string>("--from")
         {
@@ -257,6 +305,12 @@ public static class Program
             Arity = ArgumentArity.Zero,
         };
 
+        var verboseOption = new Option<bool>("--verbose")
+        {
+            Description = "Enable more detailed logging for this run",
+            Arity = ArgumentArity.Zero,
+        };
+
         // contacts list
         var contactsListCommand = new Command("list", "List contacts from a configured endpoint")
         {
@@ -264,6 +318,7 @@ public static class Program
             fromOption,
             filterOption,
             allOption,
+            verboseOption,
         };
         contactsListCommand.SetAction(async parseResult =>
         {
@@ -271,7 +326,8 @@ public static class Program
             string from = parseResult.GetValue(fromOption)!;
             string? filter = parseResult.GetValue(filterOption);
             bool all = parseResult.GetValue(allOption);
-            var svc = BuildContactsService(settingsFiles);
+            bool verbose = parseResult.GetValue(verboseOption);
+            var svc = BuildContactsService(settingsFiles, verbose);
             var contactFilter = ContactFilter.Parse(filter);
             var items = await svc.ListAsync(from, contactFilter, all ? null : 100, CancellationToken.None);
             items = items
@@ -313,6 +369,7 @@ public static class Program
             toEndpointOption,
             filterOption,
             pruneOption,
+            verboseOption,
         };
         contactsExportCommand.SetAction(async parseResult =>
         {
@@ -321,7 +378,8 @@ public static class Program
             string to = parseResult.GetValue(toEndpointOption)!;
             string? filter = parseResult.GetValue(filterOption);
             bool prune = parseResult.GetValue(pruneOption);
-            var svc = BuildContactsService(settingsFiles);
+            bool verbose = parseResult.GetValue(verboseOption);
+            var svc = BuildContactsService(settingsFiles, verbose);
             var contactFilter = ContactFilter.Parse(filter);
             var result = await svc.ExportAsync(from, to, prune: prune, contactFilter, CancellationToken.None);
             Console.WriteLine(result.Succeeded
@@ -343,6 +401,7 @@ public static class Program
             filterOption,
             fullOption,
             forceOption,
+            verboseOption,
         };
         AddMutuallyExclusiveExecutionModeValidation(contactsSyncCommand, whatIfOption, confirmOption);
         contactsSyncCommand.SetAction(async parseResult =>
@@ -358,6 +417,7 @@ public static class Program
             bool full = parseResult.GetValue(fullOption);
             bool force = parseResult.GetValue(forceOption);
             string? filter = parseResult.GetValue(filterOption);
+            bool verbose = parseResult.GetValue(verboseOption);
 
             var mode = bidirectional ? SyncMode.Bidirectional : SyncMode.Forward;
 
@@ -371,7 +431,7 @@ public static class Program
 
             var deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
 
-            var svc = BuildContactsService(settingsFiles);
+            var svc = BuildContactsService(settingsFiles, verbose);
             var contactFilter = ContactFilter.Parse(filter);
             var result = await svc.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
             Console.WriteLine(result.Succeeded
@@ -390,6 +450,7 @@ public static class Program
             whatIfOption,
             confirmOption,
             forceOption,
+            verboseOption,
         };
         AddMutuallyExclusiveExecutionModeValidation(contactsImportCommand, whatIfOption, confirmOption);
         contactsImportCommand.SetAction(async parseResult =>
@@ -402,7 +463,8 @@ public static class Program
             bool whatIf = parseResult.GetValue(whatIfOption);
             bool confirm = parseResult.GetValue(confirmOption);
             bool force = parseResult.GetValue(forceOption);
-            var svc = BuildContactsService(settingsFiles);
+            bool verbose = parseResult.GetValue(verboseOption);
+            var svc = BuildContactsService(settingsFiles, verbose);
             var contactFilter = ContactFilter.Parse(filter);
             var result = await svc.ImportAsync(from, to, prune, contactFilter, whatIf, confirm, force, CancellationToken.None);
             Console.WriteLine(result.Succeeded
@@ -418,22 +480,15 @@ public static class Program
             contactsSyncCommand,
         };
 
-        // ── Root command ──────────────────────────────────────────────────
-
-        var rootCommand = new RootCommand("Kagami — polling-first calendar and contact synchronization")
-        {
-            jobsCommand,
-            contactsCommand,
-        };
-        return rootCommand;
+        return contactsCommand;
     }
 
-    private static ServiceProvider BuildServiceProvider(string[] settingsFiles)
+    private static ServiceProvider BuildServiceProvider(string[] settingsFiles, bool verbose)
     {
         var configBuilder = new ConfigurationBuilder();
 
         // Load embedded default and custom settings.
-        configBuilder.AddKagamiSettings(noDefaultSettings: false, settingsFiles);
+        configBuilder.AddKagamiSettings(noDefaultSettings: false, settingsFiles, verbose);
         configBuilder.AddEnvironmentVariables();
         var config = configBuilder.Build();
 
@@ -444,14 +499,14 @@ public static class Program
         return services.BuildServiceProvider();
     }
 
-    private static SyncHost BuildSyncHost(string[] settingsFiles) =>
-        BuildServiceProvider(settingsFiles).GetRequiredService<SyncHost>();
+    private static SyncHost BuildSyncHost(string[] settingsFiles, bool verbose) =>
+        BuildServiceProvider(settingsFiles, verbose).GetRequiredService<SyncHost>();
 
-    private static CommandHandler<CanonicalContact> BuildContactsService(string[] settingsFiles) =>
-        BuildServiceProvider(settingsFiles).GetRequiredService<CommandHandler<CanonicalContact>>();
+    private static CommandHandler<CanonicalContact> BuildContactsService(string[] settingsFiles, bool verbose) =>
+        BuildServiceProvider(settingsFiles, verbose).GetRequiredService<CommandHandler<CanonicalContact>>();
 
-    private static KagamiOptions BuildKagamiOptions(string[] settingsFiles) =>
-        BuildServiceProvider(settingsFiles).GetRequiredService<KagamiOptions>();
+    private static KagamiOptions BuildKagamiOptions(string[] settingsFiles, bool verbose) =>
+        BuildServiceProvider(settingsFiles, verbose).GetRequiredService<KagamiOptions>();
 
     private static void AddMutuallyExclusiveExecutionModeValidation(Command command, Option<bool> whatIfOption, Option<bool> confirmOption) =>
         command.Validators.Add(parseResult =>
