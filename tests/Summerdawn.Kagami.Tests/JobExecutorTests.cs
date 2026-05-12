@@ -92,7 +92,7 @@ public sealed class JobExecutorTests : IDisposable
 
         await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
-        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would Create 'Alice Logging' on endpoint endpointB", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("What-If: Create 'Alice Logging' on endpoint endpointB", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public sealed class JobExecutorTests : IDisposable
 
         await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
-        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would Create 'Contoso Ltd' on endpoint endpointB", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("What-If: Create 'Contoso Ltd' on endpoint endpointB", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -124,8 +124,47 @@ public sealed class JobExecutorTests : IDisposable
         await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, conflictPolicy: ConflictPolicy.SourceWins),
             true);
 
-        Assert.Contains(syncLogger.Entries, entry => entry.Contains("would Update 'Ada Langenfeld' on endpoint endpointB", StringComparison.Ordinal));
-        Assert.DoesNotContain(syncLogger.Entries, entry => entry.Contains("would Update 'Ada Langenfeld' on endpoint endpointA", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("What-If: Update 'Ada Langenfeld' on endpoint endpointB", StringComparison.Ordinal));
+        Assert.DoesNotContain(syncLogger.Entries, entry => entry.Contains("What-If: Update 'Ada Langenfeld' on endpoint endpointA", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task WhatIf_OrdersActionsAlphabeticallyWithinActionKind()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a2", "v1", "Bob"));
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice"));
+
+        InMemoryLogger<SyncActionExecutor> syncLogger = new();
+        var executor = CreateExecutor(syncLogger: syncLogger);
+
+        await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
+
+        int aliceIndex = syncLogger.Entries.FindIndex(entry =>
+            entry.Contains("What-If: Create 'Alice' on endpoint endpointB", StringComparison.Ordinal));
+        int bobIndex = syncLogger.Entries.FindIndex(entry =>
+            entry.Contains("What-If: Create 'Bob' on endpoint endpointB", StringComparison.Ordinal));
+
+        Assert.NotEqual(-1, aliceIndex);
+        Assert.NotEqual(-1, bobIndex);
+        Assert.True(aliceIndex < bobIndex);
+    }
+
+    [Fact]
+    public async Task Execution_LogsExecutingAndDoneMessages()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice Executed"));
+
+        InMemoryLogger<SyncActionExecutor> syncLogger = new();
+        var executor = CreateExecutor(syncLogger: syncLogger);
+
+        await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
+
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("Executing: Create 'Alice Executed' on endpoint endpointB", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("Done: Create 'Alice Executed' on endpoint endpointB", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -493,7 +493,14 @@ public static class Program
         var config = configBuilder.Build();
 
         var services = new ServiceCollection();
-        services.AddLogging(b => b.AddConsole().AddConfiguration(config.GetSection("Logging")));
+        services.AddLogging(b =>
+        {
+            b.AddConsole(options =>
+            {
+                options.LogToStandardErrorThreshold = LogLevel.Trace;
+            });
+            b.AddConfiguration(config.GetSection("Logging"));
+        });
         services.AddKagami(config.GetSection("Kagami"));
 
         return services.BuildServiceProvider();

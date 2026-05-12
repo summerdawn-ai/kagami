@@ -89,6 +89,12 @@ public sealed class LinkCreator(ILogger<LinkCreator> logger)
                 DestinationItem = destinationItem,
                 PersistedState = row,
             });
+            logger.LogDebug(
+                "Persisted link: sourceId={SourceId}, destinationId={DestinationId}, sourceLoaded={SourceLoaded}, destinationLoaded={DestinationLoaded}",
+                row.SourceId,
+                row.DestinationId,
+                sourceLoaded,
+                destLoaded);
         }
 
         // -----------------------------------------------------------------------
@@ -131,6 +137,7 @@ public sealed class LinkCreator(ILogger<LinkCreator> logger)
                     PersistedState = null,
                 });
                 reservedSourceIds.Add(item.Provenance.ProviderId);
+                logger.LogDebug("Unmatched source item: {SourceItemDetails}", item.ToString());
                 continue;
             }
 
@@ -165,6 +172,7 @@ public sealed class LinkCreator(ILogger<LinkCreator> logger)
                     PersistedState = null,
                 });
                 reservedSourceIds.Add(item.Provenance.ProviderId);
+                logger.LogDebug("Source item {SourceId} candidate target {TargetId} was already reserved; keeping unmatched", item.Provenance.ProviderId, target.Provenance.ProviderId);
                 continue;
             }
 
@@ -195,6 +203,10 @@ public sealed class LinkCreator(ILogger<LinkCreator> logger)
             });
             reservedSourceIds.Add(item.Provenance.ProviderId);
             reservedDestinationIds.Add(target.Provenance.ProviderId);
+            logger.LogDebug(
+                "Inferred link: source={SourceItemDetails}, destination={DestinationItemDetails}",
+                item.ToString(),
+                target.ToString());
         }
 
         // -----------------------------------------------------------------------
@@ -217,6 +229,11 @@ public sealed class LinkCreator(ILogger<LinkCreator> logger)
                 DestinationItem = dest,
                 PersistedState = null,
             });
+            logger.LogDebug(
+                isContested
+                    ? "Contested destination item without safe source match: {DestinationItemDetails}"
+                    : "Unmatched destination item: {DestinationItemDetails}",
+                dest.ToString());
         }
 
         return links;

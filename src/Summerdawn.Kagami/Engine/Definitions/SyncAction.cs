@@ -89,6 +89,19 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
         return $"{action} '{item}' on endpoint {targetEndpoint} (reason: {reason})";
     }
 
+    /// <summary>
+    /// Returns a diagnostic string with extended action details.
+    /// </summary>
+    public override string ToString()
+    {
+        string sourceId = Link.SourceItem?.Provenance.ProviderId ?? Link.PersistedState?.SourceId ?? "null";
+        string destinationId = Link.DestinationItem?.Provenance.ProviderId ?? Link.PersistedState?.DestinationId ?? "null";
+        string sourceActivity = Link.SourceActivity.ToString();
+        string destinationActivity = Link.DestinationActivity.ToString();
+
+        return $"{ToDisplayString()} [Kind={Kind}, Direction={Direction}, LinkKind={Link.Kind}, SourceId={sourceId}, DestinationId={destinationId}, SourceActivity={sourceActivity}, DestinationActivity={destinationActivity}]";
+    }
+
     private CanonicalItem? ResolveDisplayItem() =>
         Kind == Delete
             ? GetTargetItem()
