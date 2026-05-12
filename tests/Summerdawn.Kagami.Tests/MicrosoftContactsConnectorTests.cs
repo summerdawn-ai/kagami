@@ -459,6 +459,90 @@ public sealed class MicrosoftContactsConnectorTests
         Assert.Equal("555-2001", json["mobilePhone"]!.GetValue<string>());
     }
 
+    [Fact]
+    public void BuildWritableContact_WritesEmptyObjectsForAbsentAddresses()
+    {
+        var contact = new CanonicalContact
+        {
+            DisplayName = "Test",
+            Provenance = { ProviderId = "test" },
+        };
+
+        var payload = InvokeInternalBuildWritableContact(contact);
+
+        Assert.True(payload.TryGetPropertyValue("homeAddress", out var homeAddress));
+        Assert.True(payload.TryGetPropertyValue("businessAddress", out var businessAddress));
+        Assert.True(payload.TryGetPropertyValue("otherAddress", out var otherAddress));
+
+        Assert.Empty(homeAddress!.AsObject());
+        Assert.Empty(businessAddress!.AsObject());
+        Assert.Empty(otherAddress!.AsObject());
+    }
+
+    [Fact]
+    public void BuildWritableContact_PreservesPresentAddresses()
+    {
+        var contact = new CanonicalContact
+        {
+            DisplayName = "Test",
+            Addresses =
+            {
+                new ContactAddress
+                {
+                    Label = "home",
+                    Street = "1 Main St",
+                    City = "Springfield",
+                    State = "IL",
+                    PostalCode = "62701",
+                    Country = "US",
+                },
+                new ContactAddress
+                {
+                    Label = "work",
+                    Street = "2 Office Way",
+                    City = "Metropolis",
+                    State = "NY",
+                    PostalCode = "10001",
+                    Country = "US",
+                },
+                new ContactAddress
+                {
+                    Label = "other",
+                    Street = "3 Elsewhere Ave",
+                    City = "Gotham",
+                    State = "NJ",
+                    PostalCode = "07097",
+                    Country = "US",
+                },
+            },
+            Provenance = { ProviderId = "test" },
+        };
+
+        var payload = InvokeInternalBuildWritableContact(contact);
+
+        AssertAddress(
+            payload["homeAddress"]!.AsObject(),
+            "1 Main St",
+            "Springfield",
+            "IL",
+            "62701",
+            "US");
+        AssertAddress(
+            payload["businessAddress"]!.AsObject(),
+            "2 Office Way",
+            "Metropolis",
+            "NY",
+            "10001",
+            "US");
+        AssertAddress(
+            payload["otherAddress"]!.AsObject(),
+            "3 Elsewhere Ave",
+            "Gotham",
+            "NJ",
+            "07097",
+            "US");
+    }
+
     // ── normalization: direct ConvertContact tests ────────────────────────
 
     [Fact]
@@ -558,6 +642,21 @@ public sealed class MicrosoftContactsConnectorTests
 
     private static string SerializeCore(CanonicalContact contact) =>
         CanonicalContactTestHelpers.SerializeCore(contact);
+
+    private static void AssertAddress(
+        JsonObject address,
+        string street,
+        string city,
+        string state,
+        string postalCode,
+        string countryOrRegion)
+    {
+        Assert.Equal(street, address["street"]!.GetValue<string>());
+        Assert.Equal(city, address["city"]!.GetValue<string>());
+        Assert.Equal(state, address["state"]!.GetValue<string>());
+        Assert.Equal(postalCode, address["postalCode"]!.GetValue<string>());
+        Assert.Equal(countryOrRegion, address["countryOrRegion"]!.GetValue<string>());
+    }
 
     // ── HTTP stubs ────────────────────────────────────────────────────────
 
