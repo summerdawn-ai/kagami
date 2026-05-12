@@ -51,6 +51,8 @@ internal static class ConfigurationBuilderExtensions
         resourceStream.CopyTo(memoryStream);
         memoryStream.Position = 0;
 
+        // Append sources in call order so later resources (for example, appsettings.Verbose.json)
+        // override earlier embedded defaults, while still allowing user-provided settings files to win.
         configurationBuilder.Add(new JsonStreamConfigurationSource
         {
             Stream = memoryStream

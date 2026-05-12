@@ -55,7 +55,10 @@ public sealed class ConfigurationBuilderExtensionsTests
         }
         finally
         {
-            File.Delete(settingsFile);
+            if (File.Exists(settingsFile))
+            {
+                File.Delete(settingsFile);
+            }
         }
     }
 }
