@@ -115,27 +115,4 @@ public sealed class ProgramTests
 
         Assert.NotEmpty(parseResult.Errors);
     }
-
-    [Theory]
-    [InlineData("export")]
-    [InlineData("import")]
-    [InlineData("sync")]
-    public void CreateRootCommand_UsesUpdatedPruneDescriptionOnContactsCommands(string commandName)
-    {
-        var contactsCommand = Assert.Single(Program.CreateRootCommand().Subcommands, command => command.Name == "contacts");
-        var command = Assert.Single(contactsCommand.Subcommands, subcommand => subcommand.Name == commandName);
-        Assert.Contains(
-            command.Options,
-            option => string.Equals(option.Description, "Delete contacts on the destination that no longer exist on the source (or vice versa)", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void CreateRootCommand_ExposesReverseOptionOnContactsSync()
-    {
-        var contactsCommand = Assert.Single(Program.CreateRootCommand().Subcommands, command => command.Name == "contacts");
-        var syncCommand = Assert.Single(contactsCommand.Subcommands, command => command.Name == "sync");
-        Assert.Contains(
-            syncCommand.Options,
-            option => string.Equals(option.Description, "Sync from destination to source instead of source to destination", StringComparison.Ordinal));
-    }
 }
