@@ -31,6 +31,16 @@ public sealed class ProgramTests
         }
     }
 
+    public static TheoryData<string[]> ReverseModeCommands
+    {
+        get
+        {
+            TheoryData<string[]> data = [];
+            data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--reverse"]);
+            return data;
+        }
+    }
+
     public static TheoryData<string[]> MutuallyExclusiveExecutionModeCommands
     {
         get
@@ -39,6 +49,16 @@ public sealed class ProgramTests
             data.Add(["jobs", "run", "--what-if", "--confirm"]);
             data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--what-if", "--confirm"]);
             data.Add(["contacts", "import", "--from", "/tmp/in", "--to", "Google", "--what-if", "--confirm"]);
+            return data;
+        }
+    }
+
+    public static TheoryData<string[]> MutuallyExclusiveContactsSyncDirectionCommands
+    {
+        get
+        {
+            TheoryData<string[]> data = [];
+            data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--bidirectional", "--reverse"]);
             return data;
         }
     }
@@ -53,8 +73,26 @@ public sealed class ProgramTests
     }
 
     [Theory]
+    [MemberData(nameof(ReverseModeCommands))]
+    public void CreateRootCommand_AcceptsReverseOnContactsSync(string[] args)
+    {
+        var parseResult = Program.CreateRootCommand().Parse(args);
+
+        Assert.Empty(parseResult.Errors);
+    }
+
+    [Theory]
     [MemberData(nameof(MutuallyExclusiveExecutionModeCommands))]
     public void CreateRootCommand_RejectsWhatIfAndConfirmTogether(string[] args)
+    {
+        var parseResult = Program.CreateRootCommand().Parse(args);
+
+        Assert.Contains(parseResult.Errors, error => error.Message.Contains("mutually exclusive", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [MemberData(nameof(MutuallyExclusiveContactsSyncDirectionCommands))]
+    public void CreateRootCommand_RejectsReverseAndBidirectionalTogether(string[] args)
     {
         var parseResult = Program.CreateRootCommand().Parse(args);
 
@@ -76,5 +114,28 @@ public sealed class ProgramTests
         var parseResult = Program.CreateRootCommand().Parse(["--verbose", "jobs", "list"]);
 
         Assert.NotEmpty(parseResult.Errors);
+    }
+
+    [Theory]
+    [InlineData("export")]
+    [InlineData("import")]
+    [InlineData("sync")]
+    public void CreateRootCommand_UsesUpdatedPruneDescriptionOnContactsCommands(string commandName)
+    {
+        var contactsCommand = Assert.Single(Program.CreateRootCommand().Subcommands, command => command.Name == "contacts");
+        var command = Assert.Single(contactsCommand.Subcommands, subcommand => subcommand.Name == commandName);
+        Assert.Contains(
+            command.Options,
+            option => string.Equals(option.Description, "Delete contacts on the destination that no longer exist on the source (or vice versa)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CreateRootCommand_ExposesReverseOptionOnContactsSync()
+    {
+        var contactsCommand = Assert.Single(Program.CreateRootCommand().Subcommands, command => command.Name == "contacts");
+        var syncCommand = Assert.Single(contactsCommand.Subcommands, command => command.Name == "sync");
+        Assert.Contains(
+            syncCommand.Options,
+            option => string.Equals(option.Description, "Sync from destination to source instead of source to destination", StringComparison.Ordinal));
     }
 }

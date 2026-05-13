@@ -133,7 +133,7 @@ public static class Program
             jobsRunAllOption,
             verboseOption,
         };
-        AddMutuallyExclusiveExecutionModeValidation(jobsRunCommand, whatIfOption, confirmOption);
+        AddMutuallyExclusiveBooleanOptionValidation(jobsRunCommand, whatIfOption, confirmOption);
         jobsRunCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
@@ -293,9 +293,15 @@ public static class Program
             Arity = ArgumentArity.Zero,
         };
 
+        var reverseOption = new Option<bool>("--reverse")
+        {
+            Description = "Sync from destination to source instead of source to destination",
+            Arity = ArgumentArity.Zero,
+        };
+
         var pruneOption = new Option<bool>("--prune")
         {
-            Description = "Delete contacts on the destination that no longer exist on the source",
+            Description = "Delete contacts on the destination that no longer exist on the source (or vice versa)",
             Arity = ArgumentArity.Zero,
         };
 
@@ -409,6 +415,7 @@ public static class Program
             fromOption,
             toEndpointOption,
             bidirectionalOption,
+            reverseOption,
             pruneOption,
             onConflictOption,
             whatIfOption,
@@ -418,13 +425,15 @@ public static class Program
             forceOption,
             verboseOption,
         };
-        AddMutuallyExclusiveExecutionModeValidation(contactsSyncCommand, whatIfOption, confirmOption);
+        AddMutuallyExclusiveBooleanOptionValidation(contactsSyncCommand, whatIfOption, confirmOption);
+        AddMutuallyExclusiveBooleanOptionValidation(contactsSyncCommand, bidirectionalOption, reverseOption);
         contactsSyncCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             bool bidirectional = parseResult.GetValue(bidirectionalOption);
+            bool reverse = parseResult.GetValue(reverseOption);
             bool prune = parseResult.GetValue(pruneOption);
             string onConflictStr = parseResult.GetValue(onConflictOption)!;
             bool whatIf = parseResult.GetValue(whatIfOption);
@@ -434,7 +443,11 @@ public static class Program
             string? filter = parseResult.GetValue(filterOption);
             bool verbose = parseResult.GetValue(verboseOption);
 
-            var mode = bidirectional ? SyncMode.Bidirectional : SyncMode.Forward;
+            var mode = bidirectional
+                ? SyncMode.Bidirectional
+                : reverse
+                    ? SyncMode.Reverse
+                    : SyncMode.Forward;
 
             var contactFilter = ContactFilter.Parse(filter);
 
@@ -477,7 +490,7 @@ public static class Program
             forceOption,
             verboseOption,
         };
-        AddMutuallyExclusiveExecutionModeValidation(contactsImportCommand, whatIfOption, confirmOption);
+        AddMutuallyExclusiveBooleanOptionValidation(contactsImportCommand, whatIfOption, confirmOption);
         contactsImportCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
@@ -538,14 +551,17 @@ public static class Program
         return services.BuildServiceProvider();
     }
 
-    private static void AddMutuallyExclusiveExecutionModeValidation(Command command, Option<bool> whatIfOption, Option<bool> confirmOption) =>
+    private static void AddMutuallyExclusiveBooleanOptionValidation(Command command, Option<bool> firstOption, Option<bool> secondOption) =>
         command.Validators.Add(parseResult =>
         {
-            if (parseResult.GetValue(whatIfOption) && parseResult.GetValue(confirmOption))
+            if (parseResult.GetValue(firstOption) && parseResult.GetValue(secondOption))
             {
-                parseResult.AddError("The --what-if and --confirm options are mutually exclusive.");
+                parseResult.AddError($"The {GetDisplayName(firstOption)} and {GetDisplayName(secondOption)} options are mutually exclusive.");
             }
         });
+
+    private static string GetDisplayName(Option option) =>
+        option.Aliases.FirstOrDefault(alias => alias.StartsWith("--", StringComparison.Ordinal)) ?? option.Name;
 
     private static JobExecutionFlags GetExecutionFlags(ParseResult parseResult, Option<bool> whatIfOption, Option<bool> confirmOption)
     {
