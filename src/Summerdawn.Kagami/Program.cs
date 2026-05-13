@@ -289,9 +289,14 @@ public static class Program
             if (interval.HasValue)
             {
                 // Interval mode: repeat indefinitely; exit nonzero on failure.
-                while (true)
+                // Honor process-exit signals (SIGTERM from Docker, Ctrl+C) so the delay can be interrupted.
+                using var cts = new CancellationTokenSource();
+                Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+                AppDomain.CurrentDomain.ProcessExit += (_, _) => cts.Cancel();
+
+                while (!cts.Token.IsCancellationRequested)
                 {
-                    var result = await handler.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
+                    var result = await handler.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, cts.Token);
 
                     if (!result.Succeeded && result.Error is not null)
                     {
@@ -302,7 +307,7 @@ public static class Program
                         ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
                         : $"Sync skipped: {result.SkipReason}");
 
-                    await Task.Delay(interval.Value, CancellationToken.None);
+                    await Task.Delay(interval.Value, cts.Token);
                 }
             }
             else
