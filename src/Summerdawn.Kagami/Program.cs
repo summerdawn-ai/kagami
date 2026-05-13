@@ -327,14 +327,14 @@ public static class Program
             string? filter = parseResult.GetValue(filterOption);
             bool all = parseResult.GetValue(allOption);
             bool verbose = parseResult.GetValue(verboseOption);
-            var svc = BuildContactsService(settingsFiles, verbose);
+            var handler = BuildContactsCommandHandler(settingsFiles, verbose);
             var contactFilter = ContactFilter.Parse(filter);
-            var items = await svc.ListAsync(from, contactFilter, all ? null : 100, CancellationToken.None);
-            items = items
+            var contacts = await handler.ListAsync(from, contactFilter, all ? null : 100, CancellationToken.None);
+            contacts = contacts
                 .OrderBy(ContactNameHelper.GetName, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            if (items.Count == 0)
+            if (contacts.Count == 0)
             {
                 Console.WriteLine("No contacts found.");
                 return;
@@ -342,23 +342,17 @@ public static class Program
 
             Console.WriteLine($"{"Name",-35} {"Email",-35} {"Phone"}");
             Console.WriteLine(new string('-', 95));
-            foreach (var item in items)
+            foreach (var contact in contacts)
             {
-                if (item is not CanonicalContact contact)
-                {
-                    Console.WriteLine($"  (non-contact item: {item.Provenance.ProviderId})");
-                    continue;
-                }
-
                 string email = contact.Emails.Count > 0 ? contact.Emails[0].Address : string.Empty;
                 string phone = contact.Phones.Count > 0 ? contact.Phones[0].Number : string.Empty;
-                Console.WriteLine($"{ContactNameHelper.GetNameOrId(item),-35} {email,-35} {phone}");
+                Console.WriteLine($"{ContactNameHelper.GetNameOrId(contact),-35} {email,-35} {phone}");
             }
 
             Console.WriteLine();
             Console.WriteLine(all
-                ? $"Total: {items.Count} contact(s)"
-                : $"Showing {items.Count} contact(s) (default limit: 100; use --all to fetch everything)");
+                ? $"Total: {contacts.Count} contact(s)"
+                : $"Showing {contacts.Count} contact(s) (default limit: 100; use --all to fetch everything)");
         });
 
         // contacts export
@@ -379,9 +373,9 @@ public static class Program
             string? filter = parseResult.GetValue(filterOption);
             bool prune = parseResult.GetValue(pruneOption);
             bool verbose = parseResult.GetValue(verboseOption);
-            var svc = BuildContactsService(settingsFiles, verbose);
+            var handler = BuildContactsCommandHandler(settingsFiles, verbose);
             var contactFilter = ContactFilter.Parse(filter);
-            var result = await svc.ExportAsync(from, to, prune: prune, contactFilter, CancellationToken.None);
+            var result = await handler.ExportAsync(from, to, prune: prune, contactFilter, CancellationToken.None);
             Console.WriteLine(result.Succeeded
                 ? $"Export completed. Actions planned: {result.ActionsPlanned}"
                 : $"Export failed: {result.Error}");
@@ -431,12 +425,15 @@ public static class Program
 
             var deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
 
-            var svc = BuildContactsService(settingsFiles, verbose);
+            var handler = BuildContactsCommandHandler(settingsFiles, verbose);
             var contactFilter = ContactFilter.Parse(filter);
-            var result = await svc.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
+            var result = await handler.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
+
             Console.WriteLine(result.Succeeded
                 ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
-                : $"Sync failed or skipped: {result.SkipReason}");
+                : result.Error is not null
+                    ? $"Sync failed: {result.Error}"
+                    : $"Sync skipped: {result.SkipReason}");
         });
 
         // contacts import
@@ -464,9 +461,9 @@ public static class Program
             bool confirm = parseResult.GetValue(confirmOption);
             bool force = parseResult.GetValue(forceOption);
             bool verbose = parseResult.GetValue(verboseOption);
-            var svc = BuildContactsService(settingsFiles, verbose);
+            var handler = BuildContactsCommandHandler(settingsFiles, verbose);
             var contactFilter = ContactFilter.Parse(filter);
-            var result = await svc.ImportAsync(from, to, prune, contactFilter, whatIf, confirm, force, CancellationToken.None);
+            var result = await handler.ImportAsync(from, to, prune, contactFilter, whatIf, confirm, force, CancellationToken.None);
             Console.WriteLine(result.Succeeded
                 ? $"Import completed. Actions planned: {result.ActionsPlanned}"
                 : $"Import failed: {result.Error ?? result.SkipReason}");
@@ -493,7 +490,14 @@ public static class Program
         var config = configBuilder.Build();
 
         var services = new ServiceCollection();
-        services.AddLogging(b => b.AddConsole().AddConfiguration(config.GetSection("Logging")));
+        services.AddLogging(b =>
+        {
+            b.AddConsole(options =>
+            {
+                options.LogToStandardErrorThreshold = LogLevel.Trace;
+            });
+            b.AddConfiguration(config.GetSection("Logging"));
+        });
         services.AddKagami(config.GetSection("Kagami"));
 
         return services.BuildServiceProvider();
@@ -502,7 +506,7 @@ public static class Program
     private static SyncHost BuildSyncHost(string[] settingsFiles, bool verbose) =>
         BuildServiceProvider(settingsFiles, verbose).GetRequiredService<SyncHost>();
 
-    private static CommandHandler<CanonicalContact> BuildContactsService(string[] settingsFiles, bool verbose) =>
+    private static CommandHandler<CanonicalContact> BuildContactsCommandHandler(string[] settingsFiles, bool verbose) =>
         BuildServiceProvider(settingsFiles, verbose).GetRequiredService<CommandHandler<CanonicalContact>>();
 
     private static KagamiOptions BuildKagamiOptions(string[] settingsFiles, bool verbose) =>

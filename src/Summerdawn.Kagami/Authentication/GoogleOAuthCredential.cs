@@ -115,9 +115,9 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
             + "&access_type=offline"
             + "&prompt=consent";
 
-        Console.WriteLine("Opening browser for Google OAuth authorization...");
-        Console.WriteLine("If the browser does not open automatically, navigate to:");
-        Console.WriteLine(authUrl);
+        Console.Error.WriteLine("Opening browser for Google OAuth authorization...");
+        Console.Error.WriteLine("If the browser does not open automatically, navigate to:");
+        Console.Error.WriteLine(authUrl);
 
         OpenBrowser(authUrl);
 

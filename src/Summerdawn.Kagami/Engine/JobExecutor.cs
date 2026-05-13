@@ -67,7 +67,8 @@ public sealed class JobExecutor(
         }
         catch (OperationFaultedException ex)
         {
-            logger.LogError(ex, "Job {JobKey} faulted; cursors will not advance", job.Key);
+            logger.LogError("Job {JobKey} faulted; cursors will not advance. Error: {ErrorMessage}", job.Key, ex.Message);
+            logger.LogDebug(ex, "Job {JobKey}: fault details", job.Key);
             return new JobExecutionResult { JobKey = job.Key, Succeeded = false, Error = ex.Message };
         }
         finally
@@ -113,15 +114,16 @@ public sealed class JobExecutor(
     {
         bool whatIf = executionFlags.HasFlag(JobExecutionFlags.WhatIf);
         bool confirm = executionFlags.HasFlag(JobExecutionFlags.Confirm);
-        logger.LogInformation("Starting job {job.Key} (whatIf={WhatIf}, confirm={Confirm}, force={Force})", job.Key, whatIf, confirm, job.Options.Force);
+        string entityTypeForLogging = job.Options.EntityType.ToLowerInvariant();
+        logger.LogInformation("Authenticating to {Endpoint}...", job.SourceConnector.EndpointName);
+        await job.SourceConnector.AuthenticateAsync(cancellationToken);
+        logger.LogInformation("Authenticated to {Endpoint}.", job.SourceConnector.EndpointName);
 
-        var sourceConnector = job.SourceConnector;
-        var destinationConnector = job.DestinationConnector;
+        logger.LogInformation("Authenticating to {Endpoint}...", job.DestinationConnector.EndpointName);
+        await job.DestinationConnector.AuthenticateAsync(cancellationToken);
+        logger.LogInformation("Authenticated to {Endpoint}.", job.DestinationConnector.EndpointName);
 
         var filter = CreateFilter<TItem>(job.Options.Filter);
-
-        await sourceConnector.AuthenticateAsync(cancellationToken);
-        await destinationConnector.AuthenticateAsync(cancellationToken);
 
         // When NoPersistence is set, skip all DB reads and treat everything as a full scan.
         IReadOnlyList<LinkStateRow> existingLinks;
@@ -162,6 +164,7 @@ public sealed class JobExecutor(
 
         // --- Plan actions using raw (unfiltered) items + filter ---
         // The filter is forwarded to LinkExaminer so it can detect items that moved out of scope.
+        logger.LogInformation("Determining changes...");
         IReadOnlyList<SyncAction<TItem>> actions;
         try
         {
@@ -176,17 +179,29 @@ public sealed class JobExecutor(
             }
         }
 
-        var actionsSkip = actions.Where(a => a.Kind == Skip).ToList();
-        var actionsNone = actions.Where(a => a.Kind == None).ToList();
-        var actionsToDestination = actions.Where(a => a.Direction == SourceToDestination).Except(actionsSkip).Except(actionsNone).ToList();
-        var actionsToSource = actions.Where(a => a.Direction == DestinationToSource).Except(actionsSkip).Except(actionsNone).ToList();
+        var orderedActions = OrderActionsByUserDisplay(actions).ToList();
+        var actionsSkip = orderedActions.Where(a => a.Kind == Skip).ToList();
+        var actionsNone = orderedActions.Where(a => a.Kind == None).ToList();
+        var actionsToDestination = orderedActions.Where(a => a.Direction == SourceToDestination && a.Kind is not Skip and not None).ToList();
+        var actionsToSource = orderedActions.Where(a => a.Direction == DestinationToSource && a.Kind is not Skip and not None).ToList();
 
-        logger.LogInformation("Job {job.Key}: {CountDestination} actions targeting destination, {CountSource} targeting source, {CountSkip} skip, {CountNone} already in sync", job.Key, actionsToDestination.Count, actionsToSource.Count, actionsSkip.Count, actionsNone.Count);
+        logger.LogInformation(
+            "Done determining changes: {Unchanged} unchanged, {Updates} updates, {Creates} creates, {Deletes} deletes, {Skips} skips.",
+            actionsNone.Count,
+            orderedActions.Count(a => a.Kind == Update),
+            orderedActions.Count(a => a.Kind == Create),
+            orderedActions.Count(a => a.Kind == Delete),
+            actionsSkip.Count);
+        foreach (var action in orderedActions)
+        {
+            logger.LogDebug("Planned action: {ActionDetails}", action.ToString());
+        }
+
         result.ActionsPlanned += actionsToSource.Count + actionsToDestination.Count;
 
         if (whatIf)
         {
-            syncActionExecutor.LogPlannedActions(job.Key, actions);
+            syncActionExecutor.LogPlannedActions(job.Key, orderedActions);
         }
         else if (job.Options.NoPersistence)
         {
@@ -222,7 +237,11 @@ public sealed class JobExecutor(
         }
 
         result.Succeeded = true;
-        logger.LogInformation("Job {job.Key} completed (whatIf={WhatIf}, confirm={Confirm}, actionsPlanned={Count})", job.Key, whatIf, executionFlags.HasFlag(JobExecutionFlags.Confirm), result.ActionsPlanned);
+        logger.LogInformation(
+            "Completed sync for job {JobKey}: executed {ActionCount} action(s) for {EntityType} items.",
+            job.Key,
+            result.ActionsPlanned,
+            entityTypeForLogging);
         return result;
     }
 
@@ -262,27 +281,33 @@ public sealed class JobExecutor(
 
     private async Task<ItemSet<TItem>> LoadItemsAsync<TItem>(Job<TItem> job, IConnector<TItem> connector, string? cursor, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
+        string entityTypeForLogging = job.Options.EntityType.ToLowerInvariant();
+        logger.LogInformation("Reading {EntityType} items from {Endpoint}...", entityTypeForLogging, connector.EndpointName);
+
         // Use optimized endpoint if cursor not needed.
         if (job.Options.NoPersistence)
         {
-            logger.LogInformation("No persistence for {Endpoint}; performing full load without cursors", connector.EndpointName);
+            logger.LogDebug("No persistence for {Endpoint}; performing full load without cursors.", connector.EndpointName);
             var items = await connector.GetAllItemsAsync(cancellationToken);
+            logger.LogInformation("Read {Count} {EntityType} items from {Endpoint}.", items.Count, entityTypeForLogging, connector.EndpointName);
             return new ItemSet<TItem>(items, null);
         }
 
         if ((job.Options.Full || job.Options.Force) && cursor is not null)
         {
-            logger.LogInformation("Full or force flag set for {Endpoint}; performing full load (ignoring cursor)", connector.EndpointName);
+            logger.LogDebug("Full or force flag set for {Endpoint}; performing full load (ignoring cursor).", connector.EndpointName);
 
             // Ensure loading from beginning.
             cursor = null;
         }
         else if (cursor is null)
         {
-            logger.LogInformation("No cursor for {Endpoint}, performing full load", connector.EndpointName);
+            logger.LogDebug("No cursor for {Endpoint}; performing full load.", connector.EndpointName);
         }
 
-        return await connector.GetCursorItemsAsync(cursor, cancellationToken);
+        var itemSet = await connector.GetCursorItemsAsync(cursor, cancellationToken);
+        logger.LogInformation("Read {Count} {EntityType} items from {Endpoint}.", itemSet.Items.Count, entityTypeForLogging, connector.EndpointName);
+        return itemSet;
     }
 
     private async Task<(ItemSet<TItem> SourceItemSet, ItemSet<TItem> DestinationItemSet, bool IsDeltaRun)> LoadItemSetsAsync<TItem>(
@@ -302,7 +327,7 @@ public sealed class JobExecutor(
 
         if (!isDeltaRun && !job.Options.NoPersistence && (sourceCursor is not null || destinationCursor is not null))
         {
-            logger.LogInformation(
+            logger.LogDebug(
                 "Job {JobKey} will ignore stored cursors and perform a full load on both endpoints because this run is not a delta run.",
                 job.Key);
         }
@@ -356,7 +381,7 @@ public sealed class JobExecutor(
             return cursorState.Cursor;
         }
 
-        logger.LogInformation(
+        logger.LogDebug(
             "Ignoring saved cursor for job {JobKey}, endpoint {EndpointName} because stored scope '{StoredScope}' differs from current scope '{CurrentScope}'",
             jobKey,
             endpointName,
@@ -410,4 +435,21 @@ public sealed class JobExecutor(
             await linkStateRepo.UpsertAsync(link, cancellationToken);
         }
     }
+
+    private static IEnumerable<SyncAction<TItem>> OrderActionsByUserDisplay<TItem>(IEnumerable<SyncAction<TItem>> actions)
+        where TItem : CanonicalItem =>
+        actions
+            .OrderBy(static a => GetActionSortOrder(a.Kind))
+            .ThenBy(static a => a.ToDisplayString(), StringComparer.OrdinalIgnoreCase);
+
+    private static int GetActionSortOrder(SyncActionKind kind) =>
+        kind switch
+        {
+            Create => 0,
+            Update => 1,
+            Delete => 2,
+            Skip => 3,
+            None => 4,
+            _ => int.MaxValue,
+        };
 }

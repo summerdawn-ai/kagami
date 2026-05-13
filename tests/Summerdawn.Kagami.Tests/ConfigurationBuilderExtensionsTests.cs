@@ -24,7 +24,7 @@ public sealed class ConfigurationBuilderExtensionsTests
         configurationBuilder.AddKagamiSettings(noDefaultSettings: false, [], verbose: true);
         var configuration = configurationBuilder.Build();
 
-        Assert.Equal("Debug", configuration["Logging:LogLevel:Default"]);
+        Assert.Equal("Debug", configuration["Logging:LogLevel:Summerdawn.Kagami"]);
         Assert.Equal("Information", configuration["Logging:LogLevel:System.Net.Http.HttpClient"]);
         Assert.Equal("Warning", configuration["Logging:LogLevel:Polly"]);
     }

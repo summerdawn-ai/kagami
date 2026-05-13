@@ -46,7 +46,8 @@ public sealed class SyncActionExecutor(
     {
         foreach (var action in actions)
         {
-            logger.LogInformation("What-if job {JobKey}: would {Action}", jobKey, action.ToDisplayString());
+            logger.LogInformation("What-If: {Action}", action.ToDisplayString());
+            logger.LogDebug("Job {JobKey}: planned action details: {ActionDetails}", jobKey, action.ToString());
         }
     }
 
@@ -82,6 +83,8 @@ public sealed class SyncActionExecutor(
 
         foreach (var action in actions)
         {
+            logger.LogDebug("Job {JobKey}: action details: {ActionDetails}", job.Key, action.ToString());
+
             if (confirm)
             {
                 switch (PromptForConfirmation(action))
@@ -96,6 +99,7 @@ public sealed class SyncActionExecutor(
                 }
             }
 
+            logger.LogInformation("Executing: {Action}", action.ToDisplayString());
             bool succeeded = await ApplyActionAsync(
                 action,
                 direction,
@@ -107,6 +111,10 @@ public sealed class SyncActionExecutor(
             if (!succeeded)
             {
                 failedActions = true;
+            }
+            else
+            {
+                logger.LogInformation("Done: {Action}", action.ToDisplayString());
             }
         }
 
@@ -149,7 +157,6 @@ public sealed class SyncActionExecutor(
                             ?? throw new InvalidOperationException($"Create action has no origin item (job '{job.Key}', direction {direction}).");
 
                         var createdItem = await targetConnector.CreateItemAsync(originItem, cancellationToken);
-                        logger.LogInformation("Job {JobKey}: created {Action}", job.Key, action.ToDisplayString());
 
                         if (!job.Options.NoPersistence)
                         {
@@ -195,7 +202,6 @@ public sealed class SyncActionExecutor(
                         DetachPhotoIfUnchanged(action, targetItemToWrite);
 
                         var updatedTargetItem = await targetConnector.UpdateItemAsync(targetItemToWrite, cancellationToken);
-                        logger.LogInformation("Job {JobKey}: updated {Action}", job.Key, action.ToDisplayString());
 
                         if (!job.Options.NoPersistence)
                         {
@@ -257,7 +263,6 @@ public sealed class SyncActionExecutor(
                                 $"Delete action has no target provider ID — neither a live target item nor a persisted link row with a target ID is available (job '{job.Key}', direction {direction}).");
 
                         await targetConnector.DeleteItemAsync(deleteId, cancellationToken);
-                        logger.LogInformation("Job {JobKey}: deleted {Action}", job.Key, action.ToDisplayString());
 
                         if (!job.Options.NoPersistence)
                         {
@@ -335,9 +340,19 @@ public sealed class SyncActionExecutor(
         if (IsTransientFailure(ex))
         {
             logger.LogError(
+                "Job {JobKey}: transient failure applying {Operation} for item {ItemId} on side {Side}; aborting run. Error: {ErrorMessage}",
+                jobKey,
+                operation,
+                itemId,
+                direction,
+                ex.Message);
+            logger.LogDebug(
                 ex,
-                "Job {JobKey}: transient failure applying {Operation} for item {ItemId} on side {Side}; aborting run",
-                jobKey, operation, itemId, direction);
+                "Job {JobKey}: transient exception details for {Operation} on item {ItemId} ({Side})",
+                jobKey,
+                operation,
+                itemId,
+                direction);
 
             throw new OperationFaultedException(
                 $"Transient failure applying {operation} for item '{itemId}' on side {direction}.",
@@ -345,9 +360,19 @@ public sealed class SyncActionExecutor(
         }
 
         logger.LogError(
+            "Job {JobKey}: failed to apply {Operation} for item {ItemId} on side {Side}; continuing. Error: {ErrorMessage}",
+            jobKey,
+            operation,
+            itemId,
+            direction,
+            ex.Message);
+        logger.LogDebug(
             ex,
-            "Job {JobKey}: failed to apply {Operation} for item {ItemId} on side {Side}; continuing",
-            jobKey, operation, itemId, direction);
+            "Job {JobKey}: exception details for failed {Operation} on item {ItemId} ({Side})",
+            jobKey,
+            operation,
+            itemId,
+            direction);
 
         return false;
     }
