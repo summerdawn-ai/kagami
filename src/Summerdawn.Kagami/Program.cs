@@ -431,7 +431,9 @@ public static class Program
 
             Console.WriteLine(result.Succeeded
                 ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
-                : $"Sync failed or skipped: {result.SkipReason}");
+                : result.Error is not null
+                    ? $"Sync failed: {result.Error}"
+                    : $"Sync skipped: {result.SkipReason}");
         });
 
         // contacts import
