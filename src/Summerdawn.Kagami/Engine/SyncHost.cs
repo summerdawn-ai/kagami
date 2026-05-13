@@ -35,50 +35,6 @@ public sealed class SyncHost(
     }
 
     /// <summary>
-    /// Runs continuously, polling the enabled jobs on their configured schedules.
-    /// </summary>
-    /// <remarks>
-    /// The scheduler loop checks at most every <see cref="KagamiHostOptions.SchedulerIntervalSeconds"/>
-    /// seconds for jobs whose interval has elapsed since their last run.
-    /// </remarks>
-    public Task RunContinuousAsync(bool whatIf = false, string? jobKeyFilter = null, CancellationToken cancellationToken = default) =>
-        RunContinuousAsync(whatIf ? JobExecutionFlags.WhatIf : JobExecutionFlags.None, jobKeyFilter, cancellationToken);
-
-    /// <summary>
-    /// Runs continuously, polling the enabled jobs on their configured schedules.
-    /// </summary>
-    public async Task RunContinuousAsync(JobExecutionFlags executionFlags, string? jobKeyFilter = null, CancellationToken cancellationToken = default)
-    {
-        await stateDb.InitializeAsync(cancellationToken);
-        logger.LogInformation(
-            "Kagami run mode started (whatIf={WhatIf}, confirm={Confirm}, jobFilter={JobKeyFilter})",
-            executionFlags.HasFlag(JobExecutionFlags.WhatIf),
-            executionFlags.HasFlag(JobExecutionFlags.Confirm),
-            jobKeyFilter ?? "<all>");
-
-        var lastRun = new Dictionary<string, DateTimeOffset>();
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var now = DateTimeOffset.UtcNow;
-            var dueJobs = GetEnabledJobs(jobKeyFilter)
-                .Where(kvp => now - lastRun.GetValueOrDefault(kvp.Key, DateTimeOffset.MinValue) >= ParseInterval(kvp.Value.Schedule))
-                .ToList();
-
-            if (dueJobs.Count > 0)
-            {
-                foreach (var (jobKey, _) in dueJobs)
-                {
-                    lastRun[jobKey] = now;
-                }
-
-                await ExecuteJobsAsync(dueJobs, executionFlags, cancellationToken);
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(options.Host.SchedulerIntervalSeconds), cancellationToken);
-        }
-    }
-
-    /// <summary>
     /// Dispatches each job to <see cref="JobExecutor"/> concurrently, bounded by <see cref="KagamiHostOptions.MaxConcurrentJobs"/>.
     /// </summary>
     private async Task ExecuteJobsAsync(
@@ -115,6 +71,20 @@ public sealed class SyncHost(
     }
 
     /// <summary>
+    /// Force-releases the lease for a specific contacts sync, identified by the source and destination endpoint names.
+    /// </summary>
+    /// <returns>The number of leases cleared (0 or 1).</returns>
+    public async Task<int> UnlockContactsSyncAsync(string fromEndpoint, string toEndpoint, CancellationToken cancellationToken = default)
+    {
+        await stateDb.InitializeAsync(cancellationToken);
+        string jobKey = $"contacts:{fromEndpoint}:{toEndpoint}";
+        var leaseRepo = new LeaseRepository(stateDb);
+        int cleared = await leaseRepo.ForceReleaseAsync(jobKey, cancellationToken);
+        logger.LogInformation("Force-released lease for contacts sync {FromEndpoint} → {ToEndpoint}: {Count} cleared", fromEndpoint, toEndpoint, cleared);
+        return cleared;
+    }
+
+    /// <summary>
     /// Resets the sync state for the specified job, clearing its link rows and saved cursors.
     /// </summary>
     public async Task ResetJobAsync(string jobKey, CancellationToken cancellationToken = default)
@@ -132,6 +102,36 @@ public sealed class SyncHost(
         await cursorRepo.DeleteCursorAsync(jobKey, job.SourceEndpointName, cancellationToken);
         await cursorRepo.DeleteCursorAsync(jobKey, job.DestinationEndpointName, cancellationToken);
         logger.LogInformation("Reset job {JobKey}: link state and cursors cleared", jobKey);
+    }
+
+    /// <summary>
+    /// Resets the sync state for a specific contacts sync, identified by the source and destination endpoint names.
+    /// Clears the link-state partition and saved cursors for the <c>contacts:{from}:{to}</c> job key.
+    /// </summary>
+    public async Task ResetContactsSyncAsync(string fromEndpoint, string toEndpoint, CancellationToken cancellationToken = default)
+    {
+        await stateDb.InitializeAsync(cancellationToken);
+        string partitionKey = $"contact:{fromEndpoint}:{toEndpoint}";
+        string jobKey = $"contacts:{fromEndpoint}:{toEndpoint}";
+        var linkRepo = new LinkStateRepository(stateDb);
+        await linkRepo.DeleteByPartitionAsync(partitionKey, cancellationToken);
+        var cursorRepo = new EndpointCursorRepository(stateDb);
+        await cursorRepo.DeleteCursorAsync(jobKey, fromEndpoint, cancellationToken);
+        await cursorRepo.DeleteCursorAsync(jobKey, toEndpoint, cancellationToken);
+        logger.LogInformation("Reset contacts sync {FromEndpoint} → {ToEndpoint}: link state and cursors cleared", fromEndpoint, toEndpoint);
+    }
+
+    /// <summary>
+    /// Resets all sync state by deleting all link-state rows and all stored cursors.
+    /// </summary>
+    public async Task ResetAllAsync(CancellationToken cancellationToken = default)
+    {
+        await stateDb.InitializeAsync(cancellationToken);
+        var linkRepo = new LinkStateRepository(stateDb);
+        await linkRepo.DeleteAllAsync(cancellationToken);
+        var cursorRepo = new EndpointCursorRepository(stateDb);
+        await cursorRepo.DeleteAllAsync(cancellationToken);
+        logger.LogInformation("Reset all: all link state and cursors cleared");
     }
 
     /// <summary>
@@ -184,29 +184,4 @@ public sealed class SyncHost(
         options.Jobs
             .Where(kvp => kvp.Value.Enabled && (jobKeyFilter is null || kvp.Key == jobKeyFilter))
             .ToList();
-
-    /// <summary>
-    /// Parses a simplified ISO 8601 duration string (e.g. <c>PT15M</c>, <c>PT2H</c>, <c>PT30S</c>)
-    /// into a <see cref="TimeSpan"/>. Returns 15 minutes for unrecognised formats.
-    /// </summary>
-    private static TimeSpan ParseInterval(string schedule)
-    {
-        if (schedule.StartsWith("PT", StringComparison.OrdinalIgnoreCase))
-        {
-            string value = schedule[2..^1];
-            char unit = schedule[^1];
-            if (int.TryParse(value, out int n))
-            {
-                return unit switch
-                {
-                    'M' or 'm' => TimeSpan.FromMinutes(n),
-                    'H' or 'h' => TimeSpan.FromHours(n),
-                    'S' or 's' => TimeSpan.FromSeconds(n),
-                    _ => TimeSpan.FromMinutes(15),
-                };
-            }
-        }
-
-        return TimeSpan.FromMinutes(15);
-    }
 }

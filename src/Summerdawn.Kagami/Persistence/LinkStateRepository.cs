@@ -117,6 +117,17 @@ public sealed class LinkStateRepository(StateDatabase db)
     }
 
     /// <summary>
+    /// Deletes all link-state rows.
+    /// </summary>
+    public async Task DeleteAllAsync(CancellationToken cancellationToken = default)
+    {
+        await using var conn = db.OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM link_state";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// Reads all result rows into a list of <see cref="LinkStateRow"/>.
     /// </summary>
     private static async Task<IReadOnlyList<LinkStateRow>> ReadRowsAsync(SqliteCommand cmd, CancellationToken cancellationToken)

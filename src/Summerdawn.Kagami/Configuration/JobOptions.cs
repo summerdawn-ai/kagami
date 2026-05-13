@@ -41,11 +41,6 @@ public sealed class JobOptions
     public ConflictPolicy ConflictPolicy { get; set; } = ConflictPolicy.LastWriteWins;
 
     /// <summary>
-    /// Gets or sets the schedule expression (e.g., <c>"*/5 * * * *"</c> or <c>"PT5M"</c>).
-    /// </summary>
-    public string Schedule { get; set; } = "PT15M";
-
-    /// <summary>
     /// Gets or sets a value indicating whether to ignore saved cursors and re-enumerate all items on every run.
     /// Change-detection and content-sameness checks still apply.
     /// </summary>

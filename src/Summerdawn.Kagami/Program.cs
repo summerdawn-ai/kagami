@@ -40,199 +40,10 @@ public static class Program
     {
         var rootCommand = new RootCommand("Kagami — polling-first calendar and contact synchronization")
         {
-            CreateJobsCommand(),
             CreateContactsCommand(),
         };
 
         return rootCommand;
-    }
-
-    private static Command CreateJobsCommand()
-    {
-        // ── Shared options ────────────────────────────────────────────────
-        var settingsOption = new Option<string[]>("--settings")
-        {
-            Description = "Path to one or more settings JSON files to load",
-            Arity = ArgumentArity.ZeroOrMore,
-            AllowMultipleArgumentsPerToken = true,
-        };
-
-        var whatIfOption = new Option<bool>("--what-if")
-        {
-            Description = "Plan actions without writing any changes",
-            Arity = ArgumentArity.Zero,
-        };
-
-        var confirmOption = new Option<bool>("--confirm")
-        {
-            Description = "Prompt before each action is executed",
-            Arity = ArgumentArity.Zero,
-        };
-
-        var jobOption = new Option<string?>("--job", "-j")
-        {
-            Description = "Target a specific named job key",
-            Required = false,
-        };
-
-        var verboseOption = new Option<bool>("--verbose")
-        {
-            Description = "Enable more detailed logging for this run",
-            Arity = ArgumentArity.Zero,
-        };
-
-        // ── jobs command group ────────────────────────────────────────────
-
-        // jobs list
-        var jobsListCommand = new Command("list", "List all configured jobs")
-        {
-            settingsOption,
-            verboseOption,
-        };
-        jobsListCommand.SetAction(parseResult =>
-        {
-            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
-            bool verbose = parseResult.GetValue(verboseOption);
-            using var provider = BuildServiceProvider(settingsFiles, verbose);
-            var kagamiOptions = provider.GetRequiredService<KagamiOptions>();
-            if (kagamiOptions.Jobs.Count == 0)
-            {
-                Console.WriteLine("No jobs configured.");
-                return;
-            }
-
-            Console.WriteLine($"{"Key",-30} {"Enabled",-8} {"EntityType",-18} {"SourceEndpointName",-20} {"DestinationEndpointName",-20} {"Mode",-16} {"Schedule"}");
-            Console.WriteLine(new string('-', 120));
-            foreach (var (key, job) in kagamiOptions.Jobs)
-            {
-                Console.WriteLine(
-                    $"{key,-30} {job.Enabled,-8} {job.EntityType,-18} {job.SourceEndpointName,-20} {job.DestinationEndpointName,-20} {job.SyncMode,-16} {job.Schedule}");
-            }
-        });
-
-        // jobs run
-        var jobsRunOnceOption = new Option<bool>("--once")
-        {
-            Description = "Execute the targeted jobs immediately once and exit (ignores configured schedules)",
-            Arity = ArgumentArity.Zero,
-        };
-
-        var jobsRunAllOption = new Option<bool>("--all")
-        {
-            Description = "Accepted for compatibility; continuous polling is already the default behavior",
-            Arity = ArgumentArity.Zero,
-        };
-
-        var jobsRunCommand = new Command("run", "Run configured sync jobs")
-        {
-            settingsOption,
-            whatIfOption,
-            confirmOption,
-            jobOption,
-            jobsRunOnceOption,
-            jobsRunAllOption,
-            verboseOption,
-        };
-        AddMutuallyExclusiveBooleanOptionValidation(jobsRunCommand, whatIfOption, confirmOption);
-        jobsRunCommand.SetAction(async parseResult =>
-        {
-            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
-            bool verbose = parseResult.GetValue(verboseOption);
-            var executionFlags = GetExecutionFlags(parseResult, whatIfOption, confirmOption);
-            string? jobKey = parseResult.GetValue(jobOption);
-            bool runOnce = parseResult.GetValue(jobsRunOnceOption);
-            _ = parseResult.GetValue(jobsRunAllOption);
-            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
-            await using var provider = BuildServiceProvider(settingsFiles, verbose);
-            var host = provider.GetRequiredService<SyncHost>();
-
-            if (runOnce)
-            {
-                // One-shot mode: run targeted jobs immediately and exit.
-                await host.RunOnceAsync(executionFlags, jobKey, CancellationToken.None);
-            }
-            else
-            {
-                // Default: poll continuously, optionally narrowed to a single named job.
-                await host.RunContinuousAsync(executionFlags, jobKey, CancellationToken.None);
-            }
-        });
-
-        // jobs reset
-        var jobsResetAllOption = new Option<bool>("--all")
-        {
-            Description = "Reset stored sync state for all configured jobs",
-            Arity = ArgumentArity.Zero,
-        };
-
-        var jobsResetCommand = new Command("reset", "Reset stored sync state for one or all jobs")
-        {
-            settingsOption,
-            jobOption,
-            jobsResetAllOption,
-            verboseOption,
-        };
-        jobsResetCommand.SetAction(async parseResult =>
-        {
-            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
-            string? jobKey = parseResult.GetValue(jobOption);
-            bool resetAll = parseResult.GetValue(jobsResetAllOption);
-            bool verbose = parseResult.GetValue(verboseOption);
-
-            if (!resetAll && string.IsNullOrWhiteSpace(jobKey))
-            {
-                Console.Error.WriteLine("Error: Specify --job=<key> to reset a single job, or --all to reset every job.");
-                return;
-            }
-
-            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
-            await using var provider = BuildServiceProvider(settingsFiles, verbose);
-            var host = provider.GetRequiredService<SyncHost>();
-            var kagamiOptions = provider.GetRequiredService<KagamiOptions>();
-
-            if (resetAll)
-            {
-                foreach (string key in kagamiOptions.Jobs.Keys)
-                {
-                    await host.ResetJobAsync(key, CancellationToken.None);
-                    Console.WriteLine($"Reset job: {key}");
-                }
-            }
-            else
-            {
-                await host.ResetJobAsync(jobKey!, CancellationToken.None);
-                Console.WriteLine($"Reset job: {jobKey}");
-            }
-        });
-
-        // jobs unlock
-        var jobsUnlockCommand = new Command("unlock", "Force-release all job locks (use after a crash to clear stuck leases)")
-        {
-            settingsOption,
-            verboseOption,
-        };
-        jobsUnlockCommand.SetAction(async parseResult =>
-        {
-            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
-            bool verbose = parseResult.GetValue(verboseOption);
-            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
-            await using var provider = BuildServiceProvider(settingsFiles, verbose);
-            var host = provider.GetRequiredService<SyncHost>();
-            int cleared = await host.UnlockAllJobsAsync(CancellationToken.None);
-            Console.WriteLine(cleared > 0
-                ? $"Cleared {cleared} job lock(s)."
-                : "No locks found.");
-        });
-
-        var jobsCommand = new Command("jobs", "Manage and run configured sync jobs")
-        {
-            jobsListCommand,
-            jobsRunCommand,
-            jobsResetCommand,
-            jobsUnlockCommand,
-        };
-
-        return jobsCommand;
     }
 
     private static Command CreateContactsCommand()
@@ -409,6 +220,12 @@ public static class Program
         });
 
         // contacts sync
+        var intervalOption = new Option<string?>("--interval")
+        {
+            Description = "Repeat the sync indefinitely with the given delay between runs (ISO 8601 duration, e.g. PT15M). Without this option the command runs once and exits.",
+            Required = false,
+        };
+
         var contactsSyncCommand = new Command("sync", "Synchronize contacts between two configured endpoints")
         {
             settingsOption,
@@ -423,6 +240,7 @@ public static class Program
             filterOption,
             fullOption,
             forceOption,
+            intervalOption,
             verboseOption,
         };
         AddMutuallyExclusiveBooleanOptionValidation(contactsSyncCommand, whatIfOption, confirmOption);
@@ -441,7 +259,10 @@ public static class Program
             bool full = parseResult.GetValue(fullOption);
             bool force = parseResult.GetValue(forceOption);
             string? filter = parseResult.GetValue(filterOption);
+            string? intervalStr = parseResult.GetValue(intervalOption);
             bool verbose = parseResult.GetValue(verboseOption);
+
+            TimeSpan? interval = intervalStr is not null ? ParseIntervalArgument(intervalStr) : null;
 
             var mode = bidirectional
                 ? SyncMode.Bidirectional
@@ -461,20 +282,40 @@ public static class Program
 
             var deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
 
-            JobExecutionResult result;
-
             // Keep the provider alive while working so disposing it flushes the log factory before process exit.
-            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
-            {
-                var handler = provider.GetRequiredService<CommandHandler<CanonicalContact>>();
-                result = await handler.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
-            }
+            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            var handler = provider.GetRequiredService<CommandHandler<CanonicalContact>>();
 
-            Console.WriteLine(result.Succeeded
-                ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
-                : result.Error is not null
-                    ? $"Sync failed: {result.Error}"
-                    : $"Sync skipped: {result.SkipReason}");
+            if (interval.HasValue)
+            {
+                // Interval mode: repeat indefinitely; exit nonzero on failure.
+                while (true)
+                {
+                    var result = await handler.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
+
+                    if (!result.Succeeded && result.Error is not null)
+                    {
+                        throw new InvalidOperationException($"Sync failed: {result.Error}");
+                    }
+
+                    Console.WriteLine(result.Succeeded
+                        ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
+                        : $"Sync skipped: {result.SkipReason}");
+
+                    await Task.Delay(interval.Value, CancellationToken.None);
+                }
+            }
+            else
+            {
+                // One-shot mode: run once and exit.
+                var result = await handler.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
+
+                Console.WriteLine(result.Succeeded
+                    ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
+                    : result.Error is not null
+                        ? $"Sync failed: {result.Error}"
+                        : $"Sync skipped: {result.SkipReason}");
+            }
         });
 
         // contacts import
@@ -517,12 +358,152 @@ public static class Program
                 : $"Import failed: {result.Error ?? result.SkipReason}");
         });
 
+        // contacts reset
+        var resetFromOption = new Option<string?>("--from")
+        {
+            Description = "Source endpoint name of the sync to reset",
+            Required = false,
+        };
+
+        var resetToOption = new Option<string?>("--to")
+        {
+            Description = "Destination endpoint name of the sync to reset",
+            Required = false,
+        };
+
+        var resetAllOption = new Option<bool>("--all")
+        {
+            Description = "Reset stored sync state for all contacts syncs",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var contactsResetCommand = new Command("reset", "Reset stored sync state (cursors and link state) for a contacts sync")
+        {
+            settingsOption,
+            resetFromOption,
+            resetToOption,
+            resetAllOption,
+            verboseOption,
+        };
+        contactsResetCommand.Validators.Add(parseResult =>
+        {
+            bool hasFrom = parseResult.GetValue(resetFromOption) is not null;
+            bool hasTo = parseResult.GetValue(resetToOption) is not null;
+            bool hasAll = parseResult.GetValue(resetAllOption);
+
+            if (!hasAll && (!hasFrom || !hasTo))
+            {
+                parseResult.AddError("Specify --from <endpoint> --to <endpoint> to reset a specific sync, or --all to reset everything.");
+            }
+
+            if (hasAll && (hasFrom || hasTo))
+            {
+                parseResult.AddError("The --all option is mutually exclusive with --from and --to.");
+            }
+        });
+        contactsResetCommand.SetAction(async parseResult =>
+        {
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            string? from = parseResult.GetValue(resetFromOption);
+            string? to = parseResult.GetValue(resetToOption);
+            bool resetAll = parseResult.GetValue(resetAllOption);
+            bool verbose = parseResult.GetValue(verboseOption);
+
+            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
+            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            var host = provider.GetRequiredService<SyncHost>();
+
+            if (resetAll)
+            {
+                await host.ResetAllAsync(CancellationToken.None);
+                Console.WriteLine("Reset all: sync state cleared.");
+            }
+            else
+            {
+                await host.ResetContactsSyncAsync(from!, to!, CancellationToken.None);
+                Console.WriteLine($"Reset contacts sync from {from} to {to}.");
+            }
+        });
+
+        // contacts unlock
+        var unlockFromOption = new Option<string?>("--from")
+        {
+            Description = "Source endpoint name of the sync to unlock",
+            Required = false,
+        };
+
+        var unlockToOption = new Option<string?>("--to")
+        {
+            Description = "Destination endpoint name of the sync to unlock",
+            Required = false,
+        };
+
+        var unlockAllOption = new Option<bool>("--all")
+        {
+            Description = "Force-release all stored job leases",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var contactsUnlockCommand = new Command("unlock", "Force-release job leases (use after a crash to clear stuck leases)")
+        {
+            settingsOption,
+            unlockFromOption,
+            unlockToOption,
+            unlockAllOption,
+            verboseOption,
+        };
+        contactsUnlockCommand.Validators.Add(parseResult =>
+        {
+            bool hasFrom = parseResult.GetValue(unlockFromOption) is not null;
+            bool hasTo = parseResult.GetValue(unlockToOption) is not null;
+            bool hasAll = parseResult.GetValue(unlockAllOption);
+
+            if (!hasAll && (!hasFrom || !hasTo))
+            {
+                parseResult.AddError("Specify --from <endpoint> --to <endpoint> to unlock a specific sync, or --all to unlock all leases.");
+            }
+
+            if (hasAll && (hasFrom || hasTo))
+            {
+                parseResult.AddError("The --all option is mutually exclusive with --from and --to.");
+            }
+        });
+        contactsUnlockCommand.SetAction(async parseResult =>
+        {
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            string? from = parseResult.GetValue(unlockFromOption);
+            string? to = parseResult.GetValue(unlockToOption);
+            bool unlockAll = parseResult.GetValue(unlockAllOption);
+            bool verbose = parseResult.GetValue(verboseOption);
+
+            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
+            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            var host = provider.GetRequiredService<SyncHost>();
+
+            if (unlockAll)
+            {
+                int cleared = await host.UnlockAllJobsAsync(CancellationToken.None);
+                Console.WriteLine(cleared > 0
+                    ? $"Cleared {cleared} job lock(s)."
+                    : "No locks found.");
+            }
+            else
+            {
+                int cleared = await host.UnlockContactsSyncAsync(from!, to!, CancellationToken.None);
+                Console.WriteLine(cleared > 0
+                    ? $"Cleared lock for contacts sync from {from} to {to}."
+                    : $"No lock found for contacts sync from {from} to {to}.");
+            }
+        });
+
         var contactsCommand = new Command("contacts", "Interactive contact operations")
         {
             contactsListCommand,
             contactsExportCommand,
             contactsImportCommand,
             contactsSyncCommand,
+            contactsResetCommand,
+            contactsUnlockCommand,
         };
 
         return contactsCommand;
@@ -563,20 +544,30 @@ public static class Program
     private static string GetDisplayName(Option option) =>
         option.Aliases.FirstOrDefault(alias => alias.StartsWith("--", StringComparison.Ordinal)) ?? option.Name;
 
-    private static JobExecutionFlags GetExecutionFlags(ParseResult parseResult, Option<bool> whatIfOption, Option<bool> confirmOption)
+    /// <summary>
+    /// Parses a simplified ISO 8601 duration string (e.g. <c>PT15M</c>, <c>PT2H</c>, <c>PT30S</c>)
+    /// into a <see cref="TimeSpan"/>. Throws a <see cref="FormatException"/> with a clear message
+    /// if the value cannot be parsed.
+    /// </summary>
+    internal static TimeSpan ParseIntervalArgument(string value)
     {
-        var executionFlags = JobExecutionFlags.None;
-
-        if (parseResult.GetValue(whatIfOption))
+        if (value.StartsWith("PT", StringComparison.OrdinalIgnoreCase) && value.Length >= 4)
         {
-            executionFlags |= JobExecutionFlags.WhatIf;
+            string rest = value[2..];
+            char unit = char.ToUpperInvariant(rest[^1]);
+            if (int.TryParse(rest[..^1], out int n) && n > 0)
+            {
+                return unit switch
+                {
+                    'S' => TimeSpan.FromSeconds(n),
+                    'M' => TimeSpan.FromMinutes(n),
+                    'H' => TimeSpan.FromHours(n),
+                    _ => throw new FormatException($"Unsupported ISO 8601 duration unit '{rest[^1]}' in '{value}'. Supported: PT<n>S, PT<n>M, PT<n>H."),
+                };
+            }
         }
 
-        if (parseResult.GetValue(confirmOption))
-        {
-            executionFlags |= JobExecutionFlags.Confirm;
-        }
-
-        return executionFlags;
+        throw new FormatException(
+            $"Cannot parse '{value}' as an ISO 8601 duration. Supported formats: PT<n>S (seconds), PT<n>M (minutes), PT<n>H (hours). Example: PT15M");
     }
 }

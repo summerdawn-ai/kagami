@@ -64,6 +64,17 @@ public sealed class EndpointCursorRepository(StateDatabase db)
         cmd.Parameters.AddWithValue("@name", endpointName);
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// Deletes all stored cursors.
+    /// </summary>
+    public async Task DeleteAllAsync(CancellationToken cancellationToken = default)
+    {
+        await using var conn = db.OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM job_endpoint_cursors";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
 }
 
 /// <summary>

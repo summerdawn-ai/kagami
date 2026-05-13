@@ -25,7 +25,7 @@ public sealed class SyncHostTests : IDisposable
     public void Dispose() => databasePath.Dispose();
 
     [Fact]
-    public async Task RunOnceAsync_IgnoresScheduleAndRunsOnlyFilteredJob()
+    public async Task RunOnceAsync_RunsOnlyFilteredJob()
     {
         FakeConnector sourceA = new();
         FakeConnector targetA = new();
@@ -35,61 +35,12 @@ public sealed class SyncHostTests : IDisposable
         sourceA.Seed(CreateContact("a1", "Alice"));
         sourceB.Seed(CreateContact("b1", "Bob"));
 
-        var host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
+        var host = CreateHost(sourceA, targetA, sourceB, targetB);
 
         await host.RunOnceAsync(jobKeyFilter: "job-a");
 
         Assert.Single(targetA.Items, item => !item.IsDeleted);
         Assert.Empty(targetB.Items);
-    }
-
-    [Fact]
-    public async Task RunContinuousAsync_CanPollSingleJob()
-    {
-        FakeConnector sourceA = new();
-        FakeConnector targetA = new();
-        FakeConnector sourceB = new();
-        FakeConnector targetB = new();
-
-        sourceA.Seed(CreateContact("a1", "Alice"));
-        sourceB.Seed(CreateContact("b1", "Bob"));
-
-        var host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
-
-        using CancellationTokenSource cts = new();
-        var runTask = host.RunContinuousAsync(jobKeyFilter: "job-a", cancellationToken: cts.Token);
-        await Task.Delay(100);
-        cts.Cancel();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await runTask);
-
-        Assert.Single(targetA.Items, item => !item.IsDeleted);
-        Assert.Empty(targetB.Items);
-    }
-
-    [Fact]
-    public async Task RunContinuousAsync_HonorsWhatIf()
-    {
-        FakeConnector sourceA = new();
-        FakeConnector targetA = new();
-        FakeConnector sourceB = new();
-        FakeConnector targetB = new();
-
-        sourceA.Seed(CreateContact("a1", "Alice"));
-
-        var host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
-
-        using CancellationTokenSource cts = new();
-        var runTask = host.RunContinuousAsync(whatIf: true, jobKeyFilter: "job-a", cancellationToken: cts.Token);
-        await Task.Delay(100);
-        cts.Cancel();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await runTask);
-
-        Assert.Empty(targetA.Items);
-
-        LinkStateRepository linkStateRepository = new(db);
-        Assert.Empty(await linkStateRepository.GetByPartitionAsync("contact:endpointA1:endpointB1"));
     }
 
     [Fact]
@@ -99,7 +50,7 @@ public sealed class SyncHostTests : IDisposable
         FakeConnector targetA = new();
         FakeConnector sourceB = new();
         FakeConnector targetB = new();
-        var host = CreateHost(sourceA, targetA, sourceB, targetB, schedulerIntervalSeconds: 3600);
+        var host = CreateHost(sourceA, targetA, sourceB, targetB);
         EndpointCursorRepository cursorRepository = new(db);
 
         await cursorRepository.SetCursorAsync("job-a", "endpointA1", "startswith(name,'A')", "cursor-a");
@@ -111,12 +62,75 @@ public sealed class SyncHostTests : IDisposable
         Assert.NotNull(await cursorRepository.GetCursorAsync("other-job", "endpointA1"));
     }
 
+    [Fact]
+    public async Task ResetContactsSyncAsync_ClearsLinkStateAndCursorsForThatPair()
+    {
+        FakeConnector sourceA = new();
+        FakeConnector targetA = new();
+        FakeConnector sourceB = new();
+        FakeConnector targetB = new();
+        var host = CreateHost(sourceA, targetA, sourceB, targetB);
+
+        var cursorRepo = new EndpointCursorRepository(db);
+        var linkRepo = new LinkStateRepository(db);
+
+        // Seed some state for the contacts:endpointA1:endpointB1 job key
+        await cursorRepo.SetCursorAsync("contacts:endpointA1:endpointB1", "endpointA1", string.Empty, "cursor-a");
+        await cursorRepo.SetCursorAsync("contacts:endpointA1:endpointB1", "endpointB1", string.Empty, "cursor-b");
+        // Seed a cursor for a different sync that must be unaffected
+        await cursorRepo.SetCursorAsync("contacts:endpointA2:endpointB2", "endpointA2", string.Empty, "cursor-c");
+
+        await host.ResetContactsSyncAsync("endpointA1", "endpointB1");
+
+        Assert.Null(await cursorRepo.GetCursorAsync("contacts:endpointA1:endpointB1", "endpointA1"));
+        Assert.Null(await cursorRepo.GetCursorAsync("contacts:endpointA1:endpointB1", "endpointB1"));
+        Assert.NotNull(await cursorRepo.GetCursorAsync("contacts:endpointA2:endpointB2", "endpointA2"));
+    }
+
+    [Fact]
+    public async Task ResetAllAsync_ClearsAllLinkStateAndCursors()
+    {
+        FakeConnector sourceA = new();
+        FakeConnector targetA = new();
+        FakeConnector sourceB = new();
+        FakeConnector targetB = new();
+        var host = CreateHost(sourceA, targetA, sourceB, targetB);
+
+        var cursorRepo = new EndpointCursorRepository(db);
+        await cursorRepo.SetCursorAsync("contacts:endpointA1:endpointB1", "endpointA1", string.Empty, "cursor-a");
+        await cursorRepo.SetCursorAsync("contacts:endpointA2:endpointB2", "endpointA2", string.Empty, "cursor-b");
+
+        await host.ResetAllAsync();
+
+        Assert.Null(await cursorRepo.GetCursorAsync("contacts:endpointA1:endpointB1", "endpointA1"));
+        Assert.Null(await cursorRepo.GetCursorAsync("contacts:endpointA2:endpointB2", "endpointA2"));
+    }
+
+    [Fact]
+    public async Task UnlockContactsSyncAsync_ReleasesSpecificLease()
+    {
+        FakeConnector sourceA = new();
+        FakeConnector targetA = new();
+        FakeConnector sourceB = new();
+        FakeConnector targetB = new();
+        var host = CreateHost(sourceA, targetA, sourceB, targetB);
+
+        var leaseRepo = new LeaseRepository(db);
+        await leaseRepo.TryAcquireAsync("contacts:endpointA1:endpointB1", "holder1", TimeSpan.FromHours(1));
+        await leaseRepo.TryAcquireAsync("contacts:endpointA2:endpointB2", "holder2", TimeSpan.FromHours(1));
+
+        int cleared = await host.UnlockContactsSyncAsync("endpointA1", "endpointB1");
+
+        Assert.Equal(1, cleared);
+        Assert.False(await leaseRepo.IsLockedAsync("contacts:endpointA1:endpointB1"));
+        Assert.True(await leaseRepo.IsLockedAsync("contacts:endpointA2:endpointB2"));
+    }
+
     private SyncHost CreateHost(
         FakeConnector sourceA,
         FakeConnector targetA,
         FakeConnector sourceB,
-        FakeConnector targetB,
-        int schedulerIntervalSeconds)
+        FakeConnector targetB)
     {
         var connectors = new Dictionary<string, IConnector<CanonicalContact>>(StringComparer.OrdinalIgnoreCase)
         {
@@ -135,7 +149,6 @@ public sealed class SyncHostTests : IDisposable
             Host = new KagamiHostOptions
             {
                 MaxConcurrentJobs = 1,
-                SchedulerIntervalSeconds = schedulerIntervalSeconds,
             },
             Endpoints =
             {
@@ -146,8 +159,8 @@ public sealed class SyncHostTests : IDisposable
             },
             Jobs =
             {
-                ["job-a"] = CreateJob("endpointA1", "endpointB1", "PT24H"),
-                ["job-b"] = CreateJob("endpointA2", "endpointB2", "PT24H"),
+                ["job-a"] = CreateJob("endpointA1", "endpointB1"),
+                ["job-b"] = CreateJob("endpointA2", "endpointB2"),
             },
         };
 
@@ -167,7 +180,7 @@ public sealed class SyncHostTests : IDisposable
             NullLogger<SyncHost>.Instance);
     }
 
-    private static JobOptions CreateJob(string endpointA, string endpointB, string schedule) =>
+    private static JobOptions CreateJob(string endpointA, string endpointB) =>
         new()
         {
             Enabled = true,
@@ -177,7 +190,6 @@ public sealed class SyncHostTests : IDisposable
             SyncMode = SyncMode.Bidirectional,
             DeletePolicy = DeletePolicy.Mirror,
             ConflictPolicy = ConflictPolicy.LastWriteWins,
-            Schedule = schedule,
         };
 
     private static CanonicalContact CreateContact(string id, string displayName) => new()
