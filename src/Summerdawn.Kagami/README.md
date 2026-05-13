@@ -149,6 +149,7 @@ Fetch and display contacts from a configured endpoint. By default, `kagami conta
 kagami contacts list --from Microsoft --settings appsettings.json
 kagami contacts list --from Microsoft --all --settings appsettings.json
 kagami contacts list --from Microsoft --filter "startswith(name,'A')" --settings appsettings.json
+kagami contacts list --from Microsoft --filter "contains(categories,'Recruiter')" --settings appsettings.json
 ```
 
 #### `kagami contacts export`
@@ -201,6 +202,9 @@ kagami contacts sync --from Microsoft --to Google --force --settings appsettings
 
 # Filter: only synchronize contacts whose effective name starts with 'A'
 kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')" --settings appsettings.json
+
+# Filter: only synchronize contacts in the Recruiter category
+kagami contacts sync --from Microsoft --to Google --filter "contains(categories,'Recruiter')" --settings appsettings.json
 ```
 
 - `--bidirectional`: sync in both directions; otherwise changes flow from `--from` to `--to`
@@ -262,9 +266,10 @@ When a filter is active (e.g. `--filter "name eq 'Alice'"`) and an item on one s
 | `startswith(name,'A')` | Effective contact name starts with `A` (case-insensitive) |
 | `endswith(name,'son')` | Effective contact name ends with `son` (case-insensitive) |
 | `contains(name,'Smith')` | Effective contact name contains `Smith` (case-insensitive) |
+| `contains(categories,'Recruiter')` | Contact has a category exactly equal to `Recruiter` (case-insensitive) |
 | `name eq 'Alice'` | Effective contact name is exactly `Alice` (case-insensitive) |
 
-`name` maps to the effective contact name: `DisplayName` when present, otherwise `Organization`.
+`name` maps to the effective contact name: `DisplayName` when present, otherwise `Organization`. `categories` matches exact entries in `CanonicalContact.Categories`, not substrings.
 
 ## Configuration
 

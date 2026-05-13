@@ -11,10 +11,13 @@ namespace Summerdawn.Kagami.Models;
 ///   <contact><c>startswith(name,'value')</c></contact>
 ///   <contact><c>endswith(name,'value')</c></contact>
 ///   <contact><c>contains(name,'value')</c></contact>
+///   <contact><c>contains(categories,'value')</c></contact>
 ///   <contact><c>name eq 'value'</c></contact>
 /// </list>
 /// The identifier <c>name</c> maps to the effective contact name: <see cref="CanonicalContact.DisplayName"/>
 /// when present, otherwise <see cref="CanonicalContact.Organization"/>.
+/// The identifier <c>categories</c> matches exact category membership against
+/// <see cref="CanonicalContact.Categories"/> using case-insensitive comparison.
 /// </remarks>
 public sealed partial class ContactFilter : IFilter<CanonicalContact>
 {
@@ -71,6 +74,14 @@ public sealed partial class ContactFilter : IFilter<CanonicalContact>
             return new ContactFilter(contact => MatchesName(contact, name => name.Contains(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
         }
 
+        // contains(categories,'value')
+        m = ContainsCategoriesPattern().Match(expr);
+        if (m.Success)
+        {
+            string value = UnescapeODataString(m.Groups["val"].Value);
+            return new ContactFilter(contact => contact.Categories.Any(category => string.Equals(category, value, StringComparison.OrdinalIgnoreCase)), filterExpression);
+        }
+
         // name eq 'value'
         m = EqPattern().Match(expr);
         if (m.Success)
@@ -80,7 +91,7 @@ public sealed partial class ContactFilter : IFilter<CanonicalContact>
         }
 
         throw new ArgumentException($"Unrecognized filter expression: '{filterExpression}'. " +
-            "Supported forms: startswith(name,'x'), endswith(name,'x'), contains(name,'x'), name eq 'x'");
+            "Supported forms: startswith(name,'x'), endswith(name,'x'), contains(name,'x'), contains(categories,'x'), name eq 'x'");
     }
 
     /// <summary>Returns true if this contact matches the filter.</summary>
@@ -104,6 +115,9 @@ public sealed partial class ContactFilter : IFilter<CanonicalContact>
 
     [GeneratedRegex(@"^contains\s*\(\s*name\s*,\s*'(?<val>(?:[^']|'')*)'\s*\)$", RegexOptions.IgnoreCase)]
     private static partial Regex ContainsPattern();
+
+    [GeneratedRegex(@"^contains\s*\(\s*categories\s*,\s*'(?<val>(?:[^']|'')*)'\s*\)$", RegexOptions.IgnoreCase)]
+    private static partial Regex ContainsCategoriesPattern();
 
     [GeneratedRegex(@"^name\s+eq\s+'(?<val>(?:[^']|'')*)'$", RegexOptions.IgnoreCase)]
     private static partial Regex EqPattern();

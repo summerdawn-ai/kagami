@@ -75,6 +75,31 @@ public sealed class ContactFilterTests
         Assert.False(f.Matches(MakeContact("Smith")));
     }
 
+    [Fact]
+    public void ContainsCategories_MatchesExactMembership()
+    {
+        var f = ContactFilter.Parse("contains(categories,'Recruiter')");
+        Assert.NotNull(f);
+        Assert.True(f.Matches(MakeContact("Alice", categories: ["Recruiter", "VIP"])));
+        Assert.False(f.Matches(MakeContact("Bob", categories: ["Sourcer", "VIP"])));
+    }
+
+    [Fact]
+    public void ContainsCategories_IsCaseInsensitive()
+    {
+        var f = ContactFilter.Parse("contains(categories,'recruiter')");
+        Assert.NotNull(f);
+        Assert.True(f.Matches(MakeContact("Alice", categories: ["Recruiter"])));
+    }
+
+    [Fact]
+    public void ContainsCategories_DoesNotUseSubstringMatching()
+    {
+        var f = ContactFilter.Parse("contains(categories,'Recruiter')");
+        Assert.NotNull(f);
+        Assert.False(f.Matches(MakeContact("Alice", categories: ["Tech Recruiter"])));
+    }
+
     // ── eq ────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -137,10 +162,11 @@ public sealed class ContactFilterTests
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private static CanonicalContact MakeContact(string displayName, string? organization = null) => new()
+    private static CanonicalContact MakeContact(string displayName, string? organization = null, List<string>? categories = null) => new()
     {
         DisplayName = displayName,
         Organization = organization,
+        Categories = categories ?? [],
 
         Provenance =
         {
