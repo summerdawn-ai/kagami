@@ -93,7 +93,8 @@ public static class Program
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             bool verbose = parseResult.GetValue(verboseOption);
-            var kagamiOptions = BuildKagamiOptions(settingsFiles, verbose);
+            using var provider = BuildServiceProvider(settingsFiles, verbose);
+            var kagamiOptions = provider.GetRequiredService<KagamiOptions>();
             if (kagamiOptions.Jobs.Count == 0)
             {
                 Console.WriteLine("No jobs configured.");
@@ -141,7 +142,9 @@ public static class Program
             string? jobKey = parseResult.GetValue(jobOption);
             bool runOnce = parseResult.GetValue(jobsRunOnceOption);
             _ = parseResult.GetValue(jobsRunAllOption);
-            var host = BuildSyncHost(settingsFiles, verbose);
+            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
+            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            var host = provider.GetRequiredService<SyncHost>();
 
             if (runOnce)
             {
@@ -182,8 +185,10 @@ public static class Program
                 return;
             }
 
-            var host = BuildSyncHost(settingsFiles, verbose);
-            var kagamiOptions = BuildKagamiOptions(settingsFiles, verbose);
+            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
+            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            var host = provider.GetRequiredService<SyncHost>();
+            var kagamiOptions = provider.GetRequiredService<KagamiOptions>();
 
             if (resetAll)
             {
@@ -210,7 +215,9 @@ public static class Program
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             bool verbose = parseResult.GetValue(verboseOption);
-            var host = BuildSyncHost(settingsFiles, verbose);
+            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
+            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            var host = provider.GetRequiredService<SyncHost>();
             int cleared = await host.UnlockAllJobsAsync(CancellationToken.None);
             Console.WriteLine(cleared > 0
                 ? $"Cleared {cleared} job lock(s)."
@@ -327,9 +334,16 @@ public static class Program
             string? filter = parseResult.GetValue(filterOption);
             bool all = parseResult.GetValue(allOption);
             bool verbose = parseResult.GetValue(verboseOption);
-            var handler = BuildContactsCommandHandler(settingsFiles, verbose);
             var contactFilter = ContactFilter.Parse(filter);
-            var contacts = await handler.ListAsync(from, contactFilter, all ? null : 100, CancellationToken.None);
+            IReadOnlyList<CanonicalContact> contacts;
+
+            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
+            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            {
+                var handler = provider.GetRequiredService<CommandHandler<CanonicalContact>>();
+                contacts = await handler.ListAsync(from, contactFilter, all ? null : 100, CancellationToken.None);
+            }
+
             contacts = contacts
                 .OrderBy(ContactNameHelper.GetName, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
@@ -373,9 +387,16 @@ public static class Program
             string? filter = parseResult.GetValue(filterOption);
             bool prune = parseResult.GetValue(pruneOption);
             bool verbose = parseResult.GetValue(verboseOption);
-            var handler = BuildContactsCommandHandler(settingsFiles, verbose);
             var contactFilter = ContactFilter.Parse(filter);
-            var result = await handler.ExportAsync(from, to, prune: prune, contactFilter, CancellationToken.None);
+            JobExecutionResult result;
+
+            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
+            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            {
+                var handler = provider.GetRequiredService<CommandHandler<CanonicalContact>>();
+                result = await handler.ExportAsync(from, to, prune: prune, contactFilter, CancellationToken.None);
+            }
+
             Console.WriteLine(result.Succeeded
                 ? $"Export completed. Actions planned: {result.ActionsPlanned}"
                 : $"Export failed: {result.Error}");
@@ -415,6 +436,8 @@ public static class Program
 
             var mode = bidirectional ? SyncMode.Bidirectional : SyncMode.Forward;
 
+            var contactFilter = ContactFilter.Parse(filter);
+
             var conflictPolicy = onConflictStr.ToLowerInvariant() switch
             {
                 "source-wins" => ConflictPolicy.SourceWins,
@@ -425,9 +448,14 @@ public static class Program
 
             var deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
 
-            var handler = BuildContactsCommandHandler(settingsFiles, verbose);
-            var contactFilter = ContactFilter.Parse(filter);
-            var result = await handler.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
+            JobExecutionResult result;
+
+            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
+            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            {
+                var handler = provider.GetRequiredService<CommandHandler<CanonicalContact>>();
+                result = await handler.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
+            }
 
             Console.WriteLine(result.Succeeded
                 ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
@@ -461,9 +489,16 @@ public static class Program
             bool confirm = parseResult.GetValue(confirmOption);
             bool force = parseResult.GetValue(forceOption);
             bool verbose = parseResult.GetValue(verboseOption);
-            var handler = BuildContactsCommandHandler(settingsFiles, verbose);
             var contactFilter = ContactFilter.Parse(filter);
-            var result = await handler.ImportAsync(from, to, prune, contactFilter, whatIf, confirm, force, CancellationToken.None);
+            JobExecutionResult result;
+
+            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
+            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            {
+                var handler = provider.GetRequiredService<CommandHandler<CanonicalContact>>();
+                result = await handler.ImportAsync(from, to, prune, contactFilter, whatIf, confirm, force, CancellationToken.None);
+            }
+
             Console.WriteLine(result.Succeeded
                 ? $"Import completed. Actions planned: {result.ActionsPlanned}"
                 : $"Import failed: {result.Error ?? result.SkipReason}");
@@ -502,15 +537,6 @@ public static class Program
 
         return services.BuildServiceProvider();
     }
-
-    private static SyncHost BuildSyncHost(string[] settingsFiles, bool verbose) =>
-        BuildServiceProvider(settingsFiles, verbose).GetRequiredService<SyncHost>();
-
-    private static CommandHandler<CanonicalContact> BuildContactsCommandHandler(string[] settingsFiles, bool verbose) =>
-        BuildServiceProvider(settingsFiles, verbose).GetRequiredService<CommandHandler<CanonicalContact>>();
-
-    private static KagamiOptions BuildKagamiOptions(string[] settingsFiles, bool verbose) =>
-        BuildServiceProvider(settingsFiles, verbose).GetRequiredService<KagamiOptions>();
 
     private static void AddMutuallyExclusiveExecutionModeValidation(Command command, Option<bool> whatIfOption, Option<bool> confirmOption) =>
         command.Validators.Add(parseResult =>
