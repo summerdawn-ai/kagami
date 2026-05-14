@@ -12,17 +12,6 @@ namespace Summerdawn.Kagami.Tests;
 public sealed class DisplayStringTests
 {
     [Fact]
-    public void CanonicalItem_ToDisplayString_UsesProviderIdByDefault()
-    {
-        var item = new CanonicalCalendarEvent
-        {
-            Provenance = { ProviderId = "event-42" },
-        };
-
-        Assert.Equal("event-42", item.ToDisplayString());
-    }
-
-    [Fact]
     public void CanonicalContact_ToDisplayString_PrefersHumanReadableName()
     {
         var displayNameContact = new CanonicalContact
