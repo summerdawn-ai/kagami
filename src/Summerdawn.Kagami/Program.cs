@@ -18,6 +18,10 @@ namespace Summerdawn.Kagami;
 /// </summary>
 public static class Program
 {
+    private const int EventTitleColumnWidth = 40;
+    private const int EventDateColumnWidth = 22;
+    private const int EventLocationColumnWidth = 30;
+
     /// <summary>Main entry point.</summary>
     public static int Main(string[] args)
     {
@@ -555,13 +559,13 @@ public static class Program
                 return;
             }
 
-            Console.WriteLine($"{"Title",-40} {"Start",-22} {"End",-22} {"Location"}");
-            Console.WriteLine(new string('-', 100));
+            Console.WriteLine($"{"Title",-EventTitleColumnWidth} {"Start",-EventDateColumnWidth} {"End",-EventDateColumnWidth} {"Location",-EventLocationColumnWidth}");
+            Console.WriteLine(new string('-', EventTitleColumnWidth + EventDateColumnWidth + EventDateColumnWidth + EventLocationColumnWidth + 3));
             foreach (var ev in events)
             {
                 string start = ev.From == DateTimeOffset.MinValue ? string.Empty : ev.From.ToString("yyyy-MM-dd HH:mm");
                 string end = ev.To == DateTimeOffset.MinValue ? string.Empty : ev.To.ToString("yyyy-MM-dd HH:mm");
-                Console.WriteLine($"{ev.Title,-40} {start,-22} {end,-22} {ev.Location}");
+                Console.WriteLine($"{FormatTableCell(ev.Title, EventTitleColumnWidth),-EventTitleColumnWidth} {start,-EventDateColumnWidth} {end,-EventDateColumnWidth} {FormatTableCell(ev.Location, EventLocationColumnWidth),-EventLocationColumnWidth}");
             }
 
             Console.WriteLine();
@@ -1048,5 +1052,29 @@ public static class Program
 
         throw new FormatException(
             $"Cannot parse '{value}' as an ISO 8601 duration. Supported formats: PT<n>S (seconds), PT<n>M (minutes), PT<n>H (hours). Example: PT15M");
+    }
+
+    /// <summary>
+    /// Formats a table cell by truncating long values so fixed-width console columns stay aligned.
+    /// </summary>
+    internal static string FormatTableCell(string? value, int width)
+    {
+        if (width <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width), "Column width must be greater than zero.");
+        }
+
+        string text = value ?? string.Empty;
+        if (text.Length <= width)
+        {
+            return text;
+        }
+
+        if (width <= 3)
+        {
+            return text[..width];
+        }
+
+        return text[..(width - 3)] + "...";
     }
 }

@@ -301,6 +301,23 @@ public sealed class ProgramTests
         Assert.Throws<FormatException>(() => Program.ParseIntervalArgument("P1D"));
     }
 
+    [Fact]
+    public void FormatTableCell_LeavesShortValuesUnchanged()
+    {
+        string result = Program.FormatTableCell("Short title", 40);
+
+        Assert.Equal("Short title", result);
+    }
+
+    [Fact]
+    public void FormatTableCell_TruncatesLongValuesWithEllipsis()
+    {
+        string result = Program.FormatTableCell("This is a very long event title that should not overflow", 20);
+
+        Assert.Equal("This is a very lo...", result);
+        Assert.Equal(20, result.Length);
+    }
+
     public static TheoryData<string[]> ValidEventsSyncCommands
     {
         get
