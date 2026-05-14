@@ -72,7 +72,7 @@ This registers the sync engine, persistence services, `ContactsService`, and a n
 
 ### CLI commands
 
-Kagami exposes a single top-level command group:
+Kagami exposes two top-level command groups:
 
 ```text
 # Contact operations
@@ -82,10 +82,13 @@ kagami contacts import --from=<dir> --to=<endpoint> [--prune] [--filter=<expr>] 
 kagami contacts sync   --from=<endpoint> --to=<endpoint> [--bidirectional|--reverse]
                        [--prune] [--on-conflict=last-write-wins|source-wins|dest-wins|skip]
                        [--what-if|--confirm] [--filter=<expr>] [--force] [--interval=<ISO8601>]
-kagami contacts reset  --from=<endpoint> --to=<endpoint>
-kagami contacts reset  --all
-kagami contacts unlock --from=<endpoint> --to=<endpoint>
-kagami contacts unlock --all
+
+# Job admin / housekeeping
+kagami jobs list
+kagami jobs reset  --key <jobKey>
+kagami jobs reset  --all
+kagami jobs unlock --key <jobKey>
+kagami jobs unlock --all
 ```
 
 #### `kagami contacts list`
@@ -163,28 +166,42 @@ kagami contacts sync --from Microsoft --to Google --filter "contains(categories,
 - `--filter`: apply an OData-style filter in memory before planning or writing changes
 - `--interval`: ISO 8601 duration (e.g. `PT15M`, `PT2H`). When specified, the sync repeats indefinitely with the given delay between runs; without it the command runs once and exits. If a run fails, the process exits nonzero immediately (works well with Docker/container restart policies).
 
-#### `kagami contacts reset`
+### `kagami jobs` commands
 
-Reset stored sync state (cursors and link-state rows) for a specific contacts sync or for all syncs. Use this after deleting the database or when you need to force a full re-sync.
+The `jobs` command group provides operational/admin access to persisted job state. Job keys use the canonical format `contacts:{from}:{to}` (e.g. `contacts:Microsoft:Google`).
+
+#### `kagami jobs list`
+
+List all known jobs and their current lock state. A job becomes known after its first sync run.
 
 ```bash
-# Reset state for a specific sync pair
-kagami contacts reset --from Microsoft --to Google --settings appsettings.json
-
-# Reset all sync state
-kagami contacts reset --all --settings appsettings.json
+kagami jobs list --settings appsettings.json
 ```
 
-#### `kagami contacts unlock`
+Output columns: `Key`, `Type`, `From`, `To`, `Locked`.
 
-Force-release job leases after an interrupted run to clear stuck locks.
+#### `kagami jobs reset`
+
+Reset stored sync state (link-state rows, cursors, and locks) for a specific job or for all jobs. Use this after deleting the database or when you need to force a full re-sync.
 
 ```bash
-# Unlock a specific sync pair
-kagami contacts unlock --from Microsoft --to Google --settings appsettings.json
+# Reset state for a specific job
+kagami jobs reset --key contacts:Microsoft:Google --settings appsettings.json
 
-# Unlock all leases
-kagami contacts unlock --all --settings appsettings.json
+# Reset all jobs
+kagami jobs reset --all --settings appsettings.json
+```
+
+#### `kagami jobs unlock`
+
+Force-release job locks after an interrupted run to clear stuck locks. This only clears the lock; it does not touch link state or cursors.
+
+```bash
+# Unlock a specific job
+kagami jobs unlock --key contacts:Microsoft:Google --settings appsettings.json
+
+# Unlock all jobs
+kagami jobs unlock --all --settings appsettings.json
 ```
 
 ### Sync flags: `--full` and `--force`

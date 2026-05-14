@@ -44,7 +44,7 @@ public sealed class JobExecutorTests : IDisposable
 
         await linkStateRepository.UpsertAsync(new LinkStateRow
         {
-            PartitionKey = "contact:endpointA:endpointB",
+            PartitionKey = "contacts:endpointA:endpointB",
             SourceId = "a1",
             DestinationId = "b1",
             SourceVersion = "v1",
@@ -202,7 +202,7 @@ public sealed class JobExecutorTests : IDisposable
 
         Assert.True(result.Succeeded);
         Assert.Empty(destinationConnector.Items);
-        Assert.Empty(await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB", CancellationToken.None));
+        Assert.Empty(await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB", CancellationToken.None));
     }
 
     [Fact]
@@ -445,7 +445,7 @@ public sealed class JobExecutorTests : IDisposable
         // Establish link state (simulates that the first sync already linked a1 ↔ b1)
         await linkStateRepository.UpsertAsync(new LinkStateRow
         {
-            PartitionKey = "contact:endpointA:endpointB",
+            PartitionKey = "contacts:endpointA:endpointB",
             SourceId = "a1",
             DestinationId = "b1",
             SourceVersion = "v1",
@@ -466,7 +466,7 @@ public sealed class JobExecutorTests : IDisposable
         Assert.True(b1 is null || b1.IsDeleted, "Destination item b1 should have been deleted");
 
         // Source link state must NOT encode a1 as IsDeleted — the item still exists at source
-        var links = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB", CancellationToken.None);
+        var links = await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB", CancellationToken.None);
         var linkRow = links.FirstOrDefault(l => l.SourceId == "a1");
         // After delete, the link row may be removed or retained; but if retained, SourceId must still be "a1" (not nulled out as deleted)
         if (linkRow is not null)
@@ -494,7 +494,7 @@ public sealed class JobExecutorTests : IDisposable
         // Pre-existing link from the unfiltered sync era
         await linkStateRepository.UpsertAsync(new LinkStateRow
         {
-            PartitionKey = "contact:endpointA:endpointB",
+            PartitionKey = "contacts:endpointA:endpointB",
             SourceId = "a1",
             DestinationId = "b1",
             SourceVersion = "v1",
@@ -533,7 +533,7 @@ public sealed class JobExecutorTests : IDisposable
 
         await linkStateRepository.UpsertAsync(new LinkStateRow
         {
-            PartitionKey = "contact:endpointA:endpointB",
+            PartitionKey = "contacts:endpointA:endpointB",
             SourceId = "a1",
             DestinationId = "b1",
             SourceVersion = "v1",
@@ -599,7 +599,7 @@ public sealed class JobExecutorTests : IDisposable
         // a1 ↔ b1 link exists (from before a1 changed name)
         await linkStateRepository.UpsertAsync(new LinkStateRow
         {
-            PartitionKey = "contact:endpointA:endpointB",
+            PartitionKey = "contacts:endpointA:endpointB",
             SourceId = "a1",
             DestinationId = "b1",
             SourceVersion = "v1",
@@ -621,6 +621,108 @@ public sealed class JobExecutorTests : IDisposable
         // (Verified indirectly by ActionsPlanned == 1)
     }
 
+    // -------------------------------------------------------------------------
+    // Admin / housekeeping operations
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ListJobsAsync_ReturnsAllKnownJobs()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        sourceConnector.Seed(CreateContactItem("a1", "v1", "Alice"));
+
+        var executor = CreateExecutor();
+        await executor.ExecuteJobAsync(CreateJob("contacts:endpointA:endpointB", sourceConnector, destinationConnector));
+
+        var jobs = await executor.ListJobsAsync(CancellationToken.None);
+
+        Assert.Contains(jobs, j => j.JobKey == "contacts:endpointA:endpointB");
+    }
+
+    [Fact]
+    public async Task ListJobsAsync_ShowsLockedFalseAfterNormalCompletion()
+    {
+        FakeConnector sourceConnector = new();
+        FakeConnector destinationConnector = new();
+        var executor = CreateExecutor();
+
+        await executor.ExecuteJobAsync(CreateJob("contacts:endpointA:endpointB", sourceConnector, destinationConnector));
+
+        var jobs = await executor.ListJobsAsync(CancellationToken.None);
+
+        Assert.Contains(jobs, j => j.JobKey == "contacts:endpointA:endpointB" && !j.Locked);
+    }
+
+    [Fact]
+    public async Task ResetJobAsync_ClearsLinkStateAndCursorsForThatJob()
+    {
+        string jobKey = "contacts:endpointA:endpointB";
+        await linkStateRepository.UpsertAsync(new LinkStateRow
+        {
+            PartitionKey = jobKey,
+            SourceId = "a1",
+            DestinationId = "b1",
+        });
+        await endpointCursorRepository.SetCursorAsync(jobKey, "endpointA", string.Empty, "cursor-a");
+        await endpointCursorRepository.SetCursorAsync(jobKey, "endpointB", string.Empty, "cursor-b");
+
+        // Seed another job that must remain unaffected.
+        await endpointCursorRepository.SetCursorAsync("contacts:endpointC:endpointD", "endpointC", string.Empty, "cursor-c");
+
+        var executor = CreateExecutor();
+        await executor.ResetJobAsync(jobKey, CancellationToken.None);
+
+        Assert.Empty(await linkStateRepository.GetByPartitionAsync(jobKey, CancellationToken.None));
+        Assert.Null(await endpointCursorRepository.GetCursorAsync(jobKey, "endpointA", CancellationToken.None));
+        Assert.Null(await endpointCursorRepository.GetCursorAsync(jobKey, "endpointB", CancellationToken.None));
+        Assert.NotNull(await endpointCursorRepository.GetCursorAsync("contacts:endpointC:endpointD", "endpointC", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ResetAllAsync_ClearsAllLinkStateAndCursors()
+    {
+        await endpointCursorRepository.SetCursorAsync("contacts:endpointA:endpointB", "endpointA", string.Empty, "cursor-a");
+        await endpointCursorRepository.SetCursorAsync("contacts:endpointC:endpointD", "endpointC", string.Empty, "cursor-c");
+
+        var executor = CreateExecutor();
+        await executor.ResetAllAsync(CancellationToken.None);
+
+        Assert.Null(await endpointCursorRepository.GetCursorAsync("contacts:endpointA:endpointB", "endpointA", CancellationToken.None));
+        Assert.Null(await endpointCursorRepository.GetCursorAsync("contacts:endpointC:endpointD", "endpointC", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task UnlockJobAsync_ReleasesSpecificLock()
+    {
+        string jobKeyA = "contacts:endpointA:endpointB";
+        string jobKeyC = "contacts:endpointC:endpointD";
+
+        await leaseRepository.TryAcquireAsync(jobKeyA, CancellationToken.None);
+        await leaseRepository.TryAcquireAsync(jobKeyC, CancellationToken.None);
+
+        var executor = CreateExecutor();
+        int cleared = await executor.UnlockJobAsync(jobKeyA, CancellationToken.None);
+
+        Assert.Equal(1, cleared);
+        Assert.False(await leaseRepository.IsLockedAsync(jobKeyA));
+        Assert.True(await leaseRepository.IsLockedAsync(jobKeyC));
+    }
+
+    [Fact]
+    public async Task UnlockAllJobsAsync_ReleasesAllLocks()
+    {
+        await leaseRepository.TryAcquireAsync("contacts:endpointA:endpointB", CancellationToken.None);
+        await leaseRepository.TryAcquireAsync("contacts:endpointC:endpointD", CancellationToken.None);
+
+        var executor = CreateExecutor();
+        int cleared = await executor.UnlockAllJobsAsync(CancellationToken.None);
+
+        Assert.Equal(2, cleared);
+        Assert.False(await leaseRepository.IsLockedAsync("contacts:endpointA:endpointB"));
+        Assert.False(await leaseRepository.IsLockedAsync("contacts:endpointC:endpointD"));
+    }
+
     private JobExecutor CreateExecutor(
         ILogger<JobExecutor>? logger = null,
         ILogger<SyncActionExecutor>? syncLogger = null,
@@ -632,6 +734,7 @@ public sealed class JobExecutorTests : IDisposable
             endpointCursorRepository,
             leaseRepository,
             new SyncActionExecutor(linkStateRepository, operationLogRepository, syncLogger ?? NullLogger<SyncActionExecutor>.Instance, readKey, writePrompt),
+            db,
             logger ?? NullLogger<JobExecutor>.Instance);
 
     private static Job<CanonicalContact> CreateJob(

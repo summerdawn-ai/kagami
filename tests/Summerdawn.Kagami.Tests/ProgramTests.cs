@@ -11,8 +11,9 @@ public sealed class ProgramTests
             data.Add(["contacts", "export", "--from", "Microsoft", "--to", "/tmp/out", "--verbose"]);
             data.Add(["contacts", "import", "--from", "/tmp/in", "--to", "Google", "--verbose"]);
             data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--verbose"]);
-            data.Add(["contacts", "reset", "--all", "--verbose"]);
-            data.Add(["contacts", "unlock", "--all", "--verbose"]);
+            data.Add(["jobs", "list", "--verbose"]);
+            data.Add(["jobs", "reset", "--all", "--verbose"]);
+            data.Add(["jobs", "unlock", "--all", "--verbose"]);
             return data;
         }
     }
@@ -71,56 +72,50 @@ public sealed class ProgramTests
         }
     }
 
-    public static TheoryData<string[]> ValidResetCommands
+    public static TheoryData<string[]> ValidJobsResetCommands
     {
         get
         {
             TheoryData<string[]> data = [];
-            data.Add(["contacts", "reset", "--from", "Microsoft", "--to", "Google"]);
-            data.Add(["contacts", "reset", "--all"]);
+            data.Add(["jobs", "reset", "--key", "contacts:Microsoft:Google"]);
+            data.Add(["jobs", "reset", "--all"]);
             return data;
         }
     }
 
-    public static TheoryData<string[]> InvalidResetCommands
+    public static TheoryData<string[]> InvalidJobsResetCommands
     {
         get
         {
             TheoryData<string[]> data = [];
-            // Neither --all nor --from+--to
-            data.Add(["contacts", "reset"]);
-            // Only --from without --to
-            data.Add(["contacts", "reset", "--from", "Microsoft"]);
-            // Only --to without --from
-            data.Add(["contacts", "reset", "--to", "Google"]);
-            // --all combined with --from
-            data.Add(["contacts", "reset", "--all", "--from", "Microsoft", "--to", "Google"]);
+            // Neither --all nor --key
+            data.Add(["jobs", "reset"]);
+            // --all combined with --key
+            data.Add(["jobs", "reset", "--all", "--key", "contacts:Microsoft:Google"]);
             return data;
         }
     }
 
-    public static TheoryData<string[]> ValidUnlockCommands
+    public static TheoryData<string[]> ValidJobsUnlockCommands
     {
         get
         {
             TheoryData<string[]> data = [];
-            data.Add(["contacts", "unlock", "--from", "Microsoft", "--to", "Google"]);
-            data.Add(["contacts", "unlock", "--all"]);
+            data.Add(["jobs", "unlock", "--key", "contacts:Microsoft:Google"]);
+            data.Add(["jobs", "unlock", "--all"]);
             return data;
         }
     }
 
-    public static TheoryData<string[]> InvalidUnlockCommands
+    public static TheoryData<string[]> InvalidJobsUnlockCommands
     {
         get
         {
             TheoryData<string[]> data = [];
-            // Neither --all nor --from+--to
-            data.Add(["contacts", "unlock"]);
-            // Only --from without --to
-            data.Add(["contacts", "unlock", "--from", "Microsoft"]);
-            // --all combined with --from
-            data.Add(["contacts", "unlock", "--all", "--from", "Microsoft", "--to", "Google"]);
+            // Neither --all nor --key
+            data.Add(["jobs", "unlock"]);
+            // --all combined with --key
+            data.Add(["jobs", "unlock", "--all", "--key", "contacts:Microsoft:Google"]);
             return data;
         }
     }
@@ -180,8 +175,8 @@ public sealed class ProgramTests
     }
 
     [Theory]
-    [MemberData(nameof(ValidResetCommands))]
-    public void CreateRootCommand_AcceptsValidContactsResetArgs(string[] args)
+    [MemberData(nameof(ValidJobsResetCommands))]
+    public void CreateRootCommand_AcceptsValidJobsResetArgs(string[] args)
     {
         var parseResult = Program.CreateRootCommand().Parse(args);
 
@@ -189,8 +184,8 @@ public sealed class ProgramTests
     }
 
     [Theory]
-    [MemberData(nameof(InvalidResetCommands))]
-    public void CreateRootCommand_RejectsInvalidContactsResetArgs(string[] args)
+    [MemberData(nameof(InvalidJobsResetCommands))]
+    public void CreateRootCommand_RejectsInvalidJobsResetArgs(string[] args)
     {
         var parseResult = Program.CreateRootCommand().Parse(args);
 
@@ -198,8 +193,8 @@ public sealed class ProgramTests
     }
 
     [Theory]
-    [MemberData(nameof(ValidUnlockCommands))]
-    public void CreateRootCommand_AcceptsValidContactsUnlockArgs(string[] args)
+    [MemberData(nameof(ValidJobsUnlockCommands))]
+    public void CreateRootCommand_AcceptsValidJobsUnlockArgs(string[] args)
     {
         var parseResult = Program.CreateRootCommand().Parse(args);
 
@@ -207,8 +202,8 @@ public sealed class ProgramTests
     }
 
     [Theory]
-    [MemberData(nameof(InvalidUnlockCommands))]
-    public void CreateRootCommand_RejectsInvalidContactsUnlockArgs(string[] args)
+    [MemberData(nameof(InvalidJobsUnlockCommands))]
+    public void CreateRootCommand_RejectsInvalidJobsUnlockArgs(string[] args)
     {
         var parseResult = Program.CreateRootCommand().Parse(args);
 
@@ -216,11 +211,32 @@ public sealed class ProgramTests
     }
 
     [Fact]
-    public void CreateRootCommand_DoesNotExposeJobsCommand()
+    public void CreateRootCommand_ExposesJobsCommand()
     {
         var rootCommand = Program.CreateRootCommand();
 
-        Assert.DoesNotContain(rootCommand.Subcommands, cmd => cmd.Name == "jobs");
+        Assert.Contains(rootCommand.Subcommands, cmd => cmd.Name == "jobs");
+    }
+
+    [Fact]
+    public void CreateRootCommand_JobsCommandHasListResetUnlock()
+    {
+        var rootCommand = Program.CreateRootCommand();
+        var jobsCommand = rootCommand.Subcommands.First(cmd => cmd.Name == "jobs");
+
+        Assert.Contains(jobsCommand.Subcommands, cmd => cmd.Name == "list");
+        Assert.Contains(jobsCommand.Subcommands, cmd => cmd.Name == "reset");
+        Assert.Contains(jobsCommand.Subcommands, cmd => cmd.Name == "unlock");
+    }
+
+    [Fact]
+    public void CreateRootCommand_ContactsCommandDoesNotHaveResetOrUnlock()
+    {
+        var rootCommand = Program.CreateRootCommand();
+        var contactsCommand = rootCommand.Subcommands.First(cmd => cmd.Name == "contacts");
+
+        Assert.DoesNotContain(contactsCommand.Subcommands, cmd => cmd.Name == "reset");
+        Assert.DoesNotContain(contactsCommand.Subcommands, cmd => cmd.Name == "unlock");
     }
 
     [Fact]
