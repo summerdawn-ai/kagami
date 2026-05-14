@@ -34,6 +34,7 @@ public sealed class CommandHandlerTests : IDisposable
             new EndpointCursorRepository(db),
             new LeaseRepository(db),
             new SyncActionExecutor(new LinkStateRepository(db), new OperationLogRepository(db), NullLogger<SyncActionExecutor>.Instance),
+            db,
             NullLogger<JobExecutor>.Instance);
 
         service = new CommandHandler<CanonicalContact>(
@@ -386,7 +387,7 @@ public sealed class CommandHandlerTests : IDisposable
         destinationConnector.Seed(MakeContact("b1", "Alice", email: " Alice@example.com ", phone: "15551234567"));
 
         var result = await service.SyncAsync("Microsoft", "Google");
-        var links = await new LinkStateRepository(db).GetByPartitionAsync("contact:Microsoft:Google");
+        var links = await new LinkStateRepository(db).GetByPartitionAsync("contacts:Microsoft:Google");
 
         Assert.True(result.Succeeded);
         Assert.Single(destinationConnector.Items, item => !item.IsDeleted);
@@ -403,7 +404,7 @@ public sealed class CommandHandlerTests : IDisposable
         destinationConnector.Seed(MakeContact("b2", "Alice", email: "alice@example.com"));
 
         var result = await service.SyncAsync("Microsoft", "Google");
-        var links = await new LinkStateRepository(db).GetByPartitionAsync("contact:Microsoft:Google");
+        var links = await new LinkStateRepository(db).GetByPartitionAsync("contacts:Microsoft:Google");
 
         Assert.True(result.Succeeded);
         Assert.Equal(0, result.ActionsPlanned);
@@ -421,7 +422,7 @@ public sealed class CommandHandlerTests : IDisposable
         destinationConnector.Seed(MakeContact("b1", "Alice"));
 
         var result = await service.SyncAsync("Microsoft", "Google");
-        var links = await new LinkStateRepository(db).GetByPartitionAsync("contact:Microsoft:Google");
+        var links = await new LinkStateRepository(db).GetByPartitionAsync("contacts:Microsoft:Google");
 
         Assert.True(result.Succeeded);
         Assert.Single(destinationConnector.Items, item => !item.IsDeleted);
@@ -441,7 +442,7 @@ public sealed class CommandHandlerTests : IDisposable
         destinationConnector.Seed(MakeContact("b2", "Alice"));
 
         var result = await service.SyncAsync("Microsoft", "Google");
-        var links = await new LinkStateRepository(db).GetByPartitionAsync("contact:Microsoft:Google");
+        var links = await new LinkStateRepository(db).GetByPartitionAsync("contacts:Microsoft:Google");
 
         Assert.True(result.Succeeded);
         // A new contact is created (the source was not matched to any existing destination contact).
@@ -462,7 +463,7 @@ public sealed class CommandHandlerTests : IDisposable
         destinationConnector.Seed(MakeContact("b2", "Alice", email: "other@example.com"));
 
         var result = await service.SyncAsync("Microsoft", "Google");
-        var links = await new LinkStateRepository(db).GetByPartitionAsync("contact:Microsoft:Google");
+        var links = await new LinkStateRepository(db).GetByPartitionAsync("contacts:Microsoft:Google");
 
         Assert.True(result.Succeeded);
         Assert.Single(links);
@@ -548,6 +549,7 @@ public sealed class CommandHandlerTests : IDisposable
             new EndpointCursorRepository(db),
             new LeaseRepository(db),
             new SyncActionExecutor(new LinkStateRepository(db), new OperationLogRepository(db), NullLogger<SyncActionExecutor>.Instance),
+            db,
             NullLogger<JobExecutor>.Instance);
 
         return new CommandHandler<CanonicalContact>(

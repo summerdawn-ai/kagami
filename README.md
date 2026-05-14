@@ -1,6 +1,6 @@
 # Kagami
 
-Kagami is a CLI tool and daemon to import, export and synchronize contacts.
+Kagami is a CLI tool to import, export and synchronize contacts.
 
 It currently ships with built-in connectors for:
 
@@ -9,13 +9,14 @@ It currently ships with built-in connectors for:
 
 ## Overview
 
-Kagami can be used as a library or as a command-line tool. It synchronizes items between configured endpoints, stores cursors and link state in SQLite, and can run once or continuously on a polling schedule.
+Kagami can be used as a library or as a command-line tool. It synchronizes items between configured endpoints, stores cursors and link state in SQLite, and can run once or continuously at a user-specified interval.
 
 ### Features
 
 - **Polling-first sync engine** with persistent cursor and link-state tracking
 - **Bidirectional or one-way sync** with configurable conflict and delete policies
 - **Interactive CLI** for listing, exporting, importing, and synchronizing contacts
+- **`--interval` mode** on `contacts sync` to repeat the sync in-process with a fixed delay between runs
 - **Built-in provider connectors** for Google People API and Microsoft Graph contacts
 - **SQLite-backed local state** for cursors, link state, leases, and operation logs
 - **Trim and AOT-friendly packaging** for the shipped project and tool

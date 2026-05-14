@@ -20,18 +20,72 @@ public sealed class StateDatabase(string databasePath, ILogger<StateDatabase> lo
     }
 
     /// <summary>
-    /// Initializes the database schema, creating tables if they do not yet exist.
+    /// Initializes the database schema, creating tables if they do not yet exist,
+    /// and applies any pending schema migrations.
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         logger.LogDebug("Initializing state database at {Path}", databasePath);
 
         await using var conn = OpenConnection();
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = SchemaScript;
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = SchemaScript;
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await MigrateJobLeasesAsync(conn, cancellationToken);
 
         logger.LogDebug("State database initialized");
+    }
+
+    /// <summary>
+    /// Migrates <c>job_leases</c> from the old insert/delete schema
+    /// (with <c>holder_id</c> and <c>expires_at</c>) to the simplified
+    /// one-row-per-job schema with a <c>locked</c> boolean column.
+    /// No-ops when the table is already on the new schema.
+    /// </summary>
+    private static async Task MigrateJobLeasesAsync(SqliteConnection conn, CancellationToken cancellationToken)
+    {
+        // Detect old schema by checking for the 'holder_id' column.
+        bool hasOldSchema = false;
+        await using (var pragmaCmd = conn.CreateCommand())
+        {
+            pragmaCmd.CommandText = "PRAGMA table_info(job_leases)";
+            await using var reader = await pragmaCmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(
+                        reader.GetString(reader.GetOrdinal("name")),
+                        "holder_id",
+                        StringComparison.Ordinal))
+                {
+                    hasOldSchema = true;
+                    break;
+                }
+            }
+        }
+
+        if (!hasOldSchema)
+        {
+            return;
+        }
+
+        // Migrate: recreate job_leases with the simplified schema, preserving active leases as locked=1.
+        await using var migrateCmd = conn.CreateCommand();
+        migrateCmd.CommandText = """
+            CREATE TABLE job_leases_new (
+                job_key TEXT NOT NULL PRIMARY KEY,
+                locked  INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT OR IGNORE INTO job_leases_new (job_key, locked)
+                SELECT job_key,
+                       CASE WHEN expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now') THEN 1 ELSE 0 END
+                FROM job_leases;
+            DROP TABLE job_leases;
+            ALTER TABLE job_leases_new RENAME TO job_leases;
+            """;
+        await migrateCmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private const string SchemaScript = """
@@ -90,10 +144,8 @@ public sealed class StateDatabase(string databasePath, ILogger<StateDatabase> lo
         );
 
         CREATE TABLE IF NOT EXISTS job_leases (
-            job_key     TEXT NOT NULL PRIMARY KEY,
-            holder_id   TEXT NOT NULL,
-            acquired_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            expires_at  TEXT NOT NULL
+            job_key TEXT NOT NULL PRIMARY KEY,
+            locked  INTEGER NOT NULL DEFAULT 0
         );
         """;
 }

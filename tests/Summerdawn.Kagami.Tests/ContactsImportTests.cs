@@ -56,6 +56,7 @@ public sealed class ContactsImportTests : IDisposable
             new EndpointCursorRepository(db),
             new LeaseRepository(db),
             new SyncActionExecutor(new LinkStateRepository(db), new OperationLogRepository(db), NullLogger<SyncActionExecutor>.Instance),
+            db,
             NullLogger<JobExecutor>.Instance);
 
         service = new CommandHandler<CanonicalContact>(
@@ -204,6 +205,7 @@ public sealed class ContactsImportTests : IDisposable
             new EndpointCursorRepository(db),
             new LeaseRepository(db),
             new SyncActionExecutor(new LinkStateRepository(db), new OperationLogRepository(db), NullLogger<SyncActionExecutor>.Instance),
+            db,
             NullLogger<JobExecutor>.Instance);
 
         return new CommandHandler<CanonicalContact>(

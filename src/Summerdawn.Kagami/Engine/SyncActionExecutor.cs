@@ -164,7 +164,7 @@ public sealed class SyncActionExecutor(
 
                             var link = new LinkStateRow
                             {
-                                PartitionKey = job.PartitionKey,
+                                PartitionKey = job.JobKey,
                                 SourceId = direction == SourceToDestination ? originItem.Provenance.ProviderId : createdItem.Provenance.ProviderId,
                                 DestinationId = direction == SourceToDestination ? createdItem.Provenance.ProviderId : originItem.Provenance.ProviderId,
                                 SourceVersion = direction == SourceToDestination ? originItem.Provenance.Version : createdItem.Provenance.Version,
@@ -233,7 +233,7 @@ public sealed class SyncActionExecutor(
                                 // Inferred link (no prior persisted state): create the link row now.
                                 var newLink = new LinkStateRow
                                 {
-                                    PartitionKey = job.PartitionKey,
+                                    PartitionKey = job.JobKey,
                                     SourceId = direction == SourceToDestination ? originItem.Provenance.ProviderId : updatedTargetItem.Provenance.ProviderId,
                                     DestinationId = direction == SourceToDestination ? updatedTargetItem.Provenance.ProviderId : originItem.Provenance.ProviderId,
                                     SourceVersion = direction == SourceToDestination ? originItem.Provenance.Version : updatedTargetItem.Provenance.Version,

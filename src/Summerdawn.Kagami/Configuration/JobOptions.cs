@@ -6,11 +6,6 @@ namespace Summerdawn.Kagami.Configuration;
 public sealed class JobOptions
 {
     /// <summary>
-    /// Gets or sets a value indicating whether this job is enabled.
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
     /// Gets or sets the entity type to synchronize (e.g., <c>"calendar-event"</c>, <c>"contact"</c>).
     /// </summary>
     public string EntityType { get; set; } = string.Empty;
@@ -39,11 +34,6 @@ public sealed class JobOptions
     /// Gets or sets the conflict resolution policy.
     /// </summary>
     public ConflictPolicy ConflictPolicy { get; set; } = ConflictPolicy.LastWriteWins;
-
-    /// <summary>
-    /// Gets or sets the schedule expression (e.g., <c>"*/5 * * * *"</c> or <c>"PT5M"</c>).
-    /// </summary>
-    public string Schedule { get; set; } = "PT15M";
 
     /// <summary>
     /// Gets or sets a value indicating whether to ignore saved cursors and re-enumerate all items on every run.

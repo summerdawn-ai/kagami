@@ -40,6 +40,7 @@ public sealed class ContactsExportTests : IDisposable
             new EndpointCursorRepository(db),
             new LeaseRepository(db),
             new SyncActionExecutor(linkStateRepo, new OperationLogRepository(db), NullLogger<SyncActionExecutor>.Instance),
+            db,
             NullLogger<JobExecutor>.Instance);
 
         service = new CommandHandler<CanonicalContact>(

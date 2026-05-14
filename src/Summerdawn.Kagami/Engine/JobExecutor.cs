@@ -24,9 +24,9 @@ public sealed class JobExecutor(
     EndpointCursorRepository cursorRepo,
     LeaseRepository leaseRepo,
     SyncActionExecutor syncActionExecutor,
+    StateDatabase stateDb,
     ILogger<JobExecutor> logger)
 {
-    private static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// Executes a sync job.
@@ -49,8 +49,7 @@ public sealed class JobExecutor(
             throw new ArgumentException("What-if and confirm execution modes are mutually exclusive.", nameof(executionFlags));
         }
 
-        string holderId = Guid.NewGuid().ToString("N");
-        bool leaseAcquired = await leaseRepo.TryAcquireAsync(job.Key, holderId, LeaseDuration, cancellationToken);
+        bool leaseAcquired = await leaseRepo.TryAcquireAsync(job.Key, cancellationToken);
         if (!leaseAcquired)
         {
             logger.LogWarning("Job {JobKey} is already running; skipping", job.Key);
@@ -73,8 +72,84 @@ public sealed class JobExecutor(
         }
         finally
         {
-            await leaseRepo.ReleaseAsync(job.Key, holderId, cancellationToken);
+            await leaseRepo.ReleaseAsync(job.Key, cancellationToken);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Admin / housekeeping operations
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Returns all known jobs and their current lock state, as recorded in the
+    /// <c>job_leases</c> table.
+    /// </summary>
+    public async Task<IReadOnlyList<JobLeaseRow>> ListJobsAsync(CancellationToken cancellationToken = default)
+    {
+        await stateDb.InitializeAsync(cancellationToken);
+        return await leaseRepo.ListAllAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Resets the sync state for the job identified by <paramref name="jobKey"/>, clearing
+    /// its link-state rows, saved cursors, and any lock.
+    /// </summary>
+    public async Task ResetJobAsync(string jobKey, CancellationToken cancellationToken = default)
+    {
+        await stateDb.InitializeAsync(cancellationToken);
+        await linkStateRepo.DeleteByPartitionAsync(jobKey, cancellationToken);
+        string[] parts = jobKey.Split(':', 3);
+        if (parts.Length == 3)
+        {
+            await cursorRepo.DeleteCursorAsync(jobKey, parts[1], cancellationToken);
+            await cursorRepo.DeleteCursorAsync(jobKey, parts[2], cancellationToken);
+        }
+        else
+        {
+            logger.LogWarning(
+                "Job key '{JobKey}' does not match the expected 'type:from:to' format; cursors were not deleted by endpoint name",
+                jobKey);
+        }
+
+        await leaseRepo.ForceReleaseAsync(jobKey, cancellationToken);
+        logger.LogInformation("Reset job {JobKey}: link state, cursors, and lock cleared", jobKey);
+    }
+
+    /// <summary>
+    /// Resets all sync state, clearing every link-state row, every stored cursor, and every lock.
+    /// </summary>
+    public async Task ResetAllAsync(CancellationToken cancellationToken = default)
+    {
+        await stateDb.InitializeAsync(cancellationToken);
+        await linkStateRepo.DeleteAllAsync(cancellationToken);
+        await cursorRepo.DeleteAllAsync(cancellationToken);
+        await leaseRepo.ForceReleaseAllAsync(cancellationToken);
+        logger.LogInformation("Reset all: all link state, cursors, and locks cleared");
+    }
+
+    /// <summary>
+    /// Force-releases the lock for the job identified by <paramref name="jobKey"/> without
+    /// touching its link state or cursors.
+    /// </summary>
+    /// <returns>The number of locks cleared (0 when the job is unknown or already unlocked).</returns>
+    public async Task<int> UnlockJobAsync(string jobKey, CancellationToken cancellationToken = default)
+    {
+        await stateDb.InitializeAsync(cancellationToken);
+        int cleared = await leaseRepo.ForceReleaseAsync(jobKey, cancellationToken);
+        logger.LogInformation("Force-released lock for job {JobKey}: {Count} cleared", jobKey, cleared);
+        return cleared;
+    }
+
+    /// <summary>
+    /// Force-releases all job locks without touching link state or cursors.
+    /// </summary>
+    /// <returns>The number of locks cleared.</returns>
+    public async Task<int> UnlockAllJobsAsync(CancellationToken cancellationToken = default)
+    {
+        await stateDb.InitializeAsync(cancellationToken);
+        int cleared = await leaseRepo.ForceReleaseAllAsync(cancellationToken);
+        logger.LogInformation("Force-released {Count} job lock(s)", cleared);
+        return cleared;
     }
 
     /// <summary>
@@ -138,7 +213,7 @@ public sealed class JobExecutor(
         }
         else
         {
-            existingLinks = await linkStateRepo.GetByPartitionAsync(job.PartitionKey, cancellationToken);
+            existingLinks = await linkStateRepo.GetByPartitionAsync(job.JobKey, cancellationToken);
 
             // --- Determine cursors and effective run mode ---
             var sourceCursorState = await cursorRepo.GetCursorAsync(job.Key, job.Options.SourceEndpointName, cancellationToken);
@@ -222,7 +297,7 @@ public sealed class JobExecutor(
             // --- Record links for content-identical pairs ---
             // None actions carry both sides with identical content; update the link row so
             // subsequent runs can short-circuit correctly via HasChanged.
-            await RecordNoneActionsAsync(job.PartitionKey, actionsNone, cancellationToken);
+            await RecordNoneActionsAsync(job.JobKey, actionsNone, cancellationToken);
 
             // --- Persist cursors ---
             if (sourceItemSet.Cursor is not null)

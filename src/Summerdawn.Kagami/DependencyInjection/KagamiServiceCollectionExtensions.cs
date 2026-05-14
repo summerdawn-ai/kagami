@@ -99,7 +99,6 @@ public static class KagamiServiceCollectionExtensions
         services.AddSingleton<SyncActionPlanner>();
         services.AddSingleton<SyncActionExecutor>();
         services.AddSingleton<JobExecutor>();
-        services.AddSingleton<SyncHost>();
         services.AddSingleton<CommandHandler<CanonicalContact>>();
         return services;
     }

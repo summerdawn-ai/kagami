@@ -37,6 +37,7 @@ public sealed class ForceSyncTests : IDisposable
             endpointCursorRepository,
             leaseRepository,
             new SyncActionExecutor(linkStateRepository, operationLogRepository, NullLogger<SyncActionExecutor>.Instance),
+            db,
             NullLogger<JobExecutor>.Instance);
     }
 
@@ -50,7 +51,7 @@ public sealed class ForceSyncTests : IDisposable
         await executor.ExecuteJobAsync(CreateJob("job-1"));
 
         // Verify link state created; destinationConnector now has the contact
-        var linksAfterFirst = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        var linksAfterFirst = await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB");
         Assert.Single(linksAfterFirst);
         int bItemsAfterFirst = destinationConnector.Items.Count;
 
@@ -98,7 +99,7 @@ public sealed class ForceSyncTests : IDisposable
         sourceConnector.Seed(CreateContact("a1", "Alice"));
         await executor.ExecuteJobAsync(CreateJob("job-1"));
 
-        var linksAfterSync = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        var linksAfterSync = await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB");
         var lastSyncedAt = linksAfterSync[0].LastSyncedAt;
 
         // force + whatIf: should plan actions but NOT write
@@ -107,7 +108,7 @@ public sealed class ForceSyncTests : IDisposable
         Assert.True(result.ActionsPlanned > 0);
 
         // State must be unchanged
-        var linksAfterWhatIf = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        var linksAfterWhatIf = await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB");
         Assert.Equal(lastSyncedAt, linksAfterWhatIf[0].LastSyncedAt);
     }
 
@@ -178,7 +179,7 @@ public sealed class ForceSyncTests : IDisposable
         sourceConnector.Seed(CreateContact("a1", "Alice"));
         await executor.ExecuteJobAsync(CreateJob("job-1"));
 
-        var linksAfterFirst = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        var linksAfterFirst = await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB");
         Assert.Single(linksAfterFirst);
 
         // --full re-fetches everything (ignores cursor) but still runs HasChanged.
@@ -215,7 +216,7 @@ public sealed class ForceSyncTests : IDisposable
         sourceConnector.Seed(CreateContact("a1", "Alice"));
         await executor.ExecuteJobAsync(CreateJob("job-1"));
 
-        var linksAfterFirst = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        var linksAfterFirst = await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB");
         Assert.Single(linksAfterFirst);
 
         // Bump the source version without changing any canonical content fields.
@@ -228,7 +229,7 @@ public sealed class ForceSyncTests : IDisposable
         Assert.Equal(0, result.ActionsPlanned);
 
         // Link state must be refreshed with the new source version.
-        var linksAfterSecond = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        var linksAfterSecond = await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB");
         Assert.Single(linksAfterSecond);
         Assert.NotEqual(linksAfterFirst[0].SourceVersion, linksAfterSecond[0].SourceVersion);
     }
@@ -293,7 +294,6 @@ public sealed class ForceSyncTests : IDisposable
 
     private static JobOptions CreateJobOptions(bool force = false, bool full = false, string? filter = null) => new()
     {
-        Enabled = true,
         EntityType = EntityType.Contact,
         SourceEndpointName = "endpointA",
         DestinationEndpointName = "endpointB",

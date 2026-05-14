@@ -1,10 +1,10 @@
 # Summerdawn.Kagami
 
-Kagami is a polling-first contact synchronization daemon and library with internal SQLite state.
+Kagami is a contact synchronization CLI tool with internal SQLite state.
 
 ## Overview
 
-Kagami can be used as a library or as a command-line tool. It synchronizes items between configured endpoints, stores cursors and link state in SQLite, and can run either once or continuously on a polling schedule.
+Kagami can be used as a library or as a command-line tool. It synchronizes items between configured endpoints, stores cursors and link state in SQLite, and can run once or continuously at a user-specified interval.
 
 At the moment, the built-in provider connectors are focused on **contacts**. Calendar models exist in the codebase, but concrete Google and Microsoft calendar connectors are intentionally not included yet.
 
@@ -19,6 +19,7 @@ At the moment, the built-in provider connectors are focused on **contacts**. Cal
 - OData-style in-memory contact filters for list, export, and sync operations
 - `--force` mode to unconditionally rewrite all in-scope contacts, bypassing version and content checks — for edge cases only, not normal runs
 - `--what-if` mode that logs planned create / update / delete operations without writing changes
+- `--interval` mode on `contacts sync` to repeat the sync in-process with a fixed delay between runs
 - Cached Google OAuth tokens for repeat runs after the initial interactive sign-in
 
 ## Getting Started
@@ -29,7 +30,6 @@ The fastest way to get started is to install Kagami as a .NET tool, create a set
 dotnet tool install --global Summerdawn.Kagami
 kagami --help
 kagami contacts --help
-kagami jobs --help
 ```
 
 If you are developing from source instead, run:
@@ -37,7 +37,6 @@ If you are developing from source instead, run:
 ```bash
 dotnet run --project src/Summerdawn.Kagami -- --help
 dotnet run --project src/Summerdawn.Kagami -- contacts --help
-dotnet run --project src/Summerdawn.Kagami -- jobs --help
 ```
 
 ## Installation
@@ -76,69 +75,20 @@ This registers the sync engine, persistence services, `ContactsService`, and a n
 Kagami exposes two top-level command groups:
 
 ```text
-# Scheduled-job management
-kagami jobs list
-kagami jobs run [--job=<key>] [--once] [--all] [--what-if|--confirm]
-kagami jobs reset --job=<key>
-kagami jobs reset --all
-kagami jobs unlock
-
-# Interactive contact operations
+# Contact operations
 kagami contacts list   --from=<endpoint> [--filter=<expr>] [--all]
 kagami contacts export --from=<endpoint> --to=<dir> [--filter=<expr>]
 kagami contacts import --from=<dir> --to=<endpoint> [--prune] [--filter=<expr>] [--what-if|--confirm]
 kagami contacts sync   --from=<endpoint> --to=<endpoint> [--bidirectional|--reverse]
                        [--prune] [--on-conflict=last-write-wins|source-wins|dest-wins|skip]
-                       [--what-if|--confirm] [--filter=<expr>] [--force]
-```
+                       [--what-if|--confirm] [--filter=<expr>] [--force] [--interval=<ISO8601>]
 
-#### `kagami jobs list`
-
-Print all configured jobs with their status, endpoints, and schedule:
-
-```bash
-kagami jobs list --settings appsettings.json
-```
-
-#### `kagami jobs run`
-
-Run continuously by default, either for all enabled jobs or for a single named job. Use `--once` to execute the targeted jobs immediately one time and exit; this bypasses the configured schedule for that invocation. The optional `--all` flag is accepted for compatibility but is not required.
-
-```bash
-# Run all enabled jobs continuously (default)
-kagami jobs run --settings appsettings.json
-
-# Run a single job continuously
-kagami jobs run --job contacts-sync --settings appsettings.json
-
-# Run all enabled jobs once, immediately, and exit
-kagami jobs run --once --settings appsettings.json
-
-# Run a single job once with what-if
-kagami jobs run --job contacts-sync --once --what-if --settings appsettings.json
-
-# Compatibility form; equivalent to the default continuous mode
-kagami jobs run --all --settings appsettings.json
-```
-
-#### `kagami jobs reset`
-
-Clear cursors and link state for one or all jobs:
-
-```bash
-# Reset a single job
-kagami jobs reset --job contacts-sync --settings appsettings.json
-
-# Reset all configured jobs
-kagami jobs reset --all --settings appsettings.json
-```
-
-#### `kagami jobs unlock`
-
-Force-release all stored job locks after an interrupted run:
-
-```bash
-kagami jobs unlock --settings appsettings.json
+# Job admin / housekeeping
+kagami jobs list
+kagami jobs reset  --key <jobKey>
+kagami jobs reset  --all
+kagami jobs unlock --key <jobKey>
+kagami jobs unlock --all
 ```
 
 #### `kagami contacts list`
@@ -214,6 +164,45 @@ kagami contacts sync --from Microsoft --to Google --filter "contains(categories,
 - `--full`: ignore saved cursors and fetch all rows from both sides, but still skip contacts whose payload and photo are already identical on both sides
 - `--force`: fetch all rows, bypass all change and sameness checks for every in-scope contact, and write unconditionally — use only when normal change detection via version/hash is known to be unreliable (e.g. destination data drifted outside the canonical model). Do not use for normal runs.
 - `--filter`: apply an OData-style filter in memory before planning or writing changes
+- `--interval`: ISO 8601 duration (e.g. `PT15M`, `PT2H`). When specified, the sync repeats indefinitely with the given delay between runs; without it the command runs once and exits. If a run fails, the process exits nonzero immediately (works well with Docker/container restart policies).
+
+### `kagami jobs` commands
+
+The `jobs` command group provides operational/admin access to persisted job state. Job keys use the canonical format `contacts:{from}:{to}` (e.g. `contacts:Microsoft:Google`).
+
+#### `kagami jobs list`
+
+List all known jobs and their current lock state. A job becomes known after its first sync run.
+
+```bash
+kagami jobs list --settings appsettings.json
+```
+
+Output columns: `Key`, `Type`, `From`, `To`, `Locked`.
+
+#### `kagami jobs reset`
+
+Reset stored sync state (link-state rows, cursors, and locks) for a specific job or for all jobs. Use this after deleting the database or when you need to force a full re-sync.
+
+```bash
+# Reset state for a specific job
+kagami jobs reset --key contacts:Microsoft:Google --settings appsettings.json
+
+# Reset all jobs
+kagami jobs reset --all --settings appsettings.json
+```
+
+#### `kagami jobs unlock`
+
+Force-release job locks after an interrupted run to clear stuck locks. This only clears the lock; it does not touch link state or cursors.
+
+```bash
+# Unlock a specific job
+kagami jobs unlock --key contacts:Microsoft:Google --settings appsettings.json
+
+# Unlock all jobs
+kagami jobs unlock --all --settings appsettings.json
+```
 
 ### Sync flags: `--full` and `--force`
 
@@ -312,10 +301,6 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
 ```json
 {
   "Kagami": {
-    "Host": {
-      "MaxConcurrentJobs": 1,
-      "SchedulerIntervalSeconds": 30
-    },
     "Endpoints": {
       "googleContacts": {
         "Type": "GoogleContacts",
@@ -337,18 +322,6 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
         "Properties": {
           "userId": "person@summerdawn.ai"
         }
-      }
-    },
-    "Jobs": {
-      "contacts-sync": {
-        "Enabled": true,
-        "EntityType": "contact",
-        "Source": "googleContacts",
-        "Destination": "exchangeContacts",
-        "SyncMode": "Bidirectional",
-        "DeletePolicy": "Mirror",
-        "ConflictPolicy": "LastWriteWins",
-        "Schedule": "PT15M"
       }
     }
   }
@@ -398,18 +371,6 @@ Behavior:
 
 - reads and writes Microsoft Graph contacts
 - maps Outlook categories to canonical contact categories / labels
-
-### `Jobs`
-
-Each job connects exactly two endpoints.
-
-Important values:
-
-- `EntityType`: use `contact`
-- `SyncMode`: `Bidirectional`, `Forward`, or `Reverse`
-- `DeletePolicy`: use `Mirror` if deletes should propagate
-- `ConflictPolicy`: `LastWriteWins`, `SourceWins`, `DestinationWins`, or `Skip`
-- `Schedule`: interval string such as `PT15M`
 
 ## State Database
 

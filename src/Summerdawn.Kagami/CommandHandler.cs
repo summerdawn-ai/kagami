@@ -88,7 +88,6 @@ public sealed class CommandHandler<TItem>(
 
         var jobOptions = new JobOptions
         {
-            Enabled = true,
             EntityType = EntityType.Contact,
             SourceEndpointName = endpointName,
             DestinationEndpointName = outputDirectory,
@@ -132,7 +131,6 @@ public sealed class CommandHandler<TItem>(
 
         var jobOptions = new JobOptions
         {
-            Enabled = true,
             EntityType = EntityType.Contact,
             SourceEndpointName = fromEndpoint,
             DestinationEndpointName = toEndpoint,
@@ -194,7 +192,6 @@ public sealed class CommandHandler<TItem>(
 
         var jobOptions = new JobOptions
         {
-            Enabled = true,
             EntityType = EntityType.Contact,
             SourceEndpointName = sourceDirectory,
             DestinationEndpointName = toEndpoint,

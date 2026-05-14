@@ -3,81 +3,108 @@ namespace Summerdawn.Kagami.Persistence;
 /// <summary>
 /// Manages per-job leases to prevent overlapping execution.
 /// </summary>
+/// <remarks>
+/// Each known job key always has exactly one row in <c>job_leases</c>. The <c>locked</c>
+/// column is <c>1</c> while the job is running and <c>0</c> otherwise. Rows are never
+/// deleted; use <see cref="ForceReleaseAsync"/> or <see cref="ForceReleaseAllAsync"/> to
+/// clear stuck locks after a crash.
+/// </remarks>
 public sealed class LeaseRepository(StateDatabase db)
 {
     /// <summary>
-    /// Attempts to acquire a lease for the given job.
+    /// Attempts to acquire a lock for the given job, creating the row if it does not yet exist.
     /// </summary>
-    /// <returns><c>true</c> when the lease was acquired; <c>false</c> when another holder's unexpired lease prevents acquisition.</returns>
-    public async Task<bool> TryAcquireAsync(string jobKey, string holderId, TimeSpan leaseDuration, CancellationToken cancellationToken = default)
+    /// <returns>
+    /// <c>true</c> when the lock was acquired; <c>false</c> when the job is already locked.
+    /// </returns>
+    public async Task<bool> TryAcquireAsync(string jobKey, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
         await using var cmd = conn.CreateCommand();
-        var now = DateTimeOffset.UtcNow;
-        var expires = now.Add(leaseDuration);
 
-        // Insert only if no unexpired lease exists
+        // Upsert: insert a new row (locked=1) or update an existing unlocked row to locked=1.
+        // The WHERE clause on DO UPDATE ensures we only take the lock when currently unlocked.
         cmd.CommandText = """
-            INSERT INTO job_leases (job_key, holder_id, acquired_at, expires_at)
-            SELECT @jobKey, @holderId, @acquiredAt, @expiresAt
-            WHERE NOT EXISTS (
-                SELECT 1 FROM job_leases
-                WHERE job_key = @jobKey
-                  AND expires_at > @nowStr
-            )
-            ON CONFLICT(job_key) DO UPDATE SET
-                holder_id   = excluded.holder_id,
-                acquired_at = excluded.acquired_at,
-                expires_at  = excluded.expires_at
-            WHERE job_leases.expires_at <= @nowStr
+            INSERT INTO job_leases (job_key, locked) VALUES (@jobKey, 1)
+            ON CONFLICT(job_key) DO UPDATE SET locked = 1
+            WHERE job_leases.locked = 0
             """;
 
         cmd.Parameters.AddWithValue("@jobKey", jobKey);
-        cmd.Parameters.AddWithValue("@holderId", holderId);
-        cmd.Parameters.AddWithValue("@acquiredAt", now.ToString("O"));
-        cmd.Parameters.AddWithValue("@expiresAt", expires.ToString("O"));
-        cmd.Parameters.AddWithValue("@nowStr", now.ToString("O"));
 
         int affected = await cmd.ExecuteNonQueryAsync(cancellationToken);
         return affected > 0;
     }
 
     /// <summary>
-    /// Releases the lease for the given job and holder.
+    /// Releases the lock for the given job, keeping the row so the job remains visible in
+    /// <see cref="ListAllAsync"/>.
     /// </summary>
-    public async Task ReleaseAsync(string jobKey, string holderId, CancellationToken cancellationToken = default)
+    public async Task ReleaseAsync(string jobKey, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM job_leases WHERE job_key = @jobKey AND holder_id = @holderId";
+        cmd.CommandText = "UPDATE job_leases SET locked = 0 WHERE job_key = @jobKey";
         cmd.Parameters.AddWithValue("@jobKey", jobKey);
-        cmd.Parameters.AddWithValue("@holderId", holderId);
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     /// <summary>
-    /// Force-releases all job leases regardless of holder or expiry.
+    /// Force-releases all job locks, keeping rows so jobs remain visible in
+    /// <see cref="ListAllAsync"/>.
     /// </summary>
-    /// <returns>The number of leases cleared.</returns>
+    /// <returns>The number of locked rows cleared.</returns>
     public async Task<int> ForceReleaseAllAsync(CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM job_leases";
+        cmd.CommandText = "UPDATE job_leases SET locked = 0 WHERE locked = 1";
         return await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     /// <summary>
-    /// Determines whether a valid, unexpired lease exists for the given job.
+    /// Force-releases the lock for the specified job key.
+    /// </summary>
+    /// <returns>The number of rows updated (0 when the job is not known or already unlocked).</returns>
+    public async Task<int> ForceReleaseAsync(string jobKey, CancellationToken cancellationToken = default)
+    {
+        await using var conn = db.OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE job_leases SET locked = 0 WHERE job_key = @jobKey AND locked = 1";
+        cmd.Parameters.AddWithValue("@jobKey", jobKey);
+        return await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Determines whether the given job is currently locked.
     /// </summary>
     public async Task<bool> IsLockedAsync(string jobKey, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(1) FROM job_leases WHERE job_key = @jobKey AND expires_at > @now";
+        cmd.CommandText = "SELECT locked FROM job_leases WHERE job_key = @jobKey";
         cmd.Parameters.AddWithValue("@jobKey", jobKey);
-        cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
-        long count = (long)(await cmd.ExecuteScalarAsync(cancellationToken))!;
-        return count > 0;
+        object? result = await cmd.ExecuteScalarAsync(cancellationToken);
+        return result is long l && l != 0;
+    }
+
+    /// <summary>
+    /// Returns all known jobs and their current lock state, ordered by job key.
+    /// </summary>
+    public async Task<IReadOnlyList<JobLeaseRow>> ListAllAsync(CancellationToken cancellationToken = default)
+    {
+        await using var conn = db.OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT job_key, locked FROM job_leases ORDER BY job_key";
+        var rows = new List<JobLeaseRow>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new JobLeaseRow(
+                reader.GetString(reader.GetOrdinal("job_key")),
+                reader.GetInt32(reader.GetOrdinal("locked")) != 0));
+        }
+
+        return rows;
     }
 }

@@ -35,6 +35,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
             endpointCursorRepository,
             leaseRepository,
             new SyncActionExecutor(linkStateRepository, operationLogRepository, NullLogger<SyncActionExecutor>.Instance),
+            db,
             NullLogger<JobExecutor>.Instance);
     }
 
@@ -49,7 +50,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
 
         Assert.True(result.Succeeded);
         Assert.True(result.ActionsPlanned > 0);
-        Assert.Empty(await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB"));
+        Assert.Empty(await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB"));
     }
 
     [Fact]
@@ -60,7 +61,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
         var result = await executor.ExecuteJobAsync(CreateJob("job-1"));
 
         Assert.True(result.Succeeded);
-        var links = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        var links = await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB");
         Assert.Single(links);
         Assert.Equal("a1", links[0].SourceId);
         Assert.NotNull(links[0].DestinationId);
@@ -69,7 +70,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     [Fact]
     public async Task ExistingLease_SkipsExecution()
     {
-        await leaseRepository.TryAcquireAsync("job-1", "external-holder", TimeSpan.FromMinutes(5));
+        await leaseRepository.TryAcquireAsync("job-1");
 
         var result = await executor.ExecuteJobAsync(CreateJob("job-1"));
 
@@ -83,9 +84,9 @@ public sealed class FakeSyncIntegrationTests : IDisposable
         sourceConnector.Seed(CreateContact("a1", "Meeting"));
         await executor.ExecuteJobAsync(CreateJob("job-1"));
 
-        var firstLinks = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        var firstLinks = await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB");
         await executor.ExecuteJobAsync(CreateJob("job-1"));
-        var secondLinks = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        var secondLinks = await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB");
 
         Assert.Equal(firstLinks.Count, secondLinks.Count);
     }
@@ -98,7 +99,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
 
         await linkStateRepository.UpsertAsync(new LinkStateRow
         {
-            PartitionKey = "contact:endpointA:endpointB",
+            PartitionKey = "contacts:endpointA:endpointB",
             SourceId = "a1",
             DestinationId = "b1",
             SourceVersion = "0",
@@ -108,7 +109,7 @@ public sealed class FakeSyncIntegrationTests : IDisposable
         await sourceConnector.UpdateItemAsync(CreateContact("a1", "Updated Meeting"));
 
         var firstRun = await executor.ExecuteJobAsync(CreateJob("job-1"));
-        var linksAfterUpdate = await linkStateRepository.GetByPartitionAsync("contact:endpointA:endpointB");
+        var linksAfterUpdate = await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB");
         var secondRun = await executor.ExecuteJobAsync(CreateJob("job-1"));
         var currentSource = await sourceConnector.GetItemAsync("a1");
         var currentTarget = await destinationConnector.GetItemAsync("b1");
@@ -125,7 +126,6 @@ public sealed class FakeSyncIntegrationTests : IDisposable
 
     private static JobOptions CreateJobOptions(SyncMode mode = SyncMode.Bidirectional) => new()
     {
-        Enabled = true,
         EntityType = EntityType.Contact,
         SourceEndpointName = "endpointA",
         DestinationEndpointName = "endpointB",
