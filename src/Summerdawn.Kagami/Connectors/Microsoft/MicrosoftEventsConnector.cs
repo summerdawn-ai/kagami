@@ -167,7 +167,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         }
 
         string? response = item.Metadata.GetValueOrDefault("microsoft.responseStatus");
-        return response is "accepted" or "tentativelyAccepted";
+        return response is "organizer" or "accepted" or "tentativelyAccepted";
     }
 
     internal static CanonicalEvent? ConvertEvent(JsonElement element, string endpointName)

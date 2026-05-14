@@ -176,10 +176,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             return true;
         }
 
-        string? selfResponse = item.Attendees.FirstOrDefault(a =>
-            string.Equals(a.Email, item.Metadata.GetValueOrDefault("google.selfEmail"), StringComparison.OrdinalIgnoreCase))
-            ?.ResponseStatus;
-
+        string? selfResponse = item.Metadata.GetValueOrDefault("google.selfResponse");
         return selfResponse is "accepted" or "tentative";
     }
 
@@ -246,10 +243,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         }
 
         item.Metadata["google.isOrganizer"] = isOrganizer.ToString();
-        string? selfEmail = null;
-        if (string.IsNullOrWhiteSpace(selfEmail)
-            && element.TryGetProperty("attendees", out var attendees)
-            && attendees.ValueKind == JsonValueKind.Array)
+        if (element.TryGetProperty("attendees", out var attendees) && attendees.ValueKind == JsonValueKind.Array)
         {
             foreach (var attendee in attendees.EnumerateArray())
             {
@@ -259,14 +253,14 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
                     continue;
                 }
 
-                selfEmail = ReadString(attendee, "email");
+                string? selfResponse = ReadString(attendee, "responseStatus");
+                if (!string.IsNullOrWhiteSpace(selfResponse))
+                {
+                    item.Metadata["google.selfResponse"] = selfResponse;
+                }
+
                 break;
             }
-        }
-
-        if (!string.IsNullOrWhiteSpace(selfEmail))
-        {
-            item.Metadata["google.selfEmail"] = selfEmail;
         }
 
         return item;
