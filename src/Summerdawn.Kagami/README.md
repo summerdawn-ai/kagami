@@ -259,6 +259,40 @@ When a filter is active (e.g. `--filter "name eq 'Alice'"`) and an item on one s
 | Source item deleted externally; `--force --prune` (forward) | Destination item is deleted (mirrors a fresh run). |
 | Source item deleted externally; `--force` without `--prune` | No deletion; a subsequent normal run will resolve the state once the filter or remote state is clear. |
 
+### Sync behavior: cursors, full loads, scope, matching, and pruning
+
+Kagami combines **persisted link state**, **provider cursors / delta tokens**, and the **current in-scope contact snapshots** returned by each provider. On a normal incremental run, it reuses the saved cursor on each side and reads only the provider-reported changes since the previous successful sync. In that mode, contacts that are not returned by the provider are treated as **implicitly unchanged**, not deleted. This keeps incremental sync efficient and avoids treating ordinary delta omissions as removals.
+
+When Kagami cannot safely continue from an existing cursor — for example on the first run, after cursor expiry, or when the effective query scope changes — it performs a **full load on both sides** and replaces **both cursors together**. A full load establishes a new baseline for the current scope. Kagami does not compare the current snapshots against every historical link row in the database. Persisted link rows participate in planning only when their source ID appears in the currently loaded source set or their destination ID appears in the currently loaded destination set. If neither side of a persisted link is present in the current loaded sets, that link row is ignored for the run and cannot trigger updates or deletions.
+
+This is what makes scoped full loads safe for pruning. If both providers are queried with the same scope — for example, `--filter "contains(categories,'Recruiter')"` on both sides — then contacts outside that scope on **both** sides are not part of the comparison universe for that run. Even if older link-state rows still exist in the database, they are ignored unless one of their IDs appears in one of the currently loaded sets. Kagami therefore does **not** delete contacts merely because they are outside the current scope.
+
+#### Matching and pruning rules
+
+Kagami first builds links from the currently loaded contacts and the relevant persisted link rows. Existing persisted links are honored when one side is present in the current sets. Remaining unlinked contacts are then matched by the normal contact-matching rules to infer new links where that is safe. Pruning only applies within the current comparison set and only when delete mirroring is enabled, such as with `--prune`.
+
+If a contact is absent from the current run on **both** sides, it is out of scope for that run and is ignored. If a contact is present on one side but not the other, then it is in scope for comparison and Kagami may create, update, or delete the counterpart according to sync direction, conflict policy, and delete policy.
+
+#### Examples
+
+**Example 1: old contact outside the current scope on both sides**
+
+A previous sync linked a contact that did not have the `Recruiter` category. A later full sync is run with `--filter "contains(categories,'Recruiter')"` on both providers. That older contact is returned by neither provider, so neither its source ID nor destination ID appears in the current loaded sets. Its persisted link row is ignored for this run, and Kagami will not delete anything because of it.
+
+**Example 2: scope reset with new cursors**
+
+Suppose a saved cursor can no longer be reused because the effective filter changed. Kagami performs a full load on both sides for the new scope and replaces both cursors together. This creates a fresh baseline for that scope. Because links whose IDs are absent from both loaded sets are ignored, contacts outside the new scope do not participate in prune decisions.
+
+**Example 3: contact present on one side only**
+
+A contact still matches `contains(categories,'Recruiter')` on the destination side but has been deleted from the source side, or no longer matches the source-side filter while still appearing on the destination side. In that case, the persisted link is relevant because one side is still present in the loaded sets. Kagami can then treat that as an in-scope delete or out-of-scope transition and mirror the deletion if pruning is enabled.
+
+#### Safety invariant
+
+> Kagami only plans actions from the current loaded item sets plus persisted links that are touched by those sets.
+
+This means link-state rows for contacts that are outside the current scope on both sides are inert for that run. When both sides are reloaded with the same scope and both cursors are replaced together, pruning remains bounded to the current scope rather than historical data outside it.
+
 ### Filter expressions
 
 | Expression | Meaning |
