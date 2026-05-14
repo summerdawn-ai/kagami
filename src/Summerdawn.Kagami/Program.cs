@@ -416,10 +416,7 @@ public static class Program
             Console.WriteLine(new string('-', 102));
             foreach (var job in jobs)
             {
-                string[] parts = job.JobKey.Split(':', 3);
-                string type = parts.Length >= 1 ? parts[0] : string.Empty;
-                string from = parts.Length >= 2 ? parts[1] : string.Empty;
-                string to = parts.Length >= 3 ? parts[2] : string.Empty;
+                (string type, string from, string to) = ParseJobKey(job.JobKey);
                 Console.WriteLine($"{job.JobKey,-45} {type,-10} {from,-20} {to,-20} {(job.Locked ? "yes" : "no")}");
             }
         });
@@ -586,6 +583,19 @@ public static class Program
 
     private static string GetDisplayName(Option option) =>
         option.Aliases.FirstOrDefault(alias => alias.StartsWith("--", StringComparison.Ordinal)) ?? option.Name;
+
+    /// <summary>
+    /// Splits a canonical job key (<c>type:from:to</c>) into its constituent parts.
+    /// Returns an empty string for any part that is missing.
+    /// </summary>
+    private static (string Type, string From, string To) ParseJobKey(string jobKey)
+    {
+        string[] parts = jobKey.Split(':', 3);
+        return (
+            parts.Length >= 1 ? parts[0] : string.Empty,
+            parts.Length >= 2 ? parts[1] : string.Empty,
+            parts.Length >= 3 ? parts[2] : string.Empty);
+    }
 
     /// <summary>
     /// Parses a simplified ISO 8601 duration string (e.g. <c>PT15M</c>, <c>PT2H</c>, <c>PT30S</c>)

@@ -104,6 +104,12 @@ public sealed class JobExecutor(
             await cursorRepo.DeleteCursorAsync(jobKey, parts[1], cancellationToken);
             await cursorRepo.DeleteCursorAsync(jobKey, parts[2], cancellationToken);
         }
+        else
+        {
+            logger.LogWarning(
+                "Job key '{JobKey}' does not match the expected 'type:from:to' format; cursors were not deleted by endpoint name",
+                jobKey);
+        }
 
         await leaseRepo.ForceReleaseAsync(jobKey, cancellationToken);
         logger.LogInformation("Reset job {JobKey}: link state, cursors, and lock cleared", jobKey);
