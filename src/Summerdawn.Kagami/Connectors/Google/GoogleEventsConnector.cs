@@ -109,9 +109,13 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
 
     private async Task<ConnectorPage> GetEventsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
     {
-        StringBuilder requestUri = new($"{collectionPath}?showDeleted=true&singleEvents=false&eventTypes=default&maxResults={PageSize}");
-        if (string.IsNullOrWhiteSpace(cursor.SyncToken))
+        // Full load: exclude deleted events and non-default event types up front.
+        // Incremental sync: showDeleted is not allowed (Google always returns cancellations as changed items).
+        bool isIncremental = !string.IsNullOrWhiteSpace(cursor.SyncToken);
+        StringBuilder requestUri = new($"{collectionPath}?singleEvents=false&eventTypes=default&maxResults={PageSize}");
+        if (!isIncremental)
         {
+            requestUri.Append("&showDeleted=false");
             requestUri.Append("&timeMin=").Append(Uri.EscapeDataString(GetFullLoadTimeMin(DateTimeOffset.UtcNow)));
         }
 
