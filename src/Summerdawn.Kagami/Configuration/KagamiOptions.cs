@@ -10,14 +10,4 @@ public sealed class KagamiOptions
     /// Gets or sets the named endpoint definitions, keyed by endpoint name.
     /// </summary>
     public Dictionary<string, EndpointOptions> Endpoints { get; set; } = [];
-
-    /// <summary>
-    /// Gets or sets the named job definitions, keyed by job key.
-    /// </summary>
-    public Dictionary<string, JobOptions> Jobs { get; set; } = [];
-
-    /// <summary>
-    /// Gets or sets the host-level execution settings.
-    /// </summary>
-    public KagamiHostOptions Host { get; set; } = new();
 }

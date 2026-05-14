@@ -294,7 +294,6 @@ public sealed class ForceSyncTests : IDisposable
 
     private static JobOptions CreateJobOptions(bool force = false, bool full = false, string? filter = null) => new()
     {
-        Enabled = true,
         EntityType = EntityType.Contact,
         SourceEndpointName = "endpointA",
         DestinationEndpointName = "endpointB",

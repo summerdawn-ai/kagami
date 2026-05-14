@@ -627,7 +627,6 @@ public sealed class SyncActionPlannerTests
         bool full = false) =>
         new()
         {
-            Enabled = true,
             EntityType = EntityType.CalendarEvent,
             SourceEndpointName = "endpointA",
             DestinationEndpointName = "endpointB",

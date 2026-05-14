@@ -267,9 +267,6 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
 ```json
 {
   "Kagami": {
-    "Host": {
-      "MaxConcurrentJobs": 1
-    },
     "Endpoints": {
       "googleContacts": {
         "Type": "GoogleContacts",

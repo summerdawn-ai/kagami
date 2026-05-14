@@ -379,7 +379,6 @@ public sealed class LinkExaminerTests
 
     private static readonly JobOptions FullJobOptions = new()
     {
-        Enabled = true,
         EntityType = "contact",
         SourceEndpointName = "endpointA",
         DestinationEndpointName = "endpointB",
@@ -388,7 +387,6 @@ public sealed class LinkExaminerTests
 
     private static readonly JobOptions DeltaJobOptions = new()
     {
-        Enabled = true,
         EntityType = "contact",
         SourceEndpointName = "endpointA",
         DestinationEndpointName = "endpointB",

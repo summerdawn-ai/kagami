@@ -246,7 +246,7 @@ public static class Program
         };
         AddMutuallyExclusiveBooleanOptionValidation(contactsSyncCommand, whatIfOption, confirmOption);
         AddMutuallyExclusiveBooleanOptionValidation(contactsSyncCommand, bidirectionalOption, reverseOption);
-        
+
         // Validate that --interval is exclusive with --what-if and --confirm
         contactsSyncCommand.Validators.Add(parseResult =>
         {
