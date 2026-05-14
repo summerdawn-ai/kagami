@@ -137,6 +137,28 @@ public sealed class GoogleEventsConnectorTests
     }
 
     [Fact]
+    public void ConvertEvent_UsesHangoutLinkAsVirtualLocationWhenLocationIsMissing()
+    {
+        using var document = JsonDocument.Parse("""
+            {
+              "id": "event-2",
+              "etag": "\"etag\"",
+              "summary": "Remote meeting",
+              "status": "confirmed",
+              "start": { "dateTime": "2026-05-01T10:00:00+02:00", "timeZone": "Europe/Berlin" },
+              "end": { "dateTime": "2026-05-01T11:00:00+02:00", "timeZone": "Europe/Berlin" },
+              "organizer": { "email": "organizer@contoso.com" },
+              "hangoutLink": "https://meet.google.com/mrw-mbth-xqo"
+            }
+            """);
+
+        var item = GoogleEventsConnector.ConvertEvent(document.RootElement, "google");
+
+        Assert.NotNull(item);
+        Assert.Equal("https://meet.google.com/mrw-mbth-xqo", item!.Location);
+    }
+
+    [Fact]
     public void BuildWritableEvent_WritesOrganizerAttendeesAndRecurrence()
     {
         var item = new CanonicalEvent

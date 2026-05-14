@@ -216,7 +216,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             Description = ReadString(element, "description"),
             From = ReadEventDateTime(element, "start"),
             To = ReadEventDateTime(element, "end"),
-            Location = ReadString(element, "location"),
+            Location = ReadLocation(element),
             RecurrencePattern = ReadRecurrencePattern(element),
             Organizer = ReadParticipant(element, "organizer"),
             Attendees = ReadAttendees(element),
@@ -344,6 +344,45 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             .ToArray();
 
         return rules.Length == 0 ? null : string.Join('\n', rules);
+    }
+
+    private static string? ReadLocation(JsonElement element)
+    {
+        string? location = ReadString(element, "location");
+        if (!string.IsNullOrWhiteSpace(location))
+        {
+            return location;
+        }
+
+        string? hangoutLink = ReadString(element, "hangoutLink");
+        if (!string.IsNullOrWhiteSpace(hangoutLink))
+        {
+            return hangoutLink;
+        }
+
+        if (!element.TryGetProperty("conferenceData", out var conferenceData)
+            || conferenceData.ValueKind != JsonValueKind.Object
+            || !conferenceData.TryGetProperty("entryPoints", out var entryPoints)
+            || entryPoints.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var entryPoint in entryPoints.EnumerateArray())
+        {
+            if (!string.Equals(ReadString(entryPoint, "entryPointType"), "video", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string? uri = ReadString(entryPoint, "uri");
+            if (!string.IsNullOrWhiteSpace(uri))
+            {
+                return uri;
+            }
+        }
+
+        return null;
     }
 
     private static List<CalendarEventParticipant> ReadAttendees(JsonElement element)

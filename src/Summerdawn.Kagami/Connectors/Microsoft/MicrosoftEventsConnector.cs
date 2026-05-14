@@ -228,7 +228,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             ["subject"] = item.Title,
             ["body"] = new JsonObject
             {
-                ["contentType"] = "text",
+                ["contentType"] = "html",
                 ["content"] = item.Description ?? string.Empty,
             },
             ["start"] = CreateDateTimeTimeZoneNode(item.From),
