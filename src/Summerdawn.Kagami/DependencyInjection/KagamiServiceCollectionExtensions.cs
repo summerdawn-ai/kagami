@@ -75,10 +75,35 @@ public static class KagamiServiceCollectionExtensions
                         $"No connector registered for endpoint '{capturedEndpointName}' of type '{capturedEndpoint.Type}'."),
                 };
             });
+
+            services.AddKeyedSingleton<IConnector<CanonicalEvent>>(endpointName, (sp, _) =>
+            {
+                var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+                var httpClient = httpClientFactory.CreateClient($"kagami-{capturedEndpointName}");
+                credentials.TryGetValue(capturedEndpointName, out var credential);
+                return capturedEndpoint.Type switch
+                {
+                    EndpointOptions.GoogleCalendar => new GoogleEventsConnector(
+                        httpClient,
+                        capturedEndpointName,
+                        capturedEndpoint,
+                        credential as GoogleOAuthCredential
+                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a GoogleOAuthCredential.")),
+                    EndpointOptions.MicrosoftCalendar => new MicrosoftEventsConnector(
+                        httpClient,
+                        capturedEndpointName,
+                        capturedEndpoint,
+                        credential as MicrosoftClientCredential
+                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a MicrosoftClientCredential.")),
+                    _ => throw new InvalidOperationException(
+                        $"No event connector registered for endpoint '{capturedEndpointName}' of type '{capturedEndpoint.Type}'."),
+                };
+            });
         }
 
         // Func<string, IConnector> that resolves keyed connectors by endpoint name
         services.AddSingleton<Func<string, IConnector<CanonicalContact>>>(sp => sp.GetRequiredKeyedService<IConnector<CanonicalContact>>);
+        services.AddSingleton<Func<string, IConnector<CanonicalEvent>>>(sp => sp.GetRequiredKeyedService<IConnector<CanonicalEvent>>);
 
         services.AddSingleton(sp =>
         {
@@ -95,6 +120,7 @@ public static class KagamiServiceCollectionExtensions
         services.AddSingleton<SyncActionExecutor>();
         services.AddSingleton<JobExecutor>();
         services.AddSingleton<CommandHandler<CanonicalContact>>();
+        services.AddSingleton<CommandHandler<CanonicalEvent>>();
         return services;
     }
 
@@ -104,7 +130,7 @@ public static class KagamiServiceCollectionExtensions
     private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType switch
     {
         EndpointOptions.GoogleContacts => ["https://www.googleapis.com/auth/contacts"],
-        "google-calendar" => ["https://www.googleapis.com/auth/calendar"],
+        EndpointOptions.GoogleCalendar => ["https://www.googleapis.com/auth/calendar"],
         _ => []
     };
 

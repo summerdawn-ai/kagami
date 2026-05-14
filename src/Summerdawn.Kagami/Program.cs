@@ -8,6 +8,7 @@ using Summerdawn.Kagami.DependencyInjection;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 
+using CalendarEventFilter = Summerdawn.Kagami.Models.CalendarEventFilter;
 using ContactFilter = Summerdawn.Kagami.Models.ContactFilter;
 
 namespace Summerdawn.Kagami;
@@ -41,6 +42,7 @@ public static class Program
         var rootCommand = new RootCommand("Kagami — polling-first calendar and contact synchronization")
         {
             CreateContactsCommand(),
+            CreateEventsCommand(),
             CreateJobsCommand(),
         };
 
@@ -128,11 +130,11 @@ public static class Program
             Description = "Conflict resolution policy: last-write-wins (default), source-wins, destination-wins, skip",
             Required = false,
             DefaultValueFactory = _ => "last-write-wins",
-        }.AcceptOnlyFromAmong("last-write-wins", "source-wins", "destination-wins", "skip");
+        }.AcceptOnlyFromAmong("last-write-wins", "source-wins", "dest-wins", "destination-wins", "skip");
 
         var allOption = new Option<bool>("--all")
         {
-            Description = "Fetch and display all matching contacts",
+            Description = "Display all matching contacts instead of the default first 100 shown",
             Arity = ArgumentArity.Zero,
         };
 
@@ -417,6 +419,290 @@ public static class Program
         };
 
         return contactsCommand;
+    }
+
+    private static Command CreateEventsCommand()
+    {
+        // ── events command group ──────────────────────────────────────────────
+        var settingsOption = new Option<string[]>("--settings")
+        {
+            Description = "Path to one or more settings JSON files to load",
+            Arity = ArgumentArity.ZeroOrMore,
+            AllowMultipleArgumentsPerToken = true,
+        };
+
+        var whatIfOption = new Option<bool>("--what-if")
+        {
+            Description = "Plan actions without writing any changes",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var confirmOption = new Option<bool>("--confirm")
+        {
+            Description = "Prompt before each action is executed",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var fromOption = new Option<string>("--from")
+        {
+            Description = "Source endpoint name (as configured in the settings file)",
+            Required = true,
+        };
+
+        var toEndpointOption = new Option<string>("--to")
+        {
+            Description = "Destination endpoint name",
+            Required = true,
+        };
+
+        var filterOption = new Option<string?>("--filter")
+        {
+            Description = "OData-style filter expression, e.g. startswith(title,'A')",
+            Required = false,
+        };
+
+        var forceOption = new Option<bool>("--force")
+        {
+            Description = "Ignore cursors, bypass change and content-sameness checks, and write all in-scope events unconditionally (clobbers destination drift)",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var fullOption = new Option<bool>("--full")
+        {
+            Description = "Ignore saved cursors and fetch all rows from both sides, but still skip events whose content is already identical",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var bidirectionalOption = new Option<bool>("--bidirectional")
+        {
+            Description = "Sync in both directions (default: source to destination only)",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var reverseOption = new Option<bool>("--reverse")
+        {
+            Description = "Sync from destination to source instead of source to destination",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var pruneOption = new Option<bool>("--prune")
+        {
+            Description = "Delete events on the destination that no longer exist on the source (or vice versa)",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var onConflictOption = new Option<string>("--on-conflict")
+        {
+            Description = "Conflict resolution policy: last-write-wins (default), source-wins, dest-wins, skip",
+            Required = false,
+            DefaultValueFactory = _ => "last-write-wins",
+        }.AcceptOnlyFromAmong("last-write-wins", "source-wins", "dest-wins", "destination-wins", "skip");
+
+        var allOption = new Option<bool>("--all")
+        {
+            Description = "Display all matching events instead of the default first 100 shown",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var verboseOption = new Option<bool>("--verbose")
+        {
+            Description = "Enable more detailed logging for this run",
+            Arity = ArgumentArity.Zero,
+        };
+
+        // events list
+        var eventsListCommand = new Command("list", "List events from a configured endpoint")
+        {
+            settingsOption,
+            fromOption,
+            filterOption,
+            allOption,
+            verboseOption,
+        };
+        eventsListCommand.SetAction(async parseResult =>
+        {
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            string from = parseResult.GetValue(fromOption)!;
+            string? filter = parseResult.GetValue(filterOption);
+            bool all = parseResult.GetValue(allOption);
+            bool verbose = parseResult.GetValue(verboseOption);
+            var eventFilter = CalendarEventFilter.Parse(filter);
+            IReadOnlyList<CanonicalEvent> events;
+
+            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
+            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            {
+                var handler = provider.GetRequiredService<CommandHandler<CanonicalEvent>>();
+                events = await handler.ListAsync(from, eventFilter, all ? null : 100, CancellationToken.None);
+            }
+
+            events = events
+                .OrderBy(e => e.From)
+                .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            if (events.Count == 0)
+            {
+                Console.WriteLine("No events found.");
+                return;
+            }
+
+            Console.WriteLine($"{"Title",-40} {"Start",-22} {"End",-22} {"Location"}");
+            Console.WriteLine(new string('-', 100));
+            foreach (var ev in events)
+            {
+                string start = ev.From == DateTimeOffset.MinValue ? string.Empty : ev.From.ToString("yyyy-MM-dd HH:mm");
+                string end = ev.To == DateTimeOffset.MinValue ? string.Empty : ev.To.ToString("yyyy-MM-dd HH:mm");
+                Console.WriteLine($"{ev.Title,-40} {start,-22} {end,-22} {ev.Location}");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine(all
+                ? $"Total: {events.Count} event(s)"
+                : $"Showing {events.Count} event(s) (default limit: 100; use --all to display everything)");
+        });
+
+        // events sync
+        var intervalOption = new Option<string?>("--interval")
+        {
+            Description = "Repeat the sync indefinitely with the given delay between runs (ISO 8601 duration, e.g. PT15M). Without this option the command runs once and exits.",
+            Required = false,
+        };
+
+        var eventsSyncCommand = new Command("sync", "Synchronize calendar events between two configured endpoints")
+        {
+            settingsOption,
+            fromOption,
+            toEndpointOption,
+            bidirectionalOption,
+            reverseOption,
+            filterOption,
+            fullOption,
+            forceOption,
+            pruneOption,
+            onConflictOption,
+            confirmOption,
+            whatIfOption,
+            intervalOption,
+            verboseOption,
+        };
+        AddMutuallyExclusiveBooleanOptionValidation(eventsSyncCommand, whatIfOption, confirmOption);
+        AddMutuallyExclusiveBooleanOptionValidation(eventsSyncCommand, bidirectionalOption, reverseOption);
+
+        // Validate that --interval is exclusive with --what-if and --confirm
+        eventsSyncCommand.Validators.Add(parseResult =>
+        {
+            string? interval = parseResult.GetValue(intervalOption);
+            bool whatIf = parseResult.GetValue(whatIfOption);
+            bool confirm = parseResult.GetValue(confirmOption);
+
+            if (interval is not null)
+            {
+                if (whatIf)
+                {
+                    parseResult.AddError("The --interval and --what-if options are mutually exclusive.");
+                }
+
+                if (confirm)
+                {
+                    parseResult.AddError("The --interval and --confirm options are mutually exclusive.");
+                }
+            }
+        });
+
+        eventsSyncCommand.SetAction(async parseResult =>
+        {
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            string from = parseResult.GetValue(fromOption)!;
+            string to = parseResult.GetValue(toEndpointOption)!;
+            bool bidirectional = parseResult.GetValue(bidirectionalOption);
+            bool reverse = parseResult.GetValue(reverseOption);
+            bool prune = parseResult.GetValue(pruneOption);
+            string onConflictStr = parseResult.GetValue(onConflictOption)!;
+            bool whatIf = parseResult.GetValue(whatIfOption);
+            bool confirm = parseResult.GetValue(confirmOption);
+            bool full = parseResult.GetValue(fullOption);
+            bool force = parseResult.GetValue(forceOption);
+            string? filter = parseResult.GetValue(filterOption);
+            string? intervalStr = parseResult.GetValue(intervalOption);
+            bool verbose = parseResult.GetValue(verboseOption);
+
+            TimeSpan? interval = intervalStr is not null ? ParseIntervalArgument(intervalStr) : null;
+
+            var mode = bidirectional
+                ? SyncMode.Bidirectional
+                : reverse
+                    ? SyncMode.Reverse
+                    : SyncMode.Forward;
+
+            var eventFilter = CalendarEventFilter.Parse(filter);
+
+            var conflictPolicy = onConflictStr.ToLowerInvariant() switch
+            {
+                "source-wins" => ConflictPolicy.SourceWins,
+                "dest-wins" or "destination-wins" => ConflictPolicy.DestinationWins,
+                "skip" => ConflictPolicy.Skip,
+                _ => ConflictPolicy.LastWriteWins,
+            };
+
+            var deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
+
+            // Keep the provider alive while working so disposing it flushes the log factory before process exit.
+            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            var handler = provider.GetRequiredService<CommandHandler<CanonicalEvent>>();
+
+            if (interval.HasValue)
+            {
+                // Interval mode: repeat indefinitely; exit nonzero on failure.
+                // Honor process-exit signals (SIGTERM from Docker, Ctrl+C) so the delay can be interrupted.
+                using var cts = new CancellationTokenSource();
+                Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+                AppDomain.CurrentDomain.ProcessExit += (_, _) => cts.Cancel();
+
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        var result = await handler.SyncAsync(from, to, mode, whatIf, confirm, eventFilter, full, force, deletePolicy, conflictPolicy, cts.Token);
+
+                        if (!result.Succeeded && result.Error is not null)
+                        {
+                            throw new InvalidOperationException($"Sync failed: {result.Error}");
+                        }
+
+                        Console.WriteLine(result.Succeeded
+                            ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
+                            : $"Sync skipped: {result.SkipReason}");
+
+                        await Task.Delay(interval.Value, cts.Token);
+                    }
+                    catch (OperationCanceledException) when (cts.IsCancellationRequested)
+                    {
+                        // Intentional shutdown via Ctrl+C or SIGTERM — exit cleanly.
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                // One-shot mode: run once and exit.
+                var result = await handler.SyncAsync(from, to, mode, whatIf, confirm, eventFilter, full, force, deletePolicy, conflictPolicy, CancellationToken.None);
+
+                Console.WriteLine(result.Succeeded
+                    ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
+                    : result.Error is not null
+                        ? $"Sync failed: {result.Error}"
+                        : $"Sync skipped: {result.SkipReason}");
+            }
+        });
+
+        var eventsCommand = new Command("events", "Interactive calendar event operations")
+        {
+            eventsListCommand,
+            eventsSyncCommand,
+        };
+
+        return eventsCommand;
     }
 
     private static Command CreateJobsCommand()

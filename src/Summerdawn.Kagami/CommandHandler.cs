@@ -125,13 +125,16 @@ public sealed class CommandHandler<TItem>(
         var sourceConnector = BuildConnector(fromEndpoint);
         var destinationConnector = BuildConnector(toEndpoint);
 
-        // Derive a stable job key from the two endpoint names so that sync state
-        // is persisted consistently across invocations of the same contacts sync command.
-        string jobKey = $"contacts:{fromEndpoint}:{toEndpoint}";
+        // Derive a stable job key from the entity type and endpoint names so that sync state
+        // is persisted consistently across invocations. Contacts preserve the legacy key format
+        // to avoid resetting existing users' cursors and link state.
+        string jobKey = typeof(TItem) == typeof(CanonicalContact)
+            ? $"contacts:{fromEndpoint}:{toEndpoint}"
+            : $"calendar-event:{fromEndpoint}:{toEndpoint}";
 
         var jobOptions = new JobOptions
         {
-            EntityType = EntityType.Contact,
+            EntityType = typeof(TItem) == typeof(CanonicalContact) ? EntityType.Contact : EntityType.CalendarEvent,
             SourceEndpointName = fromEndpoint,
             DestinationEndpointName = toEndpoint,
             SyncMode = mode,

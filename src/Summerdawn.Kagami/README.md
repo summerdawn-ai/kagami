@@ -491,7 +491,7 @@ Link-state updates written before a transient fault are left in place and are no
 
 ## Current Limitations
 
-- Built-in concrete provider connectors are currently contact-focused
+- Built-in concrete provider connectors support contacts (Google People, Microsoft Exchange) and calendar events (Google Calendar, Microsoft Calendar)
 - Calendar provider connectors are not implemented yet
 - What-if mode logs planned operations but intentionally does not update cursors or link state
 

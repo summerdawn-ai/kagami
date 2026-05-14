@@ -10,7 +10,8 @@ namespace Summerdawn.Kagami.Serialization;
 
 [JsonSerializable(typeof(GoogleTokenCacheEntry))]
 [JsonSerializable(typeof(CanonicalItem))]
-[JsonSerializable(typeof(CanonicalCalendarEvent))]
+[JsonSerializable(typeof(CanonicalEvent))]
+[JsonSerializable(typeof(CalendarEventParticipant))]
 [JsonSerializable(typeof(CanonicalContact))]
 [JsonSerializable(typeof(ContactAddress))]
 [JsonSerializable(typeof(ContactEmail))]

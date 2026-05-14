@@ -11,6 +11,8 @@ public sealed class ProgramTests
             data.Add(["contacts", "export", "--from", "Microsoft", "--to", "/tmp/out", "--verbose"]);
             data.Add(["contacts", "import", "--from", "/tmp/in", "--to", "Google", "--verbose"]);
             data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--verbose"]);
+            data.Add(["events", "list", "--from", "Microsoft", "--verbose"]);
+            data.Add(["events", "sync", "--from", "Microsoft", "--to", "Google", "--verbose"]);
             data.Add(["jobs", "list", "--verbose"]);
             data.Add(["jobs", "reset", "--all", "--verbose"]);
             data.Add(["jobs", "unlock", "--all", "--verbose"]);
@@ -293,5 +295,67 @@ public sealed class ProgramTests
     public void ParseIntervalArgument_ThrowsOnUnsupportedUnit()
     {
         Assert.Throws<FormatException>(() => Program.ParseIntervalArgument("P1D"));
+    }
+
+    public static TheoryData<string[]> ValidEventsSyncCommands
+    {
+        get
+        {
+            TheoryData<string[]> data = [];
+            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar"]);
+            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--bidirectional"]);
+            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--reverse"]);
+            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--what-if"]);
+            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--on-conflict", "dest-wins"]);
+            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--interval", "PT15M"]);
+            return data;
+        }
+    }
+
+    public static TheoryData<string[]> DestWinsCommands
+    {
+        get
+        {
+            TheoryData<string[]> data = [];
+            data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--on-conflict", "dest-wins"]);
+            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--on-conflict", "dest-wins"]);
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(ValidEventsSyncCommands))]
+    public void CreateRootCommand_AcceptsValidEventsSyncArgs(string[] args)
+    {
+        var parseResult = Program.CreateRootCommand().Parse(args);
+
+        Assert.Empty(parseResult.Errors);
+    }
+
+    [Theory]
+    [MemberData(nameof(DestWinsCommands))]
+    public void CreateRootCommand_AcceptsDestWinsAlias(string[] args)
+    {
+        var parseResult = Program.CreateRootCommand().Parse(args);
+
+        Assert.Empty(parseResult.Errors);
+    }
+
+    [Fact]
+    public void CreateRootCommand_ExposesEventsCommand()
+    {
+        var rootCommand = Program.CreateRootCommand();
+
+        Assert.Contains(rootCommand.Subcommands, cmd => cmd.Name == "events");
+    }
+
+    [Fact]
+    public void CreateRootCommand_EventsCommandHasListAndSync()
+    {
+        var rootCommand = Program.CreateRootCommand();
+        var eventsCommand = rootCommand.Subcommands.First(cmd => cmd.Name == "events");
+
+        Assert.Contains(eventsCommand.Subcommands, cmd => cmd.Name == "list");
+        Assert.Contains(eventsCommand.Subcommands, cmd => cmd.Name == "sync");
     }
 }
