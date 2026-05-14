@@ -234,18 +234,40 @@ public static class Program
             toEndpointOption,
             bidirectionalOption,
             reverseOption,
-            pruneOption,
-            onConflictOption,
-            whatIfOption,
-            confirmOption,
             filterOption,
             fullOption,
             forceOption,
+            pruneOption,
+            onConflictOption,
+            confirmOption,
+            whatIfOption,
             intervalOption,
             verboseOption,
         };
         AddMutuallyExclusiveBooleanOptionValidation(contactsSyncCommand, whatIfOption, confirmOption);
         AddMutuallyExclusiveBooleanOptionValidation(contactsSyncCommand, bidirectionalOption, reverseOption);
+        
+        // Validate that --interval is exclusive with --what-if and --confirm
+        contactsSyncCommand.Validators.Add(parseResult =>
+        {
+            string? interval = parseResult.GetValue(intervalOption);
+            bool whatIf = parseResult.GetValue(whatIfOption);
+            bool confirm = parseResult.GetValue(confirmOption);
+
+            if (interval is not null)
+            {
+                if (whatIf)
+                {
+                    parseResult.AddError("The --interval and --what-if options are mutually exclusive.");
+                }
+
+                if (confirm)
+                {
+                    parseResult.AddError("The --interval and --confirm options are mutually exclusive.");
+                }
+            }
+        });
+
         contactsSyncCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
@@ -330,11 +352,11 @@ public static class Program
             settingsOption,
             fromOption,
             toEndpointOption,
-            pruneOption,
             filterOption,
-            whatIfOption,
-            confirmOption,
             forceOption,
+            pruneOption,
+            confirmOption,
+            whatIfOption,
             verboseOption,
         };
         AddMutuallyExclusiveBooleanOptionValidation(contactsImportCommand, whatIfOption, confirmOption);

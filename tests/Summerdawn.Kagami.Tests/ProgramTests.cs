@@ -72,6 +72,17 @@ public sealed class ProgramTests
         }
     }
 
+    public static TheoryData<string[]> MutuallyExclusiveIntervalExecutionModeCommands
+    {
+        get
+        {
+            TheoryData<string[]> data = [];
+            data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--interval", "PT15M", "--what-if"]);
+            data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--interval", "PT15M", "--confirm"]);
+            return data;
+        }
+    }
+
     public static TheoryData<string[]> ValidJobsResetCommands
     {
         get
@@ -172,6 +183,15 @@ public sealed class ProgramTests
         var parseResult = Program.CreateRootCommand().Parse(args);
 
         Assert.Empty(parseResult.Errors);
+    }
+
+    [Theory]
+    [MemberData(nameof(MutuallyExclusiveIntervalExecutionModeCommands))]
+    public void CreateRootCommand_RejectsIntervalWithWhatIfOrConfirm(string[] args)
+    {
+        var parseResult = Program.CreateRootCommand().Parse(args);
+
+        Assert.Contains(parseResult.Errors, error => error.Message.Contains("mutually exclusive", StringComparison.Ordinal));
     }
 
     [Theory]
