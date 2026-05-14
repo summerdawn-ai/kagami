@@ -62,6 +62,7 @@ public sealed class GoogleEventsConnectorTests
         Assert.Contains(result.Items, e => e.Provenance.ProviderId == "organizer-1");
         Assert.NotNull(result.Cursor);
         Assert.Single(handler.RequestUris);
+        Assert.Contains("eventTypes=default", handler.RequestUris[0], StringComparison.Ordinal);
         Assert.Contains("timeMin=", handler.RequestUris[0], StringComparison.Ordinal);
     }
 
@@ -81,6 +82,25 @@ public sealed class GoogleEventsConnectorTests
         Assert.Single(handler.RequestUris);
         Assert.DoesNotContain("timeMin=", handler.RequestUris[0], StringComparison.Ordinal);
         Assert.Contains("syncToken=saved-sync-token", handler.RequestUris[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConvertEvent_ReturnsNullForBirthdayEvents()
+    {
+        using var document = JsonDocument.Parse("""
+            {
+              "id": "birthday-1",
+              "status": "confirmed",
+              "eventType": "birthday",
+              "summary": "Birthday",
+              "start": { "date": "2026-05-01" },
+              "end": { "date": "2026-05-02" }
+            }
+            """);
+
+        var item = GoogleEventsConnector.ConvertEvent(document.RootElement, "google");
+
+        Assert.Null(item);
     }
 
     [Fact]

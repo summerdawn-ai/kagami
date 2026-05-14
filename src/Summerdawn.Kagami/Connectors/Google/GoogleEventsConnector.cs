@@ -109,7 +109,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
 
     private async Task<ConnectorPage> GetEventsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
     {
-        StringBuilder requestUri = new($"{collectionPath}?showDeleted=true&singleEvents=false&maxResults={PageSize}");
+        StringBuilder requestUri = new($"{collectionPath}?showDeleted=true&singleEvents=false&eventTypes=default&maxResults={PageSize}");
         if (string.IsNullOrWhiteSpace(cursor.SyncToken))
         {
             requestUri.Append("&timeMin=").Append(Uri.EscapeDataString(GetFullLoadTimeMin(DateTimeOffset.UtcNow)));
@@ -201,6 +201,13 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
                 },
                 IsDeleted = true,
             };
+        }
+
+        string? eventType = ReadString(element, "eventType");
+        if (!string.IsNullOrWhiteSpace(eventType)
+            && !string.Equals(eventType, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
         }
 
         var item = new CanonicalEvent
