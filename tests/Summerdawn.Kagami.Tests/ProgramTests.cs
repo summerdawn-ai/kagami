@@ -12,6 +12,8 @@ public sealed class ProgramTests
             data.Add(["contacts", "import", "--from", "/tmp/in", "--to", "Google", "--verbose"]);
             data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--verbose"]);
             data.Add(["events", "list", "--from", "Microsoft", "--verbose"]);
+            data.Add(["events", "export", "--from", "Microsoft", "--to", "/tmp/out", "--verbose"]);
+            data.Add(["events", "import", "--from", "/tmp/in", "--to", "Google", "--verbose"]);
             data.Add(["events", "sync", "--from", "Microsoft", "--to", "Google", "--verbose"]);
             data.Add(["jobs", "list", "--verbose"]);
             data.Add(["jobs", "reset", "--all", "--verbose"]);
@@ -27,6 +29,7 @@ public sealed class ProgramTests
             TheoryData<string[]> data = [];
             data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--confirm"]);
             data.Add(["contacts", "import", "--from", "/tmp/in", "--to", "Google", "--confirm"]);
+            data.Add(["events", "import", "--from", "/tmp/in", "--to", "Google", "--confirm"]);
             return data;
         }
     }
@@ -48,6 +51,7 @@ public sealed class ProgramTests
             TheoryData<string[]> data = [];
             data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--what-if", "--confirm"]);
             data.Add(["contacts", "import", "--from", "/tmp/in", "--to", "Google", "--what-if", "--confirm"]);
+            data.Add(["events", "import", "--from", "/tmp/in", "--to", "Google", "--what-if", "--confirm"]);
             return data;
         }
     }
@@ -303,6 +307,8 @@ public sealed class ProgramTests
         {
             TheoryData<string[]> data = [];
             data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar"]);
+            data.Add(["events", "export", "--from", "MicrosoftCalendar", "--to", "/tmp/out"]);
+            data.Add(["events", "import", "--from", "/tmp/in", "--to", "GoogleCalendar"]);
             data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--bidirectional"]);
             data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--reverse"]);
             data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--what-if"]);
@@ -350,12 +356,14 @@ public sealed class ProgramTests
     }
 
     [Fact]
-    public void CreateRootCommand_EventsCommandHasListAndSync()
+    public void CreateRootCommand_EventsCommandHasListImportExportAndSync()
     {
         var rootCommand = Program.CreateRootCommand();
         var eventsCommand = rootCommand.Subcommands.First(cmd => cmd.Name == "events");
 
         Assert.Contains(eventsCommand.Subcommands, cmd => cmd.Name == "list");
+        Assert.Contains(eventsCommand.Subcommands, cmd => cmd.Name == "export");
+        Assert.Contains(eventsCommand.Subcommands, cmd => cmd.Name == "import");
         Assert.Contains(eventsCommand.Subcommands, cmd => cmd.Name == "sync");
     }
 }

@@ -457,7 +457,7 @@ public static class Program
 
         var toEndpointOption = new Option<string>("--to")
         {
-            Description = "Destination endpoint name",
+            Description = "Destination endpoint name or local directory path",
             Required = true,
         };
 
@@ -568,6 +568,38 @@ public static class Program
             Console.WriteLine(all
                 ? $"Total: {events.Count} event(s)"
                 : $"Showing {events.Count} event(s) (default limit: 100; use --all to display everything)");
+        });
+
+        // events export
+        var eventsExportCommand = new Command("export", "Export events from an endpoint to local JSON files in a directory")
+        {
+            settingsOption,
+            fromOption,
+            toEndpointOption,
+            filterOption,
+            pruneOption,
+            verboseOption,
+        };
+        eventsExportCommand.SetAction(async parseResult =>
+        {
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            string from = parseResult.GetValue(fromOption)!;
+            string to = parseResult.GetValue(toEndpointOption)!;
+            string? filter = parseResult.GetValue(filterOption);
+            bool prune = parseResult.GetValue(pruneOption);
+            bool verbose = parseResult.GetValue(verboseOption);
+            var eventFilter = CalendarEventFilter.Parse(filter);
+            JobExecutionResult result;
+
+            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            {
+                var handler = provider.GetRequiredService<CommandHandler<CanonicalEvent>>();
+                result = await handler.ExportAsync(from, to, prune: prune, eventFilter, CancellationToken.None);
+            }
+
+            Console.WriteLine(result.Succeeded
+                ? $"Export completed. Actions planned: {result.ActionsPlanned}"
+                : $"Export failed: {result.Error}");
         });
 
         // events sync
@@ -706,9 +738,49 @@ public static class Program
             }
         });
 
+        var eventsImportCommand = new Command("import", "Import events from local JSON files in a directory into a configured endpoint")
+        {
+            settingsOption,
+            fromOption,
+            toEndpointOption,
+            filterOption,
+            forceOption,
+            pruneOption,
+            confirmOption,
+            whatIfOption,
+            verboseOption,
+        };
+        AddMutuallyExclusiveBooleanOptionValidation(eventsImportCommand, whatIfOption, confirmOption);
+        eventsImportCommand.SetAction(async parseResult =>
+        {
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            string from = parseResult.GetValue(fromOption)!;
+            string to = parseResult.GetValue(toEndpointOption)!;
+            bool prune = parseResult.GetValue(pruneOption);
+            string? filter = parseResult.GetValue(filterOption);
+            bool whatIf = parseResult.GetValue(whatIfOption);
+            bool confirm = parseResult.GetValue(confirmOption);
+            bool force = parseResult.GetValue(forceOption);
+            bool verbose = parseResult.GetValue(verboseOption);
+            var eventFilter = CalendarEventFilter.Parse(filter);
+            JobExecutionResult result;
+
+            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            {
+                var handler = provider.GetRequiredService<CommandHandler<CanonicalEvent>>();
+                result = await handler.ImportAsync(from, to, prune, eventFilter, whatIf, confirm, force, CancellationToken.None);
+            }
+
+            Console.WriteLine(result.Succeeded
+                ? $"Import completed. Actions planned: {result.ActionsPlanned}"
+                : $"Import failed: {result.Error ?? result.SkipReason}");
+        });
+
         var eventsCommand = new Command("events", "Interactive calendar event operations")
         {
             eventsListCommand,
+            eventsExportCommand,
+            eventsImportCommand,
             eventsSyncCommand,
         };
 
