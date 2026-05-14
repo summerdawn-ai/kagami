@@ -461,7 +461,19 @@ public static class Program
 
         var toEndpointOption = new Option<string>("--to")
         {
-            Description = "Destination endpoint name or local directory path",
+            Description = "Destination endpoint name (as configured in the settings file)",
+            Required = true,
+        };
+
+        var importSourceDirectoryOption = new Option<string>("--from")
+        {
+            Description = "Source directory path containing event JSON files to import",
+            Required = true,
+        };
+
+        var exportOutputDirectoryOption = new Option<string>("--to")
+        {
+            Description = "Output directory path for exported event JSON files",
             Required = true,
         };
 
@@ -580,7 +592,7 @@ public static class Program
             settingsOption,
             noDefaultSettingsOption,
             fromOption,
-            toEndpointOption,
+            exportOutputDirectoryOption,
             filterOption,
             pruneOption,
             verboseOption,
@@ -590,7 +602,7 @@ public static class Program
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
             string from = parseResult.GetValue(fromOption)!;
-            string to = parseResult.GetValue(toEndpointOption)!;
+            string to = parseResult.GetValue(exportOutputDirectoryOption)!;
             string? filter = parseResult.GetValue(filterOption);
             bool prune = parseResult.GetValue(pruneOption);
             bool verboseSettings = parseResult.GetValue(verboseOption);
@@ -748,7 +760,7 @@ public static class Program
         {
             settingsOption,
             noDefaultSettingsOption,
-            fromOption,
+            importSourceDirectoryOption,
             toEndpointOption,
             filterOption,
             forceOption,
@@ -762,7 +774,7 @@ public static class Program
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
             bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
-            string from = parseResult.GetValue(fromOption)!;
+            string from = parseResult.GetValue(importSourceDirectoryOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             bool prune = parseResult.GetValue(pruneOption);
             string? filter = parseResult.GetValue(filterOption);

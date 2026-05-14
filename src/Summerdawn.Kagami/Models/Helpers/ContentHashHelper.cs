@@ -31,7 +31,7 @@ internal static class ContentHashHelper
         // Serialize with custom 'Hash' context which excludes provenance and other non-canonical data
         string json = item switch
         {
-            CanonicalCalendarEvent calendarEvent => JsonSerializer.Serialize(calendarEvent, KagamiJsonContext.HashJsonOptions),
+            CanonicalEvent calendarEvent => JsonSerializer.Serialize(calendarEvent, KagamiJsonContext.HashJsonOptions),
             CanonicalContact contact => JsonSerializer.Serialize(contact, KagamiJsonContext.HashJsonOptions),
             _ => throw new InvalidOperationException($"Unsupported canonical payload type '{item.GetType().FullName}'."),
         };
