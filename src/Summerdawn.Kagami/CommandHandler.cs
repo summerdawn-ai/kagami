@@ -79,11 +79,10 @@ public sealed class CommandHandler<TItem>(
         var sourceConnector = BuildConnector(endpointName);
         var destinationConnector = CreateImportExportConnector(outputDirectory);
 
-        string jobKey = CreateImportExportJobKey("export", endpointName, outputDirectory);
+        string jobKey = Job<TItem>.CreateOperationKey("export", endpointName, outputDirectory);
 
         var jobOptions = new JobOptions
         {
-            EntityType = GetEntityType(),
             SourceEndpointName = endpointName,
             DestinationEndpointName = outputDirectory,
             SyncMode = SyncMode.Forward,
@@ -120,16 +119,12 @@ public sealed class CommandHandler<TItem>(
         var sourceConnector = BuildConnector(fromEndpoint);
         var destinationConnector = BuildConnector(toEndpoint);
 
-        // Derive a stable job key from the entity type and endpoint names so that sync state
-        // is persisted consistently across invocations. Contacts preserve the legacy key format
-        // to avoid resetting existing users' cursors and link state.
-        string jobKey = typeof(TItem) == typeof(CanonicalContact)
-            ? $"contacts:{fromEndpoint}:{toEndpoint}"
-            : $"calendar-event:{fromEndpoint}:{toEndpoint}";
+        // Derive a stable job key from the item category and endpoint names so that sync state
+        // is persisted consistently across invocations.
+        string jobKey = Job<TItem>.CreateJobKey(fromEndpoint, toEndpoint);
 
         var jobOptions = new JobOptions
         {
-            EntityType = typeof(TItem) == typeof(CanonicalContact) ? EntityType.Contact : EntityType.CalendarEvent,
             SourceEndpointName = fromEndpoint,
             DestinationEndpointName = toEndpoint,
             SyncMode = mode,
@@ -181,11 +176,10 @@ public sealed class CommandHandler<TItem>(
         var sourceConnector = CreateImportExportConnector(sourceDirectory);
         var destinationConnector = BuildConnector(toEndpoint);
 
-        string jobKey = CreateImportExportJobKey("import", sourceDirectory, toEndpoint);
+        string jobKey = Job<TItem>.CreateOperationKey("import", sourceDirectory, toEndpoint);
 
         var jobOptions = new JobOptions
         {
-            EntityType = GetEntityType(),
             SourceEndpointName = sourceDirectory,
             DestinationEndpointName = toEndpoint,
             SyncMode = SyncMode.Forward,
@@ -229,18 +223,4 @@ public sealed class CommandHandler<TItem>(
 
         throw new NotSupportedException("Import and export are only supported for contacts and calendar events.");
     }
-
-    private static string GetEntityType() =>
-        typeof(TItem) == typeof(CanonicalContact)
-            ? EntityType.Contact
-            : typeof(TItem) == typeof(CanonicalEvent)
-                ? EntityType.CalendarEvent
-                : throw new NotSupportedException("Import and export are only supported for contacts and calendar events.");
-
-    private static string CreateImportExportJobKey(string operation, string left, string right) =>
-        typeof(TItem) == typeof(CanonicalContact)
-            ? $"contacts:{operation}:{left}:{right}"
-            : typeof(TItem) == typeof(CanonicalEvent)
-                ? $"calendar-event:{operation}:{left}:{right}"
-                : throw new NotSupportedException("Import and export are only supported for contacts and calendar events.");
 }

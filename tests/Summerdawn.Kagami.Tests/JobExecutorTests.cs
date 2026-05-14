@@ -760,7 +760,6 @@ public sealed class JobExecutorTests : IDisposable
         bool force = false) =>
         new()
         {
-            EntityType = EntityType.Contact,
             SourceEndpointName = "endpointA",
             DestinationEndpointName = "endpointB",
             SyncMode = syncMode,

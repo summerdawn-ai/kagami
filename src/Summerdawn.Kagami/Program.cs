@@ -864,7 +864,7 @@ public static class Program
         // jobs reset
         var resetKeyOption = new Option<string?>("--key")
         {
-            Description = "Canonical job key to reset (e.g. contacts:Microsoft:Google)",
+            Description = "Canonical job key to reset (e.g. contacts:Microsoft:Google or events:Work:Archive)",
             Required = false,
         };
 
@@ -923,7 +923,7 @@ public static class Program
         // jobs unlock
         var unlockKeyOption = new Option<string?>("--key")
         {
-            Description = "Canonical job key to unlock (e.g. contacts:Microsoft:Google)",
+            Description = "Canonical job key to unlock (e.g. contacts:Microsoft:Google or events:Work:Archive)",
             Required = false,
         };
 

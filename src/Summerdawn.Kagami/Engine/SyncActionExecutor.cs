@@ -76,7 +76,7 @@ public sealed class SyncActionExecutor(
     {
         await EnsureActionItemsLoadedAsync(actions, cancellationToken);
 
-        string entityType = job.Options.EntityType;
+        string itemCategory = job.GetItemCategory();
         var targetConnector = direction == SourceToDestination ? job.DestinationConnector : job.SourceConnector;
 
         bool failedActions = false;
@@ -104,7 +104,7 @@ public sealed class SyncActionExecutor(
                 action,
                 direction,
                 job,
-                entityType,
+                itemCategory,
                 targetConnector,
                 cancellationToken);
 
@@ -143,7 +143,7 @@ public sealed class SyncActionExecutor(
         SyncAction<TItem> action,
         SyncDirection direction,
         Job<TItem> job,
-        string entityType,
+        string itemCategory,
         IConnector<TItem> targetConnector,
         CancellationToken cancellationToken) where TItem : CanonicalItem
     {
@@ -160,7 +160,7 @@ public sealed class SyncActionExecutor(
 
                         if (!job.Options.NoPersistence)
                         {
-                            await opLog.AppendAsync(job.Key, entityType, "create", createdItem.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+                            await opLog.AppendAsync(job.Key, itemCategory, "create", createdItem.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
                             var link = new LinkStateRow
                             {
@@ -205,7 +205,7 @@ public sealed class SyncActionExecutor(
 
                         if (!job.Options.NoPersistence)
                         {
-                            await opLog.AppendAsync(job.Key, entityType, "update", updatedTargetItem.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+                            await opLog.AppendAsync(job.Key, itemCategory, "update", updatedTargetItem.Provenance.ProviderId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
                             if (link is not null)
                             {
@@ -266,7 +266,7 @@ public sealed class SyncActionExecutor(
 
                         if (!job.Options.NoPersistence)
                         {
-                            await opLog.AppendAsync(job.Key, entityType, "delete", deleteId, direction.ToString(), "ok", cancellationToken: cancellationToken);
+                            await opLog.AppendAsync(job.Key, itemCategory, "delete", deleteId, direction.ToString(), "ok", cancellationToken: cancellationToken);
 
                             if (persistedLink is not null)
                             {
@@ -309,7 +309,7 @@ public sealed class SyncActionExecutor(
                 _ => action.Kind.ToString().ToLowerInvariant()
             };
 
-            return await HandleActionExceptionAsync(ex, job.Key, entityType, operation, itemId, direction, job.Options.NoPersistence, cancellationToken);
+            return await HandleActionExceptionAsync(ex, job.Key, itemCategory, operation, itemId, direction, job.Options.NoPersistence, cancellationToken);
         }
     }
 
@@ -325,7 +325,7 @@ public sealed class SyncActionExecutor(
     private async Task<bool> HandleActionExceptionAsync(
         Exception ex,
         string jobKey,
-        string entityType,
+        string itemCategory,
         string operation,
         string itemId,
         SyncDirection direction,
@@ -334,7 +334,7 @@ public sealed class SyncActionExecutor(
     {
         if (!noPersistence)
         {
-            await opLog.AppendAsync(jobKey, entityType, operation, itemId, direction.ToString(), "error", cancellationToken: cancellationToken);
+            await opLog.AppendAsync(jobKey, itemCategory, operation, itemId, direction.ToString(), "error", cancellationToken: cancellationToken);
         }
 
         if (IsTransientFailure(ex))

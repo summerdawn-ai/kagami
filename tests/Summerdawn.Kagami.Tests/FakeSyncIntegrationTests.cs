@@ -126,7 +126,6 @@ public sealed class FakeSyncIntegrationTests : IDisposable
 
     private static JobOptions CreateJobOptions(SyncMode mode = SyncMode.Bidirectional) => new()
     {
-        EntityType = EntityType.Contact,
         SourceEndpointName = "endpointA",
         DestinationEndpointName = "endpointB",
         SyncMode = mode,

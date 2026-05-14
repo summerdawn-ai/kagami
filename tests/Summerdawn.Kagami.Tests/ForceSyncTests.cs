@@ -294,7 +294,6 @@ public sealed class ForceSyncTests : IDisposable
 
     private static JobOptions CreateJobOptions(bool force = false, bool full = false, string? filter = null) => new()
     {
-        EntityType = EntityType.Contact,
         SourceEndpointName = "endpointA",
         DestinationEndpointName = "endpointB",
         SyncMode = SyncMode.Bidirectional,
