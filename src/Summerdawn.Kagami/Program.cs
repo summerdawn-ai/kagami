@@ -319,18 +319,26 @@ public static class Program
 
                 while (!cts.Token.IsCancellationRequested)
                 {
-                    var result = await handler.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, cts.Token);
-
-                    if (!result.Succeeded && result.Error is not null)
+                    try
                     {
-                        throw new InvalidOperationException($"Sync failed: {result.Error}");
+                        var result = await handler.SyncAsync(from, to, mode, whatIf, confirm, contactFilter, full, force, deletePolicy, conflictPolicy, cts.Token);
+
+                        if (!result.Succeeded && result.Error is not null)
+                        {
+                            throw new InvalidOperationException($"Sync failed: {result.Error}");
+                        }
+
+                        Console.WriteLine(result.Succeeded
+                            ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
+                            : $"Sync skipped: {result.SkipReason}");
+
+                        await Task.Delay(interval.Value, cts.Token);
                     }
-
-                    Console.WriteLine(result.Succeeded
-                        ? $"Sync completed. Actions planned: {result.ActionsPlanned}"
-                        : $"Sync skipped: {result.SkipReason}");
-
-                    await Task.Delay(interval.Value, cts.Token);
+                    catch (OperationCanceledException) when (cts.IsCancellationRequested)
+                    {
+                        // Intentional shutdown via Ctrl+C or SIGTERM — exit cleanly.
+                        break;
+                    }
                 }
             }
             else
