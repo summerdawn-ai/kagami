@@ -387,7 +387,7 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
 ```json
 {
   "Kagami": {
-    "DataDirectory": "./data",
+    "DataDirectory": "C:\\Users\\Alice\\AppData\\Local\\Summerdawn.ai\\Kagami",
     "Endpoints": {
       "googleContacts": {
         "Type": "GoogleContacts",
@@ -487,7 +487,7 @@ Endpoint properties:
 Notes:
 
 - On first use, Kagami opens the browser for OAuth consent and listens on `http://localhost:4189/` for the callback
-- Access and refresh tokens are cached under `%LOCALAPPDATA%\Summerdawn.ai\Kagami\tokens`
+- Access and refresh tokens are cached in the `tokens` subdirectory of `Kagami:DataDirectory`
 - Kagami requests the Google Calendar scope `https://www.googleapis.com/auth/calendar`
 - Birthday and other non-default special event types are filtered out; only regular calendar events are synchronized
 
