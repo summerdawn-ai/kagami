@@ -4,19 +4,17 @@ using Summerdawn.Kagami.Serialization;
 
 namespace Summerdawn.Kagami.Authentication;
 
-internal sealed class GoogleTokenCache
+/// <summary>
+/// Persists Google OAuth tokens beneath a configured Kagami data directory.
+/// </summary>
+public sealed class GoogleTokenCache(string storageDirectory)
 {
-    private static readonly string StorageDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Summerdawn.ai", "Kagami", "tokens");
+    private readonly string storageDirectory = Path.Combine(storageDirectory, "tokens");
 
-    public string? AccessToken { get; set; }
-
-    public string? RefreshToken { get; set; }
-
-    public DateTimeOffset Expiry { get; set; }
-
-    public static GoogleTokenCache? Load(string endpointName)
+    /// <summary>
+    /// Loads the cached tokens for an endpoint.
+    /// </summary>
+    public GoogleTokenCacheEntry? Load(string endpointName)
     {
         string path = GetPath(endpointName);
         if (!File.Exists(path))
@@ -27,7 +25,7 @@ internal sealed class GoogleTokenCache
         try
         {
             string json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize(json, KagamiJsonContext.Default.GoogleTokenCache);
+            return JsonSerializer.Deserialize(json, KagamiJsonContext.Default.GoogleTokenCacheEntry);
         }
         catch
         {
@@ -35,18 +33,29 @@ internal sealed class GoogleTokenCache
         }
     }
 
-    public static void Save(string endpointName, GoogleTokenCache cache)
+    /// <summary>
+    /// Saves the tokens for an endpoint.
+    /// </summary>
+    public void Save(string endpointName, GoogleTokenCacheEntry cacheEntry)
     {
-        Directory.CreateDirectory(StorageDirectory);
+        Directory.CreateDirectory(storageDirectory);
         string path = GetPath(endpointName);
-        string json = JsonSerializer.Serialize(cache, KagamiJsonContext.Default.GoogleTokenCache);
+        string json = JsonSerializer.Serialize(cacheEntry, KagamiJsonContext.Default.GoogleTokenCacheEntry);
         File.WriteAllText(path, json);
     }
 
-    private static string GetPath(string endpointName)
+    private string GetPath(string endpointName)
     {
         char[] invalid = Path.GetInvalidFileNameChars();
         string safeName = string.Concat(endpointName.Select(c => Array.IndexOf(invalid, c) >= 0 ? '_' : c));
-        return Path.Combine(StorageDirectory, $"google_{safeName}.json");
+        return Path.Combine(storageDirectory, $"google_{safeName}.json");
     }
 }
+
+/// <summary>
+/// Represents the tokens and expiry returned by Google OAuth.
+/// </summary>
+public sealed record GoogleTokenCacheEntry(
+    string? AccessToken,
+    string? RefreshToken,
+    DateTimeOffset Expiry);

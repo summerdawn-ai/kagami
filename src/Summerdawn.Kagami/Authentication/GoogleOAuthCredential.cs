@@ -5,6 +5,9 @@ using System.Text.Json;
 
 namespace Summerdawn.Kagami.Authentication;
 
+/// <summary>
+/// Authenticates against Google OAuth and caches tokens for subsequent requests.
+/// </summary>
 public sealed class GoogleOAuthCredential : IConnectorCredential
 {
     private const string AuthEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -17,24 +20,30 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
     private readonly string endpointName;
     private readonly IReadOnlyList<string> scopes;
     private readonly HttpClient httpClient;
+    private readonly GoogleTokenCache tokenCache;
     private string? accessToken;
     private string? refreshToken;
     private DateTimeOffset tokenExpiry;
 
+    /// <summary>
+    /// Initializes a Google OAuth credential.
+    /// </summary>
     public GoogleOAuthCredential(
         string clientId,
         string clientSecret,
         string endpointName,
         IReadOnlyList<string> scopes,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        GoogleTokenCache tokenCache)
     {
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.endpointName = endpointName;
         this.scopes = scopes;
         this.httpClient = httpClient;
+        this.tokenCache = tokenCache;
 
-        var cached = GoogleTokenCache.Load(endpointName);
+        var cached = tokenCache.Load(endpointName);
         if (cached is not null)
         {
             accessToken = cached.AccessToken;
@@ -43,6 +52,9 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
         }
     }
 
+    /// <summary>
+    /// Gets a valid Google access token, refreshing or interactively acquiring one when necessary.
+    /// </summary>
     public async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
     {
         if (!string.IsNullOrEmpty(accessToken) && DateTimeOffset.UtcNow < tokenExpiry - TokenExpiryBuffer)
@@ -220,11 +232,6 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
 
     private void PersistTokens()
     {
-        GoogleTokenCache.Save(endpointName, new GoogleTokenCache
-        {
-            AccessToken = accessToken,
-            RefreshToken = refreshToken,
-            Expiry = tokenExpiry,
-        });
+        tokenCache.Save(endpointName, new GoogleTokenCacheEntry(accessToken, refreshToken, tokenExpiry));
     }
 }

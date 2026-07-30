@@ -362,7 +362,7 @@ Endpoint properties:
 Notes:
 
 - On first use, Kagami opens the browser for OAuth consent and listens on `http://localhost:4189/` for the callback
-- Access and refresh tokens are cached in the application-data directory
+- Access and refresh tokens are cached in the `tokens` subdirectory of `Kagami:DataDirectory`
 - Kagami requests the Google contacts scope `https://www.googleapis.com/auth/contacts`
 - The built-in Google contacts connector currently uses end-user OAuth; service-account and domain-wide-delegation auth are not supported
 

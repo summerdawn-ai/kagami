@@ -323,19 +323,16 @@ public sealed class GoogleContactsConnectorTests
     private static GoogleContactsConnector CreateConnector(params HttpResponseMessage[] responses)
     {
         string endpointName = $"{TestEndpointNamePrefix}{Guid.NewGuid():N}";
-        GoogleTokenCache.Save(endpointName, new GoogleTokenCache
-        {
-            AccessToken = "fake-token",
-            RefreshToken = "fake-refresh-token",
-            Expiry = DateTimeOffset.UtcNow.AddHours(1),
-        });
+        var tokenCache = new GoogleTokenCache(Path.Combine(Path.GetTempPath(), "kagami-tests", Guid.NewGuid().ToString("N")));
+        tokenCache.Save(endpointName, new GoogleTokenCacheEntry("fake-token", "fake-refresh-token", DateTimeOffset.UtcNow.AddHours(1)));
 
         var credential = new GoogleOAuthCredential(
             "client-id",
             "client-secret",
             endpointName,
             ["https://www.googleapis.com/auth/contacts.readonly"],
-            new HttpClient(new SequenceHttpHandler()));
+            new HttpClient(new SequenceHttpHandler()),
+            tokenCache);
 
         var endpoint = new EndpointOptions
         {

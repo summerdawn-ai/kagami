@@ -28,6 +28,8 @@ public static class KagamiServiceCollectionExtensions
         // Build a shared HttpClient for credential/token operations (not API calls)
         HttpClient authHttpClient = new();
         authHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd("kagami/0.1");
+        var tokenCache = new GoogleTokenCache(options.DataDirectory);
+        var credentialFactory = new CredentialFactory(tokenCache);
 
         // Pre-build one credential per endpoint at startup
         var credentials = new Dictionary<string, IConnectorCredential>(StringComparer.OrdinalIgnoreCase);
@@ -36,7 +38,7 @@ public static class KagamiServiceCollectionExtensions
             if (!string.IsNullOrWhiteSpace(endpoint.Credential.Type))
             {
                 var scopes = ScopesFor(endpoint.Type);
-                credentials[endpointName] = CredentialFactory.Create(endpoint.Credential, authHttpClient, scopes, endpointName);
+                credentials[endpointName] = credentialFactory.Create(endpoint.Credential, authHttpClient, scopes, endpointName);
             }
         }
 
