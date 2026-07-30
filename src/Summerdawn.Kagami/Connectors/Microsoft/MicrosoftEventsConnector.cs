@@ -217,8 +217,8 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             Location = element.TryGetProperty("location", out var locationNode) ? ReadString(locationNode, "displayName") : null,
             Organizer = ReadOrganizer(element),
             Attendees = ReadAttendees(element),
-            RecurrencePattern = element.TryGetProperty("recurrence", out var recurrenceNode) && recurrenceNode.ValueKind != JsonValueKind.Null
-                ? recurrenceNode.GetRawText()
+            RecurrencePattern = element.TryGetProperty("recurrence", out var recurrenceNode)
+                ? DeserializeRecurrence(recurrenceNode)
                 : null,
             ICalUid = ReadString(element, "iCalUId"),
             Provenance =
@@ -317,15 +317,212 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             }
         }
 
-        // Recurrence is stored as provider JSON in the canonical model and can be restored directly.
-        if (!string.IsNullOrWhiteSpace(item.RecurrencePattern)
-            && JsonNode.Parse(item.RecurrencePattern) is JsonNode recurrenceNode)
+        if (item.RecurrencePattern is not null
+            && SerializeRecurrence(item.RecurrencePattern, item.From) is JsonObject recurrenceNode)
         {
             body["recurrence"] = recurrenceNode;
         }
 
         return body;
     }
+
+    internal static string? DeserializeRecurrence(JsonElement recurrence)
+    {
+        if (recurrence.ValueKind != JsonValueKind.Object
+            || !recurrence.TryGetProperty("pattern", out var pattern)
+            || !pattern.TryGetProperty("type", out var typeNode))
+        {
+            return null;
+        }
+
+        string? type = typeNode.GetString();
+        List<string> parts = [];
+        switch (type)
+        {
+            case "daily":
+                parts.Add("FREQ=DAILY");
+                break;
+            case "weekly" when ReadStringArray(pattern, "daysOfWeek") is { Count: > 0 } days:
+                parts.Add("FREQ=WEEKLY");
+                parts.Add($"BYDAY={string.Join(',', days.Select(ToIcalDay))}");
+                break;
+            case "absoluteMonthly" when ReadPositiveInt(pattern, "dayOfMonth") is int dayOfMonth:
+                parts.Add("FREQ=MONTHLY");
+                parts.Add($"BYMONTHDAY={dayOfMonth}");
+                break;
+            case "relativeMonthly" when ReadStringArray(pattern, "daysOfWeek") is { Count: 1 } relativeDays
+                && ReadString(pattern, "index") is string index:
+                parts.Add("FREQ=MONTHLY");
+                parts.Add($"BYDAY={ToIcalIndex(index)}{ToIcalDay(relativeDays[0])}");
+                break;
+            case "absoluteYearly" when ReadPositiveInt(pattern, "dayOfMonth") is int yearlyDay
+                && ReadPositiveInt(pattern, "month") is int yearlyMonth:
+                parts.Add("FREQ=YEARLY");
+                parts.Add($"BYMONTH={yearlyMonth}");
+                parts.Add($"BYMONTHDAY={yearlyDay}");
+                break;
+            case "relativeYearly" when ReadStringArray(pattern, "daysOfWeek") is { Count: 1 } yearlyDays
+                && ReadString(pattern, "index") is string yearlyIndex
+                && ReadPositiveInt(pattern, "month") is int relativeYearlyMonth:
+                parts.Add("FREQ=YEARLY");
+                parts.Add($"BYMONTH={relativeYearlyMonth}");
+                parts.Add($"BYDAY={ToIcalIndex(yearlyIndex)}{ToIcalDay(yearlyDays[0])}");
+                break;
+            default:
+                return null;
+        }
+
+        if (ReadPositiveInt(pattern, "interval") is int interval && interval != 1)
+        {
+            parts.Add($"INTERVAL={interval}");
+        }
+
+        if (recurrence.TryGetProperty("range", out var range)
+            && range.ValueKind == JsonValueKind.Object)
+        {
+            switch (ReadString(range, "type"))
+            {
+                case "numbered" when ReadPositiveInt(range, "numberOfOccurrences") is int count:
+                    parts.Add($"COUNT={count}");
+                    break;
+                case "endDate" when DateOnly.TryParseExact(ReadString(range, "endDate"), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var endDate):
+                    parts.Add($"UNTIL={endDate:yyyyMMdd}");
+                    break;
+                case "noEnd":
+                    break;
+                default:
+                    return null;
+            }
+        }
+
+        return $"RRULE:{string.Join(';', parts)}";
+    }
+
+    internal static JsonObject? SerializeRecurrence(string pattern, DateTimeOffset start)
+    {
+        if (!pattern.Trim().StartsWith("RRULE:", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var values = pattern.Trim()[6..].Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => part.Split('=', 2))
+            .Where(pair => pair.Length == 2)
+            .ToDictionary(pair => pair[0].ToUpperInvariant(), pair => pair[1], StringComparer.Ordinal);
+        if (!values.TryGetValue("FREQ", out string? frequency))
+        {
+            return null;
+        }
+
+        int interval = 1;
+        if (values.TryGetValue("INTERVAL", out string? intervalValue)
+            && (!int.TryParse(intervalValue, CultureInfo.InvariantCulture, out interval) || interval <= 0))
+        {
+            return null;
+        }
+
+        JsonObject graphPattern = new()
+        {
+            ["interval"] = interval,
+        };
+        switch (frequency.ToUpperInvariant())
+        {
+            case "DAILY":
+                graphPattern["type"] = "daily";
+                break;
+            case "WEEKLY" when TryGetDays(values, out string[]? weeklyDays):
+                graphPattern["type"] = "weekly";
+                graphPattern["daysOfWeek"] = new JsonArray(weeklyDays.Select(day => (JsonNode?)ToGraphDay(day)).ToArray());
+                break;
+            case "MONTHLY" when values.TryGetValue("BYMONTHDAY", out string? monthlyDay)
+                && int.TryParse(monthlyDay, CultureInfo.InvariantCulture, out int parsedMonthlyDay)
+                && parsedMonthlyDay is >= 1 and <= 31:
+                graphPattern["type"] = "absoluteMonthly";
+                graphPattern["dayOfMonth"] = parsedMonthlyDay;
+                break;
+            default:
+                return null;
+        }
+
+        JsonObject range = new()
+        {
+            ["type"] = "noEnd",
+            ["startDate"] = start.ToUniversalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        };
+        if (values.TryGetValue("COUNT", out string? count)
+            && int.TryParse(count, CultureInfo.InvariantCulture, out int occurrences)
+            && occurrences > 0)
+        {
+            range["type"] = "numbered";
+            range["numberOfOccurrences"] = occurrences;
+        }
+        else if (values.TryGetValue("UNTIL", out string? until)
+            && DateOnly.TryParseExact(until, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var endDate))
+        {
+            range["type"] = "endDate";
+            range["endDate"] = endDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
+        return new JsonObject
+        {
+            ["pattern"] = graphPattern,
+            ["range"] = range,
+        };
+    }
+
+    private static List<string>? ReadStringArray(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.Array
+            ? property.EnumerateArray().Select(value => value.GetString()).Where(value => value is not null).Cast<string>().ToList()
+            : null;
+
+    private static int? ReadPositiveInt(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property)
+            && property.TryGetInt32(out int value)
+            && value > 0
+                ? value
+                : null;
+
+    private static string ToIcalDay(string day) => day.ToLowerInvariant() switch
+    {
+        "monday" => "MO",
+        "tuesday" => "TU",
+        "wednesday" => "WE",
+        "thursday" => "TH",
+        "friday" => "FR",
+        "saturday" => "SA",
+        "sunday" => "SU",
+        _ => throw new FormatException($"Unsupported Microsoft recurrence day '{day}'."),
+    };
+
+    private static string ToIcalIndex(string index) => index.ToLowerInvariant() switch
+    {
+        "first" => "1",
+        "second" => "2",
+        "third" => "3",
+        "fourth" => "4",
+        "last" => "-1",
+        _ => throw new FormatException($"Unsupported Microsoft recurrence index '{index}'."),
+    };
+
+    private static bool TryGetDays(IReadOnlyDictionary<string, string> values, out string[] days)
+    {
+        days = values.TryGetValue("BYDAY", out string? value)
+            ? value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : [];
+        return days.Length > 0 && days.All(day => day is "MO" or "TU" or "WE" or "TH" or "FR" or "SA" or "SU");
+    }
+
+    private static string ToGraphDay(string day) => day switch
+    {
+        "MO" => "monday",
+        "TU" => "tuesday",
+        "WE" => "wednesday",
+        "TH" => "thursday",
+        "FR" => "friday",
+        "SA" => "saturday",
+        "SU" => "sunday",
+        _ => throw new FormatException($"Unsupported iCalendar recurrence day '{day}'."),
+    };
 
     /// <summary>
     /// Reads the nested Microsoft organizer address into a canonical participant.

@@ -26,11 +26,8 @@ public record CanonicalEvent : CanonicalItem
     public string? Description { get; set; }
 
     /// <summary>
-    /// Gets or sets the recurrence pattern.
+    /// Gets or sets the canonical iCalendar recurrence rule.
     /// </summary>
-    /// <remarks>
-    /// The value is provider-native text so recurrence semantics are preserved across reads and writes.
-    /// </remarks>
     public string? RecurrencePattern { get; set; }
 
     /// <summary>

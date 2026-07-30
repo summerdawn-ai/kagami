@@ -166,7 +166,7 @@ public sealed class MicrosoftEventsConnectorTests
         Assert.Equal("Room 1", item.Location);
         Assert.Equal("organizer@contoso.com", item.Organizer?.Email);
         Assert.Single(item.Attendees);
-        Assert.NotNull(item.RecurrencePattern);
+        Assert.Equal("RRULE:FREQ=DAILY", item.RecurrencePattern);
         Assert.Equal("W/\"etag-1\"", item.Provenance.Version);
         Assert.Equal("ck1", item.Metadata["microsoft.changeKey"]);
     }
@@ -201,7 +201,7 @@ public sealed class MicrosoftEventsConnectorTests
             From = new DateTimeOffset(2026, 05, 01, 08, 00, 00, TimeSpan.Zero),
             To = new DateTimeOffset(2026, 05, 01, 08, 15, 00, TimeSpan.Zero),
             Location = "Teams",
-            RecurrencePattern = """{"pattern":{"type":"daily","interval":1},"range":{"type":"noEnd","startDate":"2026-05-01"}}""",
+            RecurrencePattern = "RRULE:FREQ=DAILY",
             Organizer = new CalendarEventParticipant { Email = "organizer@contoso.com", Name = "Organizer" },
             Attendees =
             [
@@ -216,6 +216,22 @@ public sealed class MicrosoftEventsConnectorTests
         Assert.Contains("\"organizer\"", json, StringComparison.Ordinal);
         Assert.Contains("\"attendees\"", json, StringComparison.Ordinal);
         Assert.Contains("\"recurrence\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"type\":\"daily\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildWritableEvent_OmitsUnsupportedRecurrence()
+    {
+        var item = new CanonicalEvent
+        {
+            From = new DateTimeOffset(2026, 05, 01, 08, 00, 00, TimeSpan.Zero),
+            To = new DateTimeOffset(2026, 05, 01, 08, 15, 00, TimeSpan.Zero),
+            RecurrencePattern = "RRULE:FREQ=HOURLY",
+        };
+
+        string json = MicrosoftEventsConnector.BuildWritableEvent(item).ToJsonString();
+
+        Assert.DoesNotContain("\"recurrence\"", json, StringComparison.Ordinal);
     }
 
     private static MicrosoftEventsConnector CreateConnector(params string[] responseJsons)
