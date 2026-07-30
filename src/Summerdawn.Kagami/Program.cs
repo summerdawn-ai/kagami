@@ -57,6 +57,12 @@ public static class Program
             AllowMultipleArgumentsPerToken = true,
         };
 
+        var noDefaultSettingsOption = new Option<bool>("--no-default-settings")
+        {
+            Description = "Skip loading embedded default settings",
+            Arity = ArgumentArity.Zero,
+        };
+
         var whatIfOption = new Option<bool>("--what-if")
         {
             Description = "Plan actions without writing any changes",
@@ -119,7 +125,7 @@ public static class Program
 
         var onConflictOption = new Option<string>("--on-conflict")
         {
-            Description = "Conflict resolution policy: last-write-wins (default), source-wins, dest-wins, skip",
+            Description = "Conflict resolution policy: last-write-wins (default), source-wins, destination-wins, skip",
             Required = false,
             DefaultValueFactory = _ => "last-write-wins",
         }.AcceptOnlyFromAmong("last-write-wins", "source-wins", "destination-wins", "skip");
@@ -140,6 +146,7 @@ public static class Program
         var contactsListCommand = new Command("list", "List contacts from a configured endpoint")
         {
             settingsOption,
+            noDefaultSettingsOption,
             fromOption,
             filterOption,
             allOption,
@@ -148,15 +155,16 @@ public static class Program
         contactsListCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
             string from = parseResult.GetValue(fromOption)!;
             string? filter = parseResult.GetValue(filterOption);
             bool all = parseResult.GetValue(allOption);
-            bool verbose = parseResult.GetValue(verboseOption);
+            bool verboseSettings = parseResult.GetValue(verboseOption);
             var contactFilter = ContactFilter.Parse(filter);
             IReadOnlyList<CanonicalContact> contacts;
 
             // Keep the provider alive while working so disposing it flushes the log factory before process exit.
-            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            await using (var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings))
             {
                 var handler = provider.GetRequiredService<CommandHandler<CanonicalContact>>();
                 contacts = await handler.ListAsync(from, contactFilter, all ? null : 100, CancellationToken.None);
@@ -191,6 +199,7 @@ public static class Program
         var contactsExportCommand = new Command("export", "Export contacts from an endpoint to local JSON files in a directory")
         {
             settingsOption,
+            noDefaultSettingsOption,
             fromOption,
             toEndpointOption,
             filterOption,
@@ -200,16 +209,17 @@ public static class Program
         contactsExportCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             string? filter = parseResult.GetValue(filterOption);
             bool prune = parseResult.GetValue(pruneOption);
-            bool verbose = parseResult.GetValue(verboseOption);
+            bool verboseSettings = parseResult.GetValue(verboseOption);
             var contactFilter = ContactFilter.Parse(filter);
             JobExecutionResult result;
 
             // Keep the provider alive while working so disposing it flushes the log factory before process exit.
-            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            await using (var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings))
             {
                 var handler = provider.GetRequiredService<CommandHandler<CanonicalContact>>();
                 result = await handler.ExportAsync(from, to, prune: prune, contactFilter, CancellationToken.None);
@@ -230,6 +240,7 @@ public static class Program
         var contactsSyncCommand = new Command("sync", "Synchronize contacts between two configured endpoints")
         {
             settingsOption,
+            noDefaultSettingsOption,
             fromOption,
             toEndpointOption,
             bidirectionalOption,
@@ -271,6 +282,7 @@ public static class Program
         contactsSyncCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             bool bidirectional = parseResult.GetValue(bidirectionalOption);
@@ -283,7 +295,7 @@ public static class Program
             bool force = parseResult.GetValue(forceOption);
             string? filter = parseResult.GetValue(filterOption);
             string? intervalStr = parseResult.GetValue(intervalOption);
-            bool verbose = parseResult.GetValue(verboseOption);
+            bool verboseSettings = parseResult.GetValue(verboseOption);
 
             TimeSpan? interval = intervalStr is not null ? ParseIntervalArgument(intervalStr) : null;
 
@@ -298,7 +310,7 @@ public static class Program
             var conflictPolicy = onConflictStr.ToLowerInvariant() switch
             {
                 "source-wins" => ConflictPolicy.SourceWins,
-                "dest-wins" or "destination-wins" => ConflictPolicy.DestinationWins,
+                "destination-wins" => ConflictPolicy.DestinationWins,
                 "skip" => ConflictPolicy.Skip,
                 _ => ConflictPolicy.LastWriteWins,
             };
@@ -306,7 +318,7 @@ public static class Program
             var deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
 
             // Keep the provider alive while working so disposing it flushes the log factory before process exit.
-            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            await using var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings);
             var handler = provider.GetRequiredService<CommandHandler<CanonicalContact>>();
 
             if (interval.HasValue)
@@ -358,6 +370,7 @@ public static class Program
         var contactsImportCommand = new Command("import", "Import contacts from local JSON files in a directory into a configured endpoint")
         {
             settingsOption,
+            noDefaultSettingsOption,
             fromOption,
             toEndpointOption,
             filterOption,
@@ -371,6 +384,7 @@ public static class Program
         contactsImportCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             bool prune = parseResult.GetValue(pruneOption);
@@ -378,12 +392,12 @@ public static class Program
             bool whatIf = parseResult.GetValue(whatIfOption);
             bool confirm = parseResult.GetValue(confirmOption);
             bool force = parseResult.GetValue(forceOption);
-            bool verbose = parseResult.GetValue(verboseOption);
+            bool verboseSettings = parseResult.GetValue(verboseOption);
             var contactFilter = ContactFilter.Parse(filter);
             JobExecutionResult result;
 
             // Keep the provider alive while working so disposing it flushes the log factory before process exit.
-            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            await using (var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings))
             {
                 var handler = provider.GetRequiredService<CommandHandler<CanonicalContact>>();
                 result = await handler.ImportAsync(from, to, prune, contactFilter, whatIf, confirm, force, CancellationToken.None);
@@ -415,6 +429,12 @@ public static class Program
             AllowMultipleArgumentsPerToken = true,
         };
 
+        var noDefaultSettingsOption = new Option<bool>("--no-default-settings")
+        {
+            Description = "Skip loading embedded default settings",
+            Arity = ArgumentArity.Zero,
+        };
+
         var verboseOption = new Option<bool>("--verbose")
         {
             Description = "Enable more detailed logging for this run",
@@ -425,14 +445,16 @@ public static class Program
         var jobsListCommand = new Command("list", "List all known jobs and their current lock state")
         {
             settingsOption,
+            noDefaultSettingsOption,
             verboseOption,
         };
         jobsListCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
-            bool verbose = parseResult.GetValue(verboseOption);
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
+            bool verboseSettings = parseResult.GetValue(verboseOption);
 
-            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            await using var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings);
             var executor = provider.GetRequiredService<JobExecutor>();
             var jobs = await executor.ListJobsAsync(CancellationToken.None);
 
@@ -467,6 +489,7 @@ public static class Program
         var jobsResetCommand = new Command("reset", "Reset stored sync state (link state, cursors, and locks) for a job or all jobs")
         {
             settingsOption,
+            noDefaultSettingsOption,
             resetKeyOption,
             resetAllOption,
             verboseOption,
@@ -489,11 +512,12 @@ public static class Program
         jobsResetCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
             string? key = parseResult.GetValue(resetKeyOption);
             bool resetAll = parseResult.GetValue(resetAllOption);
-            bool verbose = parseResult.GetValue(verboseOption);
+            bool verboseSettings = parseResult.GetValue(verboseOption);
 
-            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            await using var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings);
             var executor = provider.GetRequiredService<JobExecutor>();
 
             if (resetAll)
@@ -524,6 +548,7 @@ public static class Program
         var jobsUnlockCommand = new Command("unlock", "Force-release job locks (use after a crash to clear stuck locks)")
         {
             settingsOption,
+            noDefaultSettingsOption,
             unlockKeyOption,
             unlockAllOption,
             verboseOption,
@@ -546,11 +571,12 @@ public static class Program
         jobsUnlockCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
             string? key = parseResult.GetValue(unlockKeyOption);
             bool unlockAll = parseResult.GetValue(unlockAllOption);
-            bool verbose = parseResult.GetValue(verboseOption);
+            bool verboseSettings = parseResult.GetValue(verboseOption);
 
-            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            await using var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings);
             var executor = provider.GetRequiredService<JobExecutor>();
 
             if (unlockAll)
@@ -579,13 +605,11 @@ public static class Program
         return jobsCommand;
     }
 
-    private static ServiceProvider BuildServiceProvider(string[] settingsFiles, bool verbose)
+    private static ServiceProvider BuildServiceProvider(string[] settingsFiles, bool noDefaultSettings, bool verboseSettings)
     {
         var configBuilder = new ConfigurationBuilder();
 
-        // Load embedded default and custom settings.
-        configBuilder.AddKagamiSettings(noDefaultSettings: false, settingsFiles, verbose);
-        configBuilder.AddEnvironmentVariables();
+        configBuilder.AddKagamiSettings(noDefaultSettings, noApplicationDataSettings: false, settingsFiles, verboseSettings);
         var config = configBuilder.Build();
 
         var services = new ServiceCollection();

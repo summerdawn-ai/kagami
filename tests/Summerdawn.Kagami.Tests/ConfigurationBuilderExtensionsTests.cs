@@ -7,10 +7,10 @@ namespace Summerdawn.Kagami.Tests;
 public sealed class ConfigurationBuilderExtensionsTests
 {
     [Fact]
-    public void AddKagamiSettings_UsesDefaultLoggingWhenVerboseIsDisabled()
+    public void AddKagamiSettings_LoadsDefaultLoggingWhenVerboseIsDisabled()
     {
         var configurationBuilder = new ConfigurationBuilder();
-        configurationBuilder.AddKagamiSettings(noDefaultSettings: false, [], verbose: false);
+        configurationBuilder.AddKagamiSettings(noDefaultSettings: false, noApplicationDataSettings: true, [], verboseSettings: false);
         var configuration = configurationBuilder.Build();
 
         Assert.Equal("Information", configuration["Logging:LogLevel:Default"]);
@@ -18,10 +18,10 @@ public sealed class ConfigurationBuilderExtensionsTests
     }
 
     [Fact]
-    public void AddKagamiSettings_OverridesLoggingWhenVerboseIsEnabled()
+    public void AddKagamiSettings_AppliesVerboseLoggingSettingsLast()
     {
         var configurationBuilder = new ConfigurationBuilder();
-        configurationBuilder.AddKagamiSettings(noDefaultSettings: false, [], verbose: true);
+        configurationBuilder.AddKagamiSettings(noDefaultSettings: false, noApplicationDataSettings: true, [], verboseSettings: true);
         var configuration = configurationBuilder.Build();
 
         Assert.Equal("Debug", configuration["Logging:LogLevel:Summerdawn.Kagami"]);
@@ -30,7 +30,7 @@ public sealed class ConfigurationBuilderExtensionsTests
     }
 
     [Fact]
-    public void AddKagamiSettings_PreservesCustomFileOverridesWhenVerboseIsEnabled()
+    public void AddKagamiSettings_AppliesExplicitSettingsBeforeVerboseSettings()
     {
         string settingsFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
 
@@ -40,14 +40,15 @@ public sealed class ConfigurationBuilderExtensionsTests
                 {
                   "Logging": {
                     "LogLevel": {
-                      "Default": "Error"
+                        "Default": "Error",
+                        "System.Net.Http.HttpClient": "Warning"
                     }
                   }
                 }
                 """);
 
             var configurationBuilder = new ConfigurationBuilder();
-            configurationBuilder.AddKagamiSettings(noDefaultSettings: false, [settingsFile], verbose: true);
+            configurationBuilder.AddKagamiSettings(noDefaultSettings: false, noApplicationDataSettings: true, [settingsFile], verboseSettings: true);
             var configuration = configurationBuilder.Build();
 
             Assert.Equal("Error", configuration["Logging:LogLevel:Default"]);
@@ -61,4 +62,15 @@ public sealed class ConfigurationBuilderExtensionsTests
             }
         }
     }
+
+    [Fact]
+    public void AddKagamiSettings_DoesNotLoadEmbeddedDefaultsWhenDisabled()
+    {
+        var configurationBuilder = new ConfigurationBuilder();
+        configurationBuilder.AddKagamiSettings(noDefaultSettings: true, noApplicationDataSettings: true, [], verboseSettings: false);
+        var configuration = configurationBuilder.Build();
+
+        Assert.Null(configuration["Logging:LogLevel:Default"]);
+    }
+
 }

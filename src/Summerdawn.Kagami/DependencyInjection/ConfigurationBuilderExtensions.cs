@@ -3,6 +3,8 @@ using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.Json;
 
+using Summerdawn.Kagami.Configuration;
+
 namespace Summerdawn.Kagami.DependencyInjection;
 
 /// <summary>
@@ -13,29 +15,34 @@ internal static class ConfigurationBuilderExtensions
     private const string ResourceNamespace = "Summerdawn.Kagami";
 
     /// <summary>
-    /// Adds Kagami settings from embedded defaults and specified settings files to the configuration.
+    /// Adds Kagami settings from embedded defaults, local files, environment variables, and specified settings files to the configuration.
     /// </summary>
-    public static void AddKagamiSettings(this IConfigurationBuilder configurationBuilder, bool noDefaultSettings, string[] settingsFileNames, bool verbose)
+    public static void AddKagamiSettings(this IConfigurationBuilder configurationBuilder, bool noDefaultSettings, bool noApplicationDataSettings, string[] settingsFileNames, bool verboseSettings)
     {
-        // Load embedded appsettings.json as first configuration source (unless disabled)
+        // Load embedded appsettings.json as the first configuration source unless disabled.
         if (!noDefaultSettings)
         {
             configurationBuilder.AddJsonResource("appsettings.json");
-
-            if (verbose)
-            {
-                configurationBuilder.AddJsonResource("appsettings.Verbose.json");
-            }
         }
 
-        // Load custom appsettings.json if specified
+        configurationBuilder.AddJsonFile(Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json"), optional: true);
+        if (!noApplicationDataSettings)
+        {
+            configurationBuilder.AddJsonFile(Path.Combine(KagamiOptions.DefaultDataDirectory, "appsettings.json"), optional: true);
+        }
+        configurationBuilder.AddEnvironmentVariables();
         configurationBuilder.AddJsonFiles(settingsFileNames);
+
+        if (verboseSettings)
+        {
+            configurationBuilder.AddJsonResource("appsettings.Verbose.json");
+        }
     }
 
     /// <summary>
     /// Adds an embedded JSON resource as a configuration source.
     /// </summary>
-    public static void AddJsonResource(this IConfigurationBuilder configurationBuilder, string resourceName)
+    public static IConfigurationBuilder AddJsonResource(this IConfigurationBuilder configurationBuilder, string resourceName, int? position = null)
     {
         var assembly = Assembly.GetExecutingAssembly();
 
@@ -51,22 +58,59 @@ internal static class ConfigurationBuilderExtensions
         resourceStream.CopyTo(memoryStream);
         memoryStream.Position = 0;
 
-        // Append sources in call order so later resources (for example, appsettings.Verbose.json)
-        // override earlier embedded defaults, while still allowing user-provided settings files to win.
-        configurationBuilder.Add(new JsonStreamConfigurationSource
+        var source = new JsonStreamConfigurationSource
         {
             Stream = memoryStream
-        });
+        };
+
+        if (position.HasValue)
+        {
+            configurationBuilder.Sources.Insert(position.Value, source);
+        }
+        else
+        {
+            configurationBuilder.Sources.Add(source);
+        }
+
+        return configurationBuilder;
     }
 
     /// <summary>
     /// Adds the specified JSON settings files to the configuration.
     /// </summary>
-    public static void AddJsonFiles(this IConfigurationBuilder configurationBuilder, string[] paths)
+    public static IConfigurationBuilder AddJsonFile(this IConfigurationBuilder configurationBuilder, string path, bool optional = false, int? position = null)
+    {
+        var source = new JsonConfigurationSource
+        {
+            Path = path,
+            Optional = optional,
+            ReloadOnChange = false,
+        };
+
+        source.ResolveFileProvider();
+
+        if (position.HasValue)
+        {
+            configurationBuilder.Sources.Insert(position.Value, source);
+        }
+        else
+        {
+            configurationBuilder.Sources.Add(source);
+        }
+
+        return configurationBuilder;
+    }
+
+    /// <summary>
+    /// Adds the specified JSON settings files to the configuration.
+    /// </summary>
+    public static IConfigurationBuilder AddJsonFiles(this IConfigurationBuilder configurationBuilder, IEnumerable<string> paths)
     {
         foreach (string settingsFile in paths)
         {
             configurationBuilder.AddJsonFile(settingsFile, optional: false);
         }
+
+        return configurationBuilder;
     }
 }

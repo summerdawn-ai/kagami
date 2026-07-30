@@ -6,9 +6,15 @@ using Summerdawn.Kagami.Configuration;
 
 namespace Summerdawn.Kagami.Authentication;
 
-internal static class CredentialFactory
+/// <summary>
+/// Creates connector credentials from configured credential options.
+/// </summary>
+internal sealed class CredentialFactory(GoogleTokenCache tokenCache)
 {
-    public static IConnectorCredential Create(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
+    /// <summary>
+    /// Creates a connector credential for the specified configuration.
+    /// </summary>
+    public IConnectorCredential Create(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
     {
         return options.Type switch
         {
@@ -18,11 +24,11 @@ internal static class CredentialFactory
         };
     }
 
-    private static GoogleOAuthCredential CreateGoogleOAuth(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
+    private GoogleOAuthCredential CreateGoogleOAuth(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
     {
         string clientId = RequireField(options.ClientId, "ClientId", CredentialOptions.GoogleOAuthCredential);
         string clientSecret = RequireField(options.ClientSecret, "ClientSecret", CredentialOptions.GoogleOAuthCredential);
-        return new GoogleOAuthCredential(clientId, clientSecret, endpointName, scopes, httpClient);
+        return new GoogleOAuthCredential(clientId, clientSecret, endpointName, scopes, httpClient, tokenCache);
     }
 
     private static MicrosoftClientCredential CreateMicrosoftClientCredential(CredentialOptions options)

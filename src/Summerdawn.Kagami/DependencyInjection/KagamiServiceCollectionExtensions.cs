@@ -16,14 +16,6 @@ namespace Summerdawn.Kagami.DependencyInjection;
 /// </summary>
 public static class KagamiServiceCollectionExtensions
 {
-    private static readonly string DatabasePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Summerdawn.ai", "Kagami", "kagami-state.db");
-
-    private static readonly string DatabaseDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Summerdawn.ai", "Kagami");
-
     /// <summary>
     /// Adds Kagami core services to the DI container.
     /// </summary>
@@ -36,6 +28,8 @@ public static class KagamiServiceCollectionExtensions
         // Build a shared HttpClient for credential/token operations (not API calls)
         HttpClient authHttpClient = new();
         authHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd("kagami/0.1");
+        var tokenCache = new GoogleTokenCache(options.DataDirectory);
+        var credentialFactory = new CredentialFactory(tokenCache);
 
         // Pre-build one credential per endpoint at startup
         var credentials = new Dictionary<string, IConnectorCredential>(StringComparer.OrdinalIgnoreCase);
@@ -44,7 +38,7 @@ public static class KagamiServiceCollectionExtensions
             if (!string.IsNullOrWhiteSpace(endpoint.Credential.Type))
             {
                 var scopes = ScopesFor(endpoint.Type);
-                credentials[endpointName] = CredentialFactory.Create(endpoint.Credential, authHttpClient, scopes, endpointName);
+                credentials[endpointName] = credentialFactory.Create(endpoint.Credential, authHttpClient, scopes, endpointName);
             }
         }
 
@@ -88,8 +82,9 @@ public static class KagamiServiceCollectionExtensions
 
         services.AddSingleton(sp =>
         {
-            Directory.CreateDirectory(DatabaseDirectory);
-            return new StateDatabase(DatabasePath, sp.GetRequiredService<ILogger<StateDatabase>>());
+            Directory.CreateDirectory(options.DataDirectory);
+            string databasePath = Path.Combine(options.DataDirectory, "sync.db");
+            return new StateDatabase(databasePath, sp.GetRequiredService<ILogger<StateDatabase>>());
         });
         services.AddSingleton<EndpointCursorRepository>();
         services.AddSingleton<LinkStateRepository>();
