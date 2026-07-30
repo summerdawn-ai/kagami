@@ -29,7 +29,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
     /// <inheritdoc/>
     public ConnectorCapabilities Capabilities { get; } = new()
     {
-        ConnectorType = EndpointOptions.GoogleCalendar,
+        ConnectorType = EndpointOptions.GoogleEvents,
         SupportsIncrementalSync = true,
         SupportsDeletes = true,
         SupportsAttendees = true,

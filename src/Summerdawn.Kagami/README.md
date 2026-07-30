@@ -398,8 +398,8 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
         },
         "Properties": {}
       },
-      "googleCalendar": {
-        "Type": "GoogleCalendar",
+      "googleEvents": {
+        "Type": "GoogleEvents",
         "Credential": {
           "Type": "GoogleOAuthCredential",
           "ClientId": "your-google-client-id.apps.googleusercontent.com",
@@ -421,8 +421,8 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
           "userId": "person@summerdawn.ai"
         }
       },
-      "exchangeCalendar": {
-        "Type": "MicrosoftCalendar",
+      "exchangeEvents": {
+        "Type": "MicrosoftEvents",
         "Credential": {
           "Type": "MicrosoftClientCredential",
           "TenantId": "00000000-0000-0000-0000-000000000000",
@@ -473,7 +473,7 @@ Notes:
 - Kagami requests the Google contacts scope `https://www.googleapis.com/auth/contacts`
 - The built-in Google contacts connector currently uses end-user OAuth; service-account and domain-wide-delegation auth are not supported
 
-#### `GoogleCalendar`
+#### `GoogleEvents`
 
 Credential fields (`Type = "GoogleOAuthCredential"`):
 
@@ -513,7 +513,7 @@ Behavior:
 - reads and writes Microsoft Graph contacts
 - maps Outlook categories to canonical contact categories / labels
 
-#### `MicrosoftCalendar`
+#### `MicrosoftEvents`
 
 Credential fields (`Type = "MicrosoftClientCredential"`):
 

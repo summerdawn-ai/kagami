@@ -245,7 +245,7 @@ public sealed class MicrosoftEventsConnectorTests
         var credential = new MicrosoftClientCredential(new FakeTokenCredential());
         var endpoint = new EndpointOptions
         {
-            Type = EndpointOptions.MicrosoftCalendar,
+            Type = EndpointOptions.MicrosoftEvents,
             Properties = new Dictionary<string, string>
             {
                 ["userId"] = "user@contoso.com",

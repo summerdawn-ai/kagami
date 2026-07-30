@@ -83,13 +83,13 @@ public static class KagamiServiceCollectionExtensions
                 credentials.TryGetValue(capturedEndpointName, out var credential);
                 return capturedEndpoint.Type switch
                 {
-                    EndpointOptions.GoogleCalendar => new GoogleEventsConnector(
+                    EndpointOptions.GoogleEvents => new GoogleEventsConnector(
                         httpClient,
                         capturedEndpointName,
                         capturedEndpoint,
                         credential as GoogleOAuthCredential
                             ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a GoogleOAuthCredential.")),
-                    EndpointOptions.MicrosoftCalendar => new MicrosoftEventsConnector(
+                    EndpointOptions.MicrosoftEvents => new MicrosoftEventsConnector(
                         httpClient,
                         capturedEndpointName,
                         capturedEndpoint,
@@ -130,7 +130,7 @@ public static class KagamiServiceCollectionExtensions
     private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType switch
     {
         EndpointOptions.GoogleContacts => ["https://www.googleapis.com/auth/contacts"],
-        EndpointOptions.GoogleCalendar => ["https://www.googleapis.com/auth/calendar"],
+        EndpointOptions.GoogleEvents => ["https://www.googleapis.com/auth/calendar"],
         _ => []
     };
 

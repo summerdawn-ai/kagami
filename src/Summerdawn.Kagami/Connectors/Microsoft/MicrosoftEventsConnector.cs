@@ -28,7 +28,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
     /// <inheritdoc/>
     public ConnectorCapabilities Capabilities { get; } = new()
     {
-        ConnectorType = EndpointOptions.MicrosoftCalendar,
+        ConnectorType = EndpointOptions.MicrosoftEvents,
         SupportsIncrementalSync = true,
         SupportsDeletes = true,
         SupportsAttendees = true,

@@ -323,14 +323,14 @@ public sealed class ProgramTests
         get
         {
             TheoryData<string[]> data = [];
-            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar"]);
-            data.Add(["events", "export", "--from", "MicrosoftCalendar", "--to", "/tmp/out"]);
-            data.Add(["events", "import", "--from", "/tmp/in", "--to", "GoogleCalendar"]);
-            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--bidirectional"]);
-            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--reverse"]);
-            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--what-if"]);
-            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--on-conflict", "destination-wins"]);
-            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--interval", "PT15M"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents"]);
+            data.Add(["events", "export", "--from", "MicrosoftEvents", "--to", "/tmp/out"]);
+            data.Add(["events", "import", "--from", "/tmp/in", "--to", "GoogleEvents"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--bidirectional"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--reverse"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--what-if"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--on-conflict", "destination-wins"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--interval", "PT15M"]);
             return data;
         }
     }
@@ -341,7 +341,7 @@ public sealed class ProgramTests
         {
             TheoryData<string[]> data = [];
             data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--on-conflict", "dest-wins"]);
-            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--on-conflict", "dest-wins"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--on-conflict", "dest-wins"]);
             return data;
         }
     }

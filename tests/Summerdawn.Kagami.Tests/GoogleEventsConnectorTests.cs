@@ -200,7 +200,7 @@ public sealed class GoogleEventsConnectorTests
 
         var endpoint = new EndpointOptions
         {
-            Type = EndpointOptions.GoogleCalendar,
+            Type = EndpointOptions.GoogleEvents,
             Properties = [],
         };
 
