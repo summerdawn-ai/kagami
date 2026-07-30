@@ -8,8 +8,8 @@ using Summerdawn.Kagami.DependencyInjection;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
 
-using CalendarEventFilter = Summerdawn.Kagami.Models.CalendarEventFilter;
 using ContactFilter = Summerdawn.Kagami.Models.ContactFilter;
+using EventFilter = Summerdawn.Kagami.Models.EventFilter;
 
 namespace Summerdawn.Kagami;
 
@@ -550,7 +550,7 @@ public static class Program
             string? filter = parseResult.GetValue(filterOption);
             bool all = parseResult.GetValue(allOption);
             bool verbose = parseResult.GetValue(verboseOption);
-            var eventFilter = CalendarEventFilter.Parse(filter);
+            var eventFilter = EventFilter.Parse(filter);
             IReadOnlyList<CanonicalEvent> events;
 
             // Keep the provider alive while working so disposing it flushes the log factory before process exit.
@@ -606,7 +606,7 @@ public static class Program
             string? filter = parseResult.GetValue(filterOption);
             bool prune = parseResult.GetValue(pruneOption);
             bool verboseSettings = parseResult.GetValue(verboseOption);
-            var eventFilter = CalendarEventFilter.Parse(filter);
+            var eventFilter = EventFilter.Parse(filter);
             JobExecutionResult result;
 
             await using (var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings))
@@ -695,7 +695,7 @@ public static class Program
                     ? SyncMode.Reverse
                     : SyncMode.Forward;
 
-            var eventFilter = CalendarEventFilter.Parse(filter);
+            var eventFilter = EventFilter.Parse(filter);
 
             var conflictPolicy = onConflictStr.ToLowerInvariant() switch
             {
@@ -782,7 +782,7 @@ public static class Program
             bool confirm = parseResult.GetValue(confirmOption);
             bool force = parseResult.GetValue(forceOption);
             bool verboseSettings = parseResult.GetValue(verboseOption);
-            var eventFilter = CalendarEventFilter.Parse(filter);
+            var eventFilter = EventFilter.Parse(filter);
             JobExecutionResult result;
 
             await using (var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings))

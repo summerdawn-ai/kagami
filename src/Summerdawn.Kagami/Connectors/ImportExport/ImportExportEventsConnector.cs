@@ -82,7 +82,7 @@ public sealed class ImportExportEventsConnector(string directory) : IConnector<C
     public async Task<CanonicalEvent> CreateItemAsync(CanonicalEvent item, CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(directory);
-        string baseName = AllocateUniqueBaseName(CalendarEventNameHelper.BuildExportBaseName(item));
+        string baseName = AllocateUniqueBaseName(EventNameHelper.BuildExportBaseName(item));
         string filePath = Path.Combine(directory, $"{baseName}.json");
 
         await WriteEventAsync(item, filePath, cancellationToken);

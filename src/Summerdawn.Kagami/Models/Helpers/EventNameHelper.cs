@@ -6,7 +6,7 @@ namespace Summerdawn.Kagami.Models;
 /// Provides utility methods for deriving export filenames from a
 /// <see cref="CanonicalEvent"/>.
 /// </summary>
-public static class CalendarEventNameHelper
+public static class EventNameHelper
 {
     private const int MaxTitleLength = 20;
 

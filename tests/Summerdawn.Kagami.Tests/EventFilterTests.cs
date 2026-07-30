@@ -2,7 +2,7 @@ using Summerdawn.Kagami.Models;
 
 namespace Summerdawn.Kagami.Tests;
 
-public sealed class CalendarEventFilterTests
+public sealed class EventFilterTests
 {
     [Theory]
     [InlineData("startswith(title,'Tea')", "Team Sync", true)]
@@ -12,7 +12,7 @@ public sealed class CalendarEventFilterTests
     [InlineData("title eq 'Other'", "Team Sync", false)]
     public void Parse_KnownPattern_MatchesAsExpected(string expression, string title, bool expected)
     {
-        var filter = CalendarEventFilter.Parse(expression);
+        var filter = EventFilter.Parse(expression);
 
         Assert.NotNull(filter);
         Assert.Equal(expected, filter!.Matches(new CanonicalEvent { Title = title }));
@@ -22,20 +22,20 @@ public sealed class CalendarEventFilterTests
     [Fact]
     public void Parse_NullExpression_ReturnsNull()
     {
-        Assert.Null(CalendarEventFilter.Parse(null));
-        Assert.Null(CalendarEventFilter.Parse("  "));
+        Assert.Null(EventFilter.Parse(null));
+        Assert.Null(EventFilter.Parse("  "));
     }
 
     [Fact]
     public void Parse_InvalidExpression_Throws()
     {
-        Assert.Throws<ArgumentException>(() => CalendarEventFilter.Parse("startswith(name,'x')"));
+        Assert.Throws<ArgumentException>(() => EventFilter.Parse("startswith(name,'x')"));
     }
 
     [Fact]
     public void Apply_FiltersMatchingEvents()
     {
-        var filter = CalendarEventFilter.Parse("contains(title,'Sync')");
+        var filter = EventFilter.Parse("contains(title,'Sync')");
         var items = new[]
         {
             new CanonicalEvent { Title = "Team Sync" },

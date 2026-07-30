@@ -14,11 +14,11 @@ namespace Summerdawn.Kagami.Models;
 ///   <item><c>title eq 'value'</c></item>
 /// </list>
 /// </remarks>
-public sealed partial class CalendarEventFilter : IFilter<CanonicalEvent>
+public sealed partial class EventFilter : IFilter<CanonicalEvent>
 {
     private readonly Func<CanonicalEvent, bool> predicate;
 
-    private CalendarEventFilter(Func<CanonicalEvent, bool> predicate, string scope)
+    private EventFilter(Func<CanonicalEvent, bool> predicate, string scope)
     {
         this.predicate = predicate;
         Scope = scope;
@@ -30,10 +30,10 @@ public sealed partial class CalendarEventFilter : IFilter<CanonicalEvent>
     public string Scope { get; }
 
     /// <summary>
-    /// Parses an OData-style filter expression and returns a <see cref="CalendarEventFilter"/>,
+    /// Parses an OData-style filter expression and returns a <see cref="EventFilter"/>,
     /// or <c>null</c> if the expression is null or whitespace.
     /// </summary>
-    public static CalendarEventFilter? Parse(string? filterExpression)
+    public static EventFilter? Parse(string? filterExpression)
     {
         if (string.IsNullOrWhiteSpace(filterExpression))
         {
@@ -46,28 +46,28 @@ public sealed partial class CalendarEventFilter : IFilter<CanonicalEvent>
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new CalendarEventFilter(e => e.Title.StartsWith(value, StringComparison.OrdinalIgnoreCase), filterExpression);
+            return new EventFilter(e => e.Title.StartsWith(value, StringComparison.OrdinalIgnoreCase), filterExpression);
         }
 
         m = EndsWithPattern().Match(expr);
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new CalendarEventFilter(e => e.Title.EndsWith(value, StringComparison.OrdinalIgnoreCase), filterExpression);
+            return new EventFilter(e => e.Title.EndsWith(value, StringComparison.OrdinalIgnoreCase), filterExpression);
         }
 
         m = ContainsPattern().Match(expr);
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new CalendarEventFilter(e => e.Title.Contains(value, StringComparison.OrdinalIgnoreCase), filterExpression);
+            return new EventFilter(e => e.Title.Contains(value, StringComparison.OrdinalIgnoreCase), filterExpression);
         }
 
         m = EqPattern().Match(expr);
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new CalendarEventFilter(e => e.Title.Equals(value, StringComparison.OrdinalIgnoreCase), filterExpression);
+            return new EventFilter(e => e.Title.Equals(value, StringComparison.OrdinalIgnoreCase), filterExpression);
         }
 
         throw new ArgumentException($"Unrecognized filter expression: '{filterExpression}'. " +
