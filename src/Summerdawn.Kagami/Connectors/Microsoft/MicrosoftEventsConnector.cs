@@ -51,7 +51,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
     {
         bool usingSavedCursor = cursor is not null;
         string requestUri = cursor
-            ?? $"{collectionPath}/delta?$select={Uri.EscapeDataString(SelectFields)}&$top={PageSize}&startDateTime={Uri.EscapeDataString(GetFullLoadStartDateTime(DateTimeOffset.UtcNow))}";
+            ?? $"{collectionPath}/delta?$select={Uri.EscapeDataString(SelectFields)}&startDateTime={Uri.EscapeDataString(GetFullLoadStartDateTime(DateTimeOffset.UtcNow))}";
         List<CanonicalEvent> items = [];
         string? finalCursor = cursor;
 
