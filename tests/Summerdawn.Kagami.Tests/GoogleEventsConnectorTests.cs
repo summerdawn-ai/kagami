@@ -187,8 +187,8 @@ public sealed class GoogleEventsConnectorTests
     private static GoogleEventsConnector CreateConnector(SequenceHttpHandler connectorHandler)
     {
         string endpointName = $"google-calendar-test-{Guid.NewGuid():N}";
-      var tokenCache = new GoogleTokenCache(Path.Combine(Path.GetTempPath(), "kagami-tests", Guid.NewGuid().ToString("N")));
-      tokenCache.Save(endpointName, new GoogleTokenCacheEntry("fake-token", "fake-refresh-token", DateTimeOffset.UtcNow.AddHours(1)));
+        var tokenCache = new GoogleTokenCache(Path.Combine(Path.GetTempPath(), "kagami-tests", Guid.NewGuid().ToString("N")));
+        tokenCache.Save(endpointName, new GoogleTokenCacheEntry("fake-token", "fake-refresh-token", DateTimeOffset.UtcNow.AddHours(1)));
 
         var credential = new GoogleOAuthCredential(
             "client-id",
@@ -201,7 +201,7 @@ public sealed class GoogleEventsConnectorTests
         var endpoint = new EndpointOptions
         {
             Type = EndpointOptions.GoogleCalendar,
-            Properties = new Dictionary<string, string>(),
+            Properties = [],
         };
 
         return new GoogleEventsConnector(

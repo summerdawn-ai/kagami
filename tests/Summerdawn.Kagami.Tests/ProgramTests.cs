@@ -329,13 +329,13 @@ public sealed class ProgramTests
             data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--bidirectional"]);
             data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--reverse"]);
             data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--what-if"]);
-            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--on-conflict", "dest-wins"]);
+            data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--on-conflict", "destination-wins"]);
             data.Add(["events", "sync", "--from", "MicrosoftCalendar", "--to", "GoogleCalendar", "--interval", "PT15M"]);
             return data;
         }
     }
 
-    public static TheoryData<string[]> DestWinsCommands
+    public static TheoryData<string[]> InvalidDestWinsCommands
     {
         get
         {
@@ -356,12 +356,12 @@ public sealed class ProgramTests
     }
 
     [Theory]
-    [MemberData(nameof(DestWinsCommands))]
-    public void CreateRootCommand_AcceptsDestWinsAlias(string[] args)
+    [MemberData(nameof(InvalidDestWinsCommands))]
+    public void CreateRootCommand_RejectsDestWinsAlias(string[] args)
     {
         var parseResult = Program.CreateRootCommand().Parse(args);
 
-        Assert.Empty(parseResult.Errors);
+        Assert.NotEmpty(parseResult.Errors);
     }
 
     [Fact]

@@ -246,7 +246,7 @@ kagami events sync --from WorkCalendar --to ArchiveCalendar --filter "startswith
 - `--bidirectional`: sync in both directions; otherwise changes flow from `--from` to `--to`
 - `--reverse`: sync from `--to` back to `--from`
 - `--prune`: delete destination events that no longer exist on the source (or vice versa)
-- `--on-conflict`: `last-write-wins` (default), `source-wins`, `dest-wins`, or `skip`
+- `--on-conflict`: `last-write-wins` (default), `source-wins`, `destination-wins`, or `skip`
 - `--full`: ignore saved cursors and fetch all rows from both sides, but still skip events whose content is already identical on both sides
 - `--force`: fetch all rows, bypass all change and sameness checks for every in-scope event, and write unconditionally — use only when normal change detection via version/hash is known to be unreliable. Do not use for normal runs.
 - `--filter`: apply an OData-style filter in memory before planning or writing changes
