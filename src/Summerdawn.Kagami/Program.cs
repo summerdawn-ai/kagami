@@ -125,7 +125,7 @@ public static class Program
 
         var onConflictOption = new Option<string>("--on-conflict")
         {
-            Description = "Conflict resolution policy: last-write-wins (default), source-wins, dest-wins, skip",
+            Description = "Conflict resolution policy: last-write-wins (default), source-wins, destination-wins, skip",
             Required = false,
             DefaultValueFactory = _ => "last-write-wins",
         }.AcceptOnlyFromAmong("last-write-wins", "source-wins", "destination-wins", "skip");
@@ -310,7 +310,7 @@ public static class Program
             var conflictPolicy = onConflictStr.ToLowerInvariant() switch
             {
                 "source-wins" => ConflictPolicy.SourceWins,
-                "dest-wins" or "destination-wins" => ConflictPolicy.DestinationWins,
+                "destination-wins" => ConflictPolicy.DestinationWins,
                 "skip" => ConflictPolicy.Skip,
                 _ => ConflictPolicy.LastWriteWins,
             };

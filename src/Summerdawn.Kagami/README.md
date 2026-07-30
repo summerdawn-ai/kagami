@@ -80,7 +80,7 @@ kagami contacts list   --from=<endpoint> [--filter=<expr>] [--all]
 kagami contacts export --from=<endpoint> --to=<dir> [--filter=<expr>]
 kagami contacts import --from=<dir> --to=<endpoint> [--prune] [--filter=<expr>] [--what-if|--confirm]
 kagami contacts sync   --from=<endpoint> --to=<endpoint> [--bidirectional|--reverse]
-                       [--prune] [--on-conflict=last-write-wins|source-wins|dest-wins|skip]
+                       [--prune] [--on-conflict=last-write-wins|source-wins|destination-wins|skip]
                        [--what-if|--confirm] [--filter=<expr>] [--force] [--interval=<ISO8601>]
 
 # Job admin / housekeeping
@@ -162,7 +162,7 @@ kagami contacts sync --from Microsoft --to Google --filter "contains(categories,
 - `--bidirectional`: sync in both directions; otherwise changes flow from `--from` to `--to`
 - `--reverse`: sync from `--to` back to `--from`
 - `--prune`: delete destination contacts that no longer exist on the source (or vice versa)
-- `--on-conflict`: `last-write-wins` (default), `source-wins`, `dest-wins`, or `skip`
+- `--on-conflict`: `last-write-wins` (default), `source-wins`, `destination-wins`, or `skip`
 - `--full`: ignore saved cursors and fetch all rows from both sides, but still skip contacts whose payload and photo are already identical on both sides
 - `--force`: fetch all rows, bypass all change and sameness checks for every in-scope contact, and write unconditionally — use only when normal change detection via version/hash is known to be unreliable (e.g. destination data drifted outside the canonical model). Do not use for normal runs.
 - `--filter`: apply an OData-style filter in memory before planning or writing changes
