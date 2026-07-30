@@ -12,14 +12,21 @@ using Summerdawn.Kagami.Models;
 namespace Summerdawn.Kagami.Connectors;
 
 /// <summary>
-/// Synchronizes Google events with silent write operations.
+/// Synchronizes canonical events with a Google Calendar endpoint.
 /// </summary>
+/// <remarks>
+/// Full reads begin one year before the current month and use Google Calendar's ordinary
+/// collection pagination. Persisted reads use the Calendar API sync token and preserve
+/// cancellation records so the sync engine can remove deleted events. Writes use the
+/// provider's import, patch, and delete operations without sending attendee notifications.
+/// </remarks>
 public class GoogleEventsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, GoogleOAuthCredential credential) : IConnector<CanonicalEvent>
 {
     private const string GraphBaseUri = "https://www.googleapis.com/calendar/v3";
     private const int PageSize = 250;
     private readonly string collectionPath = GetCollectionPath(endpointName, endpoint);
 
+    /// <inheritdoc/>
     public ConnectorCapabilities Capabilities { get; } = new()
     {
         ConnectorType = EndpointOptions.GoogleCalendar,
@@ -31,13 +38,16 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         SupportsServerSideFiltering = false,
     };
 
+    /// <inheritdoc/>
     public string EndpointName { get; } = endpointName;
 
+    /// <inheritdoc/>
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
         _ = await credential.GetAccessTokenAsync(cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<ItemSet<CanonicalEvent>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
     {
         var parsedCursor = string.IsNullOrWhiteSpace(cursor)
@@ -67,6 +77,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return new ItemSet<CanonicalEvent>(items, finalCursor);
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalEvent?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
         string requestUri = $"{collectionPath}/{Uri.EscapeDataString(id)}";
@@ -76,6 +87,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return item is not null && ShouldSync(item) ? item : null;
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalEvent> CreateItemAsync(CanonicalEvent item, CancellationToken cancellationToken = default)
     {
         string requestUri = $"{collectionPath}/import";
@@ -88,6 +100,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             ?? throw new InvalidOperationException("Google calendar import succeeded but the created event could not be reloaded.");
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalEvent> UpdateItemAsync(CanonicalEvent item, CancellationToken cancellationToken = default)
     {
         string requestUri = $"{collectionPath}/{Uri.EscapeDataString(item.Provenance.ProviderId)}?sendUpdates=none";
@@ -99,6 +112,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             ?? throw new InvalidOperationException("Google calendar update succeeded but the updated event could not be reloaded.");
     }
 
+    /// <inheritdoc/>
     public async Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
     {
         string requestUri = $"{collectionPath}/{Uri.EscapeDataString(id)}?sendUpdates=none";
@@ -107,10 +121,21 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
+    /// <summary>
+    /// Reads one Google Calendar page and converts its provider cursor into the connector cursor format.
+    /// </summary>
+    /// <remarks>
+    /// A full read suppresses cancelled events and starts at the configured rolling time boundary.
+    /// An incremental read must retain Google's cancellation entries, because those entries are the
+    /// only signal the sync engine receives when an event disappears from the remote calendar.
+    /// </remarks>
     private async Task<ConnectorPage> GetEventsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
     {
         // Full load: exclude deleted events and non-default event types up front.
         // Incremental sync: showDeleted is not allowed (Google always returns cancellations as changed items).
+        // Google applies different query rules to initial and incremental reads. In particular,
+        // showDeleted is valid for the initial collection read but incremental reads return
+        // cancellation tombstones as part of the sync-token protocol.
         bool isIncremental = !string.IsNullOrWhiteSpace(cursor.SyncToken);
         StringBuilder requestUri = new($"{collectionPath}?singleEvents=false&eventTypes=default&maxResults={PageSize}");
         if (!isIncremental)
@@ -158,6 +183,8 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             }
         }
 
+        // A page token continues the current traversal; only the final page can advance the
+        // durable sync token. Keeping those states distinct prevents persisting a partial cursor.
         string? nextPageToken = ReadString(document.RootElement, "nextPageToken");
         string? nextSyncToken = ReadString(document.RootElement, "nextSyncToken") ?? cursor.SyncToken;
         string? nextCursor = nextPageToken is not null
@@ -167,6 +194,14 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return new ConnectorPage(items, nextCursor, nextPageToken is not null);
     }
 
+    /// <summary>
+    /// Determines whether an event is relevant to this synchronization account.
+    /// </summary>
+    /// <remarks>
+    /// Google exposes both organizer and attendee response state. Organizers are always writable
+    /// from this connector, while attendees are included only after accepting or tentatively
+    /// accepting the invitation.
+    /// </remarks>
     private static bool ShouldSync(CanonicalEvent item)
     {
         if (item.Metadata.TryGetValue("google.isOrganizer", out string? isOrganizerRaw)
@@ -180,6 +215,13 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return selfResponse is "accepted" or "tentative";
     }
 
+    /// <summary>
+    /// Converts a Google Calendar event payload into the canonical event representation.
+    /// </summary>
+    /// <remarks>
+    /// Cancelled events intentionally produce a deletion tombstone with provenance but no event
+    /// fields. Unsupported event types are ignored before the canonical payload is constructed.
+    /// </remarks>
     internal static CanonicalEvent? ConvertEvent(JsonElement element, string endpointName)
     {
         string? id = ReadString(element, "id");
@@ -266,6 +308,13 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return item;
     }
 
+    /// <summary>
+    /// Creates the writable subset of a canonical event understood by Google Calendar.
+    /// </summary>
+    /// <remarks>
+    /// Empty attendee addresses are omitted because Google rejects attendee entries without an
+    /// address. Recurrence rules are split into the repeated-string shape required by the API.
+    /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     internal static JsonObject BuildWritableEvent(CanonicalEvent item)
@@ -328,6 +377,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return body;
     }
 
+    /// <summary>
+    /// Reads and joins the recurrence rules exposed by Google Calendar.
+    /// </summary>
     private static string? ReadRecurrencePattern(JsonElement element)
     {
         if (!element.TryGetProperty("recurrence", out var recurrence) || recurrence.ValueKind != JsonValueKind.Array)
@@ -344,6 +396,13 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return rules.Length == 0 ? null : string.Join('\n', rules);
     }
 
+    /// <summary>
+    /// Chooses the most useful location representation available in a Google event.
+    /// </summary>
+    /// <remarks>
+    /// A literal location wins, followed by the Hangouts link and finally a video conference
+    /// entry point. This keeps remote meeting links available when no display location exists.
+    /// </remarks>
     private static string? ReadLocation(JsonElement element)
     {
         string? location = ReadString(element, "location");
@@ -383,6 +442,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return null;
     }
 
+    /// <summary>
+    /// Converts the Google attendee array into canonical participants.
+    /// </summary>
     private static List<CalendarEventParticipant> ReadAttendees(JsonElement element)
     {
         if (!element.TryGetProperty("attendees", out var attendees) || attendees.ValueKind != JsonValueKind.Array)
@@ -404,6 +466,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return values;
     }
 
+    /// <summary>
+    /// Reads one participant object from a provider property such as organizer.
+    /// </summary>
     private static CalendarEventParticipant? ReadParticipant(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var participant) || participant.ValueKind != JsonValueKind.Object)
@@ -419,6 +484,13 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         };
     }
 
+    /// <summary>
+    /// Reads either a timed or all-day Google event value as UTC.
+    /// </summary>
+    /// <remarks>
+    /// All-day values have no time-zone component, so they are normalized to midnight UTC to keep
+    /// the canonical model deterministic across machines.
+    /// </remarks>
     private static DateTimeOffset ReadEventDateTime(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var dateNode))
@@ -441,6 +513,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return DateTimeOffset.MinValue;
     }
 
+    /// <summary>
+    /// Creates the UTC date-time object used in writable Google event payloads.
+    /// </summary>
     private static JsonObject CreateEventDateTimeNode(DateTimeOffset value) =>
         new()
         {
@@ -448,6 +523,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             ["timeZone"] = "UTC",
         };
 
+    /// <summary>
+    /// Creates an authenticated Google Calendar request.
+    /// </summary>
     private async Task<HttpRequestMessage> CreateRequestAsync(HttpMethod method, string uri, CancellationToken cancellationToken)
     {
         string token = await credential.GetAccessTokenAsync(cancellationToken);
@@ -456,6 +534,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return request;
     }
 
+    /// <summary>
+    /// Sends a request and parses a successful JSON response.
+    /// </summary>
     private async Task<JsonDocument> SendForJsonAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         using var response = await httpClient.SendAsync(request, cancellationToken);
@@ -464,6 +545,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
     }
 
+    /// <summary>
+    /// Converts a failed Google response into an exception containing the provider detail.
+    /// </summary>
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode)
@@ -475,14 +559,27 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         throw new InvalidOperationException($"Google Calendar API request failed ({(int)response.StatusCode} {response.StatusCode}): {body}");
     }
 
+    /// <summary>
+    /// Serializes a JSON node as an HTTP JSON request body.
+    /// </summary>
     private static StringContent CreateJsonContent(JsonNode body) =>
         new(body.ToJsonString(), Encoding.UTF8, "application/json");
 
+    /// <summary>
+    /// Reads a nullable string property without treating missing and explicit null values differently.
+    /// </summary>
     private static string? ReadString(JsonElement element, string propertyName) =>
         element.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.GetString()
             : null;
 
+    /// <summary>
+    /// Calculates the start boundary for a full calendar read.
+    /// </summary>
+    /// <remarks>
+    /// The boundary is rounded to the first day of the month after the one-year lookback month,
+    /// matching the connector's historical full-load contract rather than the exact current time.
+    /// </remarks>
     private static string GetFullLoadTimeMin(DateTimeOffset referenceTime)
     {
         var oneYearAgo = referenceTime.ToUniversalTime().AddMonths(-12);
@@ -490,18 +587,27 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         return firstBeginningOfMonthAfterOneYearAgo.AddMonths(1).ToString("yyyy-MM-ddTHH:mm:ssZ");
     }
 
+    /// <summary>
+    /// Reads a provider timestamp and returns null when it cannot be parsed.
+    /// </summary>
     private static DateTimeOffset? ReadDateTimeOffset(JsonElement element, string propertyName)
     {
         string? value = ReadString(element, propertyName);
         return DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
     }
 
+    /// <summary>
+    /// Resolves the configured Google Calendar resource path.
+    /// </summary>
     private static string GetCollectionPath(string endpointName, EndpointOptions endpoint)
     {
         string calendarId = endpoint.Properties.GetOptionalValue("calendarId") ?? "primary";
         return $"{GraphBaseUri}/calendars/{Uri.EscapeDataString(calendarId)}/events";
     }
 
+    /// <summary>
+    /// Deserializes the connector's persisted Google cursor.
+    /// </summary>
     private static GoogleCursor ParseCursor(string cursor)
     {
         using var document = JsonDocument.Parse(cursor);
@@ -511,6 +617,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             root.TryGetProperty("pageToken", out var pageTokenElement) ? pageTokenElement.GetString() : null);
     }
 
+    /// <summary>
+    /// Serializes a Google page or sync token into the connector's persisted cursor format.
+    /// </summary>
     private static string SerializeCursor(GoogleCursor cursor) =>
         new JsonObject
         {

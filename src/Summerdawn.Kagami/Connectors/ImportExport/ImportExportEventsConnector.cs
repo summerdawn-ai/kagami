@@ -114,8 +114,16 @@ public sealed class ImportExportEventsConnector(string directory) : IConnector<C
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Allocates a session-unique event filename base name.
+    /// </summary>
+    /// <remarks>
+    /// The suffix is chosen from the in-memory set as well as the initial directory scan, so
+    /// multiple creates in one process cannot select the same identity.
+    /// </remarks>
     private string AllocateUniqueBaseName(string desiredBaseName)
     {
+        // Keep the human-readable event name when possible and suffix only an actual collision.
         if (usedBaseNames.Add(desiredBaseName))
         {
             return desiredBaseName;
@@ -123,6 +131,7 @@ public sealed class ImportExportEventsConnector(string directory) : IConnector<C
 
         for (int count = 2; ; count++)
         {
+            // Reserve the candidate as soon as it is accepted for this connector session.
             string candidate = $"{desiredBaseName}_{count}";
             if (usedBaseNames.Add(candidate))
             {
@@ -131,10 +140,14 @@ public sealed class ImportExportEventsConnector(string directory) : IConnector<C
         }
     }
 
+    /// <summary>
+    /// Deserializes one event file and restores its file-derived provider identity.
+    /// </summary>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "KagamiJsonContext supports CanonicalEvent")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "KagamiJsonContext supports CanonicalEvent")]
     private static async Task<CanonicalEvent?> ReadEventAsync(string jsonFile, string baseName, CancellationToken cancellationToken)
     {
+        // A malformed event file should not hide valid files in the same import directory.
         string json = await File.ReadAllTextAsync(jsonFile, cancellationToken);
         CanonicalEvent? calendarEvent;
         try
@@ -143,6 +156,7 @@ public sealed class ImportExportEventsConnector(string directory) : IConnector<C
         }
         catch (JsonException)
         {
+            // Treat invalid JSON as an unreadable item and let the directory scan continue.
             return null;
         }
 
@@ -155,16 +169,24 @@ public sealed class ImportExportEventsConnector(string directory) : IConnector<C
         return calendarEvent;
     }
 
+    /// <summary>
+    /// Serializes one canonical event using the import/export JSON contract.
+    /// </summary>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "KagamiJsonContext supports CanonicalEvent")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "KagamiJsonContext supports CanonicalEvent")]
     private static async Task WriteEventAsync(CanonicalEvent item, string filePath, CancellationToken cancellationToken)
     {
+        // The shared source-generated options keep local event exports consistent with imports.
         string json = JsonSerializer.Serialize(item, KagamiJsonContext.ImportExportJsonOptions);
         await File.WriteAllTextAsync(filePath, json, cancellationToken);
     }
 
+    /// <summary>
+    /// Loads existing event filename base names from the export directory.
+    /// </summary>
     private static HashSet<string> GetUsedBaseNames(string directory)
     {
+        // Seed the collision set from disk before any new export names are allocated.
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         if (Directory.Exists(directory))

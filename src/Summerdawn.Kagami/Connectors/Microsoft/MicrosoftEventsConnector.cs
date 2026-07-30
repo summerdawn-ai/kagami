@@ -25,6 +25,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
     private const string SelectFields = "id,subject,body,start,end,location,organizer,attendees,responseStatus,isOrganizer,recurrence,iCalUId,lastModifiedDateTime,changeKey";
     private readonly string collectionPath = GetCollectionPath(endpointName, endpoint);
 
+    /// <inheritdoc/>
     public ConnectorCapabilities Capabilities { get; } = new()
     {
         ConnectorType = EndpointOptions.MicrosoftCalendar,
@@ -36,13 +37,16 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         SupportsServerSideFiltering = true,
     };
 
+    /// <inheritdoc/>
     public string EndpointName { get; } = endpointName;
 
+    /// <inheritdoc/>
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
         _ = await credential.TokenCredential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<ItemSet<CanonicalEvent>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
     {
         bool usingSavedCursor = cursor is not null;
@@ -67,9 +71,14 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         return new ItemSet<CanonicalEvent>(items, finalCursor);
     }
 
+    /// <summary>
+    /// Reads and maps one Microsoft Graph delta page, including deletion tombstones.
+    /// </summary>
     [SuppressMessage("ReSharper", "StringLiteralTypo")]
     private async Task<CursorItemsPage> GetCursorPageAsync(string requestUri, bool usingSavedCursor, CancellationToken cancellationToken)
     {
+        // Delta pages contain lightweight change records, so the request asks Graph for the
+        // connector page size and keeps the saved-cursor flag for expired-cursor detection.
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         request.Headers.TryAddWithoutValidation("Prefer", $"odata.maxpagesize={PageSize}");
         using var document = await SendForJsonAsync(request, cancellationToken, treatGoneAsExpiredCursor: usingSavedCursor);
@@ -77,6 +86,8 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         List<CanonicalEvent> items = [];
         if (document.RootElement.TryGetProperty("value", out var values) && values.ValueKind == JsonValueKind.Array)
         {
+            // Graph represents removals with @removed instead of a normal event body; preserve
+            // those ids as canonical tombstones so the sync planner can delete the counterpart.
             foreach (var element in values.EnumerateArray())
             {
                 string? id = ReadString(element, "id");
@@ -99,6 +110,8 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
                     continue;
                 }
 
+                // Ordinary changes are filtered by attendee relevance after full conversion,
+                // because the response and organizer metadata live in the canonical item.
                 var item = ConvertEvent(element, EndpointName);
                 if (item is not null && ShouldSync(item))
                 {
@@ -107,11 +120,14 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             }
         }
 
+        // A next link means traversal is incomplete; the delta link is durable only on the final
+        // page and must not be mistaken for an intermediate continuation URL.
         string? nextLink = ReadString(document.RootElement, "@odata.nextLink");
         string? deltaLink = ReadString(document.RootElement, "@odata.deltaLink");
         return new CursorItemsPage(items, nextLink ?? deltaLink, nextLink is not null);
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalEvent?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
         string requestUri = $"{collectionPath}/{Uri.EscapeDataString(id)}?$select={Uri.EscapeDataString(SelectFields)}";
@@ -121,6 +137,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         return item is not null && ShouldSync(item) ? item : null;
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalEvent> CreateItemAsync(CanonicalEvent item, CancellationToken cancellationToken = default)
     {
         string requestUri = $"{collectionPath}?sendNotifications=false";
@@ -133,6 +150,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             ?? throw new InvalidOperationException("Microsoft calendar create succeeded but the created event could not be reloaded.");
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalEvent> UpdateItemAsync(CanonicalEvent item, CancellationToken cancellationToken = default)
     {
         string requestUri = $"{collectionPath}/{Uri.EscapeDataString(item.Provenance.ProviderId)}?sendNotifications=false";
@@ -149,6 +167,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             ?? throw new InvalidOperationException("Microsoft calendar update succeeded but the updated event could not be reloaded.");
     }
 
+    /// <inheritdoc/>
     public async Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
     {
         string requestUri = $"{collectionPath}/{Uri.EscapeDataString(id)}?sendNotifications=false";
@@ -157,8 +176,12 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
+    /// <summary>
+    /// Determines whether Microsoft event participation makes an event relevant to this account.
+    /// </summary>
     private static bool ShouldSync(CanonicalEvent item)
     {
+        // Organizer events remain in scope regardless of the attendee response value.
         if (item.Metadata.TryGetValue("microsoft.isOrganizer", out string? isOrganizerRaw)
             && bool.TryParse(isOrganizerRaw, out bool isOrganizer)
             && isOrganizer)
@@ -166,18 +189,25 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             return true;
         }
 
+        // For invitations, keep only accepted or tentative responses and organizer records.
         string? response = item.Metadata.GetValueOrDefault("microsoft.responseStatus");
         return response is "organizer" or "accepted" or "tentativelyAccepted";
     }
 
+    /// <summary>
+    /// Converts a Microsoft Graph event payload into a canonical event and preserves sync metadata.
+    /// </summary>
     internal static CanonicalEvent? ConvertEvent(JsonElement element, string endpointName)
     {
+        // Graph change records without an id cannot be correlated with a persisted provider item.
         string? id = ReadString(element, "id");
         if (string.IsNullOrWhiteSpace(id))
         {
             return null;
         }
 
+        // Keep provider-specific fields in metadata so filtering can happen after conversion without
+        // expanding the provider-neutral event model with Graph-only concepts.
         var item = new CanonicalEvent
         {
             Title = ReadString(element, "subject") ?? string.Empty,
@@ -200,6 +230,8 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             },
         };
 
+        // Organizer and response metadata are deliberately captured even when a caller later filters
+        // the event, because the same conversion path serves both item reads and delta pages.
         bool isOrganizer = element.TryGetProperty("isOrganizer", out var isOrganizerNode) && isOrganizerNode.ValueKind == JsonValueKind.True;
         item.Metadata["microsoft.isOrganizer"] = isOrganizer.ToString();
         string? response = element.TryGetProperty("responseStatus", out var responseStatusNode)
@@ -219,10 +251,14 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         return item;
     }
 
+    /// <summary>
+    /// Builds the Microsoft Graph writable event payload from a canonical event.
+    /// </summary>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     internal static JsonObject BuildWritableEvent(CanonicalEvent item)
     {
+        // Graph requires nested body, start, end, and location objects even when some values are empty.
         JsonObject body = new()
         {
             ["subject"] = item.Title,
@@ -239,6 +275,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             },
         };
 
+        // Organizer and attendee entries are emitted only when they contain routable email addresses.
         if (item.Organizer is not null && !string.IsNullOrWhiteSpace(item.Organizer.Email))
         {
             body["organizer"] = new JsonObject
@@ -251,6 +288,8 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             };
         }
 
+        // Microsoft treats attendees as required by default; response state is provider-managed and
+        // therefore is intentionally not sent back during ordinary synchronization writes.
         if (item.Attendees.Count > 0)
         {
             JsonArray attendees = [];
@@ -278,6 +317,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             }
         }
 
+        // Recurrence is stored as provider JSON in the canonical model and can be restored directly.
         if (!string.IsNullOrWhiteSpace(item.RecurrencePattern)
             && JsonNode.Parse(item.RecurrencePattern) is JsonNode recurrenceNode)
         {
@@ -287,6 +327,9 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         return body;
     }
 
+    /// <summary>
+    /// Reads the nested Microsoft organizer address into a canonical participant.
+    /// </summary>
     private static CalendarEventParticipant? ReadOrganizer(JsonElement element)
     {
         if (!element.TryGetProperty("organizer", out var organizer)
@@ -302,6 +345,9 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         };
     }
 
+    /// <summary>
+    /// Reads Microsoft attendee addresses and their response values.
+    /// </summary>
     private static List<CalendarEventParticipant> ReadAttendees(JsonElement element)
     {
         if (!element.TryGetProperty("attendees", out var attendees) || attendees.ValueKind != JsonValueKind.Array)
@@ -309,6 +355,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             return [];
         }
 
+        // Ignore malformed attendee entries rather than manufacturing participants without addresses.
         List<CalendarEventParticipant> values = [];
         foreach (var attendee in attendees.EnumerateArray())
         {
@@ -332,6 +379,13 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         return values;
     }
 
+    /// <summary>
+    /// Converts a Microsoft dateTime/timeZone object to a UTC canonical timestamp.
+    /// </summary>
+    /// <remarks>
+    /// Graph may return an explicit offset or a wall-clock value paired with an IANA or Windows
+    /// zone identifier, so the parser handles both forms before falling back to UTC.
+    /// </remarks>
     private static DateTimeOffset ReadDateTimeTimeZone(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var node))
@@ -345,6 +399,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             return DateTimeOffset.MinValue;
         }
 
+        // An explicit offset is authoritative and must not be reinterpreted through the named zone.
         if (HasExplicitUtcOrOffset(dateTime)
             && DateTimeOffset.TryParse(dateTime, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedOffset))
         {
@@ -353,6 +408,8 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
 
         if (DateTime.TryParse(dateTime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDateTime))
         {
+            // Unspecified preserves the provider wall-clock value while TimeZoneInfo applies the
+            // correct daylight-saving rules during conversion.
             var unspecifiedDateTime = DateTime.SpecifyKind(parsedDateTime, DateTimeKind.Unspecified);
             string? timeZoneId = ReadString(node, "timeZone");
             if (TryResolveTimeZone(timeZoneId, out var timeZone))
@@ -360,12 +417,16 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
                 return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(unspecifiedDateTime, timeZone), TimeSpan.Zero);
             }
 
+            // Unknown zones are treated as UTC to keep the canonical model deterministic.
             return new DateTimeOffset(DateTime.SpecifyKind(parsedDateTime, DateTimeKind.Utc));
         }
 
         return DateTimeOffset.MinValue;
     }
 
+    /// <summary>
+    /// Determines whether a Microsoft date-time string carries its own UTC or numeric offset.
+    /// </summary>
     private static bool HasExplicitUtcOrOffset(string dateTime)
     {
         int timeSeparatorIndex = dateTime.IndexOf('T');
@@ -379,8 +440,12 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             || dateTime.IndexOf('-', timeSeparatorIndex + 1) >= 0;
     }
 
+    /// <summary>
+    /// Resolves UTC, native, and cross-platform IANA/Windows time-zone identifiers.
+    /// </summary>
     private static bool TryResolveTimeZone(string? timeZoneId, out TimeZoneInfo timeZone)
     {
+        // Microsoft payloads commonly use UTC aliases or platform-specific identifiers.
         if (string.IsNullOrWhiteSpace(timeZoneId)
             || string.Equals(timeZoneId, "UTC", StringComparison.OrdinalIgnoreCase)
             || string.Equals(timeZoneId, "Etc/UTC", StringComparison.OrdinalIgnoreCase)
@@ -390,11 +455,13 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             return true;
         }
 
+        // Prefer the host's native identifier before attempting cross-platform conversion.
         if (TryFindTimeZone(timeZoneId, out timeZone))
         {
             return true;
         }
 
+        // These conversions allow Linux and Windows workers to consume the same Graph payload.
         if (TimeZoneInfo.TryConvertIanaIdToWindowsId(timeZoneId, out string? windowsTimeZoneId)
             && TryFindTimeZone(windowsTimeZoneId, out timeZone))
         {
@@ -411,6 +478,9 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         return false;
     }
 
+    /// <summary>
+    /// Looks up a system time zone while converting unavailable or invalid identifiers to UTC.
+    /// </summary>
     private static bool TryFindTimeZone(string timeZoneId, out TimeZoneInfo timeZone)
     {
         try
@@ -418,6 +488,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
             return true;
         }
+        // Both exceptions indicate that the provider supplied a zone unavailable on this host.
         catch (TimeZoneNotFoundException)
         {
         }
@@ -429,6 +500,9 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         return false;
     }
 
+    /// <summary>
+    /// Creates the UTC dateTime/timeZone object expected by Microsoft Graph writes.
+    /// </summary>
     private static JsonObject CreateDateTimeTimeZoneNode(DateTimeOffset value) =>
         new()
         {
