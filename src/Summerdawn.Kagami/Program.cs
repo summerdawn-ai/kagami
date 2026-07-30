@@ -574,6 +574,7 @@ public static class Program
         var eventsExportCommand = new Command("export", "Export events from an endpoint to local JSON files in a directory")
         {
             settingsOption,
+            noDefaultSettingsOption,
             fromOption,
             toEndpointOption,
             filterOption,
@@ -583,15 +584,16 @@ public static class Program
         eventsExportCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             string? filter = parseResult.GetValue(filterOption);
             bool prune = parseResult.GetValue(pruneOption);
-            bool verbose = parseResult.GetValue(verboseOption);
+            bool verboseSettings = parseResult.GetValue(verboseOption);
             var eventFilter = CalendarEventFilter.Parse(filter);
             JobExecutionResult result;
 
-            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            await using (var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings))
             {
                 var handler = provider.GetRequiredService<CommandHandler<CanonicalEvent>>();
                 result = await handler.ExportAsync(from, to, prune: prune, eventFilter, CancellationToken.None);
@@ -741,6 +743,7 @@ public static class Program
         var eventsImportCommand = new Command("import", "Import events from local JSON files in a directory into a configured endpoint")
         {
             settingsOption,
+            noDefaultSettingsOption,
             fromOption,
             toEndpointOption,
             filterOption,
@@ -754,6 +757,7 @@ public static class Program
         eventsImportCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             bool prune = parseResult.GetValue(pruneOption);
@@ -761,11 +765,11 @@ public static class Program
             bool whatIf = parseResult.GetValue(whatIfOption);
             bool confirm = parseResult.GetValue(confirmOption);
             bool force = parseResult.GetValue(forceOption);
-            bool verbose = parseResult.GetValue(verboseOption);
+            bool verboseSettings = parseResult.GetValue(verboseOption);
             var eventFilter = CalendarEventFilter.Parse(filter);
             JobExecutionResult result;
 
-            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            await using (var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings))
             {
                 var handler = provider.GetRequiredService<CommandHandler<CanonicalEvent>>();
                 result = await handler.ImportAsync(from, to, prune, eventFilter, whatIf, confirm, force, CancellationToken.None);
