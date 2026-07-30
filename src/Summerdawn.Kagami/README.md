@@ -91,15 +91,17 @@ kagami jobs unlock --key <jobKey>
 kagami jobs unlock --all
 ```
 
+All CLI commands accept `--settings`, `--no-default-settings`, and `--verbose`. Run a command with `--help` for its operation-specific options.
+
 #### `kagami contacts list`
 
 Fetch and display contacts from a configured endpoint. By default, `kagami contacts list` returns up to 100 matching contacts; use `--all` to fetch the full result set.
 
 ```bash
-kagami contacts list --from Microsoft --settings appsettings.json
-kagami contacts list --from Microsoft --all --settings appsettings.json
-kagami contacts list --from Microsoft --filter "startswith(name,'A')" --settings appsettings.json
-kagami contacts list --from Microsoft --filter "contains(categories,'Recruiter')" --settings appsettings.json
+kagami contacts list --from Microsoft
+kagami contacts list --from Microsoft --all
+kagami contacts list --from Microsoft --filter "startswith(name,'A')"
+kagami contacts list --from Microsoft --filter "contains(categories,'Recruiter')"
 ```
 
 #### `kagami contacts export`
@@ -107,7 +109,7 @@ kagami contacts list --from Microsoft --filter "contains(categories,'Recruiter')
 Export contacts as one JSON file per contact into a local directory. Existing `*.json` files and previously exported photo files in the destination are deleted before writing.
 
 ```bash
-kagami contacts export --from Microsoft --to ./export --settings appsettings.json
+kagami contacts export --from Microsoft --to ./export
 ```
 
 #### `kagami contacts import`
@@ -116,13 +118,13 @@ Import contacts from local JSON files in a directory into a configured endpoint.
 
 ```bash
 # Import all contacts from a local directory
-kagami contacts import --from ./export --to Google --settings appsettings.json
+kagami contacts import --from ./export --to Google
 
 # Import with prune: remove destination contacts not present in the import set
-kagami contacts import --from ./export --to Google --prune --settings appsettings.json
+kagami contacts import --from ./export --to Google --prune
 
 # Dry run
-kagami contacts import --from ./export --to Google --what-if --settings appsettings.json
+kagami contacts import --from ./export --to Google --what-if
 ```
 
 When `--prune` is specified, Kagami deletes destination contacts that did not appear in the import set.
@@ -133,28 +135,28 @@ Synchronize contacts between two configured endpoints.
 
 ```bash
 # Forward sync (default: source to destination)
-kagami contacts sync --from Microsoft --to Google --settings appsettings.json
+kagami contacts sync --from Microsoft --to Google
 
 # Bidirectional sync
-kagami contacts sync --from Microsoft --to Google --bidirectional --settings appsettings.json
+kagami contacts sync --from Microsoft --to Google --bidirectional
 
 # Reverse sync
-kagami contacts sync --from Microsoft --to Google --reverse --settings appsettings.json
+kagami contacts sync --from Microsoft --to Google --reverse
 
 # One-directional with prune (mirror mode)
-kagami contacts sync --from Microsoft --to Google --prune --settings appsettings.json
+kagami contacts sync --from Microsoft --to Google --prune
 
 # Dry run: log planned actions without writing anything
-kagami contacts sync --from Microsoft --to Google --what-if --settings appsettings.json
+kagami contacts sync --from Microsoft --to Google --what-if
 
 # Force: re-evaluate all in-scope contacts even if unchanged
-kagami contacts sync --from Microsoft --to Google --force --settings appsettings.json
+kagami contacts sync --from Microsoft --to Google --force
 
 # Filter: only synchronize contacts whose effective name starts with 'A'
-kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')" --settings appsettings.json
+kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')"
 
 # Filter: only synchronize contacts in the Recruiter category
-kagami contacts sync --from Microsoft --to Google --filter "contains(categories,'Recruiter')" --settings appsettings.json
+kagami contacts sync --from Microsoft --to Google --filter "contains(categories,'Recruiter')"
 ```
 
 - `--bidirectional`: sync in both directions; otherwise changes flow from `--from` to `--to`
@@ -175,7 +177,7 @@ The `jobs` command group provides operational/admin access to persisted job stat
 List all known jobs and their current lock state. A job becomes known after its first sync run.
 
 ```bash
-kagami jobs list --settings appsettings.json
+kagami jobs list
 ```
 
 Output columns: `Key`, `Type`, `From`, `To`, `Locked`.
@@ -186,10 +188,10 @@ Reset stored sync state (link-state rows, cursors, and locks) for a specific job
 
 ```bash
 # Reset state for a specific job
-kagami jobs reset --key contacts:Microsoft:Google --settings appsettings.json
+kagami jobs reset --key contacts:Microsoft:Google
 
 # Reset all jobs
-kagami jobs reset --all --settings appsettings.json
+kagami jobs reset --all
 ```
 
 #### `kagami jobs unlock`
@@ -198,10 +200,10 @@ Force-release job locks after an interrupted run to clear stuck locks. This only
 
 ```bash
 # Unlock a specific job
-kagami jobs unlock --key contacts:Microsoft:Google --settings appsettings.json
+kagami jobs unlock --key contacts:Microsoft:Google
 
 # Unlock all jobs
-kagami jobs unlock --all --settings appsettings.json
+kagami jobs unlock --all
 ```
 
 ### Sync flags: `--full` and `--force`
@@ -301,6 +303,7 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
 ```json
 {
   "Kagami": {
+    "DataDirectory": "./data",
     "Endpoints": {
       "googleContacts": {
         "Type": "GoogleContacts",
@@ -328,6 +331,19 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
 }
 ```
 
+### Configuration Precedence
+
+Kagami uses [.NET Configuration providers](https://learn.microsoft.com/en-us/dotnet/core/extensions/configuration) to load settings from multiple sources in a specific order, with later sources overriding earlier ones:
+
+1. **Embedded default settings** - Built-in defaults embedded in the application, unless skipped with `--no-default-settings`
+2. **Content-directory settings files** - `appsettings.json` in the current working directory, if present
+3. **Application-data settings file** - `%LOCALAPPDATA%\Summerdawn.ai\Kagami\appsettings.json`, if present
+4. **Environment variables** - System or process environment variables
+5. **Explicit settings files** - Additional settings files specified with the `--settings` option, in argument order
+6. **Verbose logging settings** - Embedded logging settings, when `--verbose` is specified
+
+Use `--settings` to run with a configuration file outside the standard locations. Set `Kagami:DataDirectory` to store `sync.db` in a nonstandard directory; it does not change where `appsettings.json` is loaded from.
+
 ### `Endpoints`
 
 Named endpoint definitions. Each endpoint includes its credential inline.
@@ -346,7 +362,7 @@ Endpoint properties:
 Notes:
 
 - On first use, Kagami opens the browser for OAuth consent and listens on `http://localhost:4189/` for the callback
-- Access and refresh tokens are cached under `%LOCALAPPDATA%\Summerdawn.ai\Kagami\tokens`
+- Access and refresh tokens are cached in the application-data directory
 - Kagami requests the Google contacts scope `https://www.googleapis.com/auth/contacts`
 - The built-in Google contacts connector currently uses end-user OAuth; service-account and domain-wide-delegation auth are not supported
 
@@ -374,7 +390,7 @@ Behavior:
 
 ## State Database
 
-Kagami stores its SQLite state database at `%LOCALAPPDATA%\Summerdawn.ai\Kagami\kagami-state.db` alongside the token cache. The directory is created automatically on first run. The database path is not configurable.
+Kagami stores its SQLite state database as `sync.db` in `Kagami:DataDirectory`. The directory is created automatically on first run.
 
 ## Authentication Setup
 
