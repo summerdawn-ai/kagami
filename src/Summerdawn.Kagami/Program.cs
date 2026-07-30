@@ -431,6 +431,12 @@ public static class Program
             AllowMultipleArgumentsPerToken = true,
         };
 
+        var noDefaultSettingsOption = new Option<bool>("--no-default-settings")
+        {
+            Description = "Skip loading embedded default settings",
+            Arity = ArgumentArity.Zero,
+        };
+
         var whatIfOption = new Option<bool>("--what-if")
         {
             Description = "Plan actions without writing any changes",
@@ -514,6 +520,7 @@ public static class Program
         var eventsListCommand = new Command("list", "List events from a configured endpoint")
         {
             settingsOption,
+            noDefaultSettingsOption,
             fromOption,
             filterOption,
             allOption,
@@ -522,6 +529,7 @@ public static class Program
         eventsListCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
             string from = parseResult.GetValue(fromOption)!;
             string? filter = parseResult.GetValue(filterOption);
             bool all = parseResult.GetValue(allOption);
@@ -530,7 +538,7 @@ public static class Program
             IReadOnlyList<CanonicalEvent> events;
 
             // Keep the provider alive while working so disposing it flushes the log factory before process exit.
-            await using (var provider = BuildServiceProvider(settingsFiles, verbose))
+            await using (var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verbose))
             {
                 var handler = provider.GetRequiredService<CommandHandler<CanonicalEvent>>();
                 events = await handler.ListAsync(from, eventFilter, all ? null : 100, CancellationToken.None);
@@ -572,6 +580,7 @@ public static class Program
         var eventsSyncCommand = new Command("sync", "Synchronize calendar events between two configured endpoints")
         {
             settingsOption,
+            noDefaultSettingsOption,
             fromOption,
             toEndpointOption,
             bidirectionalOption,
@@ -613,6 +622,7 @@ public static class Program
         eventsSyncCommand.SetAction(async parseResult =>
         {
             string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
             string from = parseResult.GetValue(fromOption)!;
             string to = parseResult.GetValue(toEndpointOption)!;
             bool bidirectional = parseResult.GetValue(bidirectionalOption);
@@ -648,7 +658,7 @@ public static class Program
             var deletePolicy = prune ? DeletePolicy.Mirror : DeletePolicy.Ignore;
 
             // Keep the provider alive while working so disposing it flushes the log factory before process exit.
-            await using var provider = BuildServiceProvider(settingsFiles, verbose);
+            await using var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verbose);
             var handler = provider.GetRequiredService<CommandHandler<CanonicalEvent>>();
 
             if (interval.HasValue)
