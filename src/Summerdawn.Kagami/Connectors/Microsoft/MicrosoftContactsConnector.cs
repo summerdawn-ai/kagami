@@ -48,6 +48,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
 
     private readonly string collectionPath = GetCollectionPath(endpointName, endpoint);
 
+    /// <inheritdoc/>
     public ConnectorCapabilities Capabilities { get; } = new()
     {
         ConnectorType = EndpointOptions.MicrosoftContacts,
@@ -59,13 +60,16 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         SupportsServerSideFiltering = true,
     };
 
+    /// <inheritdoc/>
     public string EndpointName { get; } = endpointName;
 
+    /// <inheritdoc/>
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
         _ = await credential.TokenCredential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
     {
         bool usingSavedCursor = cursor is not null;
@@ -85,9 +89,15 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             requestUri = page.Cursor ?? throw new InvalidOperationException("Microsoft connector returned HasMore=true without a cursor.");
         }
 
+        // A provider can repeat an item across pages; retain its final observation, including a later deletion.
+        items = items.GroupBy(static item => item.Provenance.ProviderId, StringComparer.Ordinal).Select(static group => group.Last()).ToList();
+
         return new ItemSet<CanonicalContact>(items, finalCursor);
     }
 
+    /// <summary>
+    /// Loads every current Microsoft contact through the full collection endpoint.
+    /// </summary>
     public async Task<IReadOnlyList<CanonicalContact>> GetAllItemsAsync(CancellationToken cancellationToken = default)
     {
         string? requestUri = $"{collectionPath}?$select={Uri.EscapeDataString(ContactSelectFields)}&{ExtendedPropertiesExpand}&$top={AllPageSize}";
@@ -100,9 +110,12 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             requestUri = page.NextLink;
         }
 
+        // A provider can repeat an item across pages; retain its final observation.
+        items = items.GroupBy(static item => item.Provenance.ProviderId, StringComparer.Ordinal).Select(static group => group.Last()).ToList();
         return items;
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
         string uri = $"{collectionPath}/{Uri.EscapeDataString(id)}?$select={Uri.EscapeDataString(ContactSelectFields)}&{ExtendedPropertiesExpand}";
@@ -118,6 +131,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         return contact;
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalContact> CreateItemAsync(CanonicalContact contact, CancellationToken cancellationToken = default)
     {
         using var request = await CreateRequestAsync(HttpMethod.Post, collectionPath, cancellationToken);
@@ -129,6 +143,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             ?? throw new InvalidOperationException("Microsoft Contacts create succeeded but the created contact could not be reloaded.");
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalContact> UpdateItemAsync(CanonicalContact contact, CancellationToken cancellationToken = default)
     {
         using var request = await CreateRequestAsync(HttpMethod.Patch, $"{collectionPath}/{Uri.EscapeDataString(contact.Provenance.ProviderId)}", cancellationToken);
@@ -145,6 +160,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             ?? throw new InvalidOperationException("Microsoft Contacts update succeeded but the updated contact could not be reloaded.");
     }
 
+    /// <inheritdoc/>
     public async Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
     {
         using var request = await CreateRequestAsync(HttpMethod.Delete, $"{collectionPath}/{Uri.EscapeDataString(id)}", cancellationToken);
@@ -152,9 +168,14 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
+    /// <summary>
+    /// Reads one Microsoft Graph delta page and hydrates its changed contact records.
+    /// </summary>
     [SuppressMessage("ReSharper", "StringLiteralTypo")]
     private async Task<CursorItemsPage> GetCursorPageAsync(string requestUri, bool usingSavedCursor, CancellationToken cancellationToken)
     {
+        // Delta pages contain ids and change metadata, so the connector hydrates live ids in
+        // bounded Graph batches while preserving removed records as canonical tombstones.
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         request.Headers.TryAddWithoutValidation("Prefer", $"odata.maxpagesize={DeltaPageSize}");
         using var document = await SendForJsonAsync(request, cancellationToken, treatGoneAsExpiredCursor: usingSavedCursor);
@@ -163,6 +184,8 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         List<string> idsToHydrate = [];
         if (document.RootElement.TryGetProperty("value", out var values))
         {
+            // Removed entries cannot be hydrated after deletion; their id and timestamp are enough
+            // for the planner to correlate and remove the destination item.
             foreach (var element in values.EnumerateArray())
             {
                 string? id = ReadString(element, "id");
@@ -189,11 +212,14 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             }
         }
 
+        // Avoid an unnecessary batch request when the page contains only removals.
         if (idsToHydrate.Count > 0)
         {
             items.AddRange(await BatchGetContactsAsync(idsToHydrate, cancellationToken));
         }
 
+        // The next link is transient traversal state; the delta link is the durable cursor returned
+        // only after Graph has finished the current delta enumeration.
         string? nextLink = document.RootElement.TryGetProperty("@odata.nextLink", out var nextLinkElement)
             ? nextLinkElement.GetString()
             : null;
@@ -204,8 +230,12 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         return new CursorItemsPage(items, nextLink ?? deltaLink, nextLink is not null);
     }
 
+    /// <summary>
+    /// Reads and maps one page from the full Microsoft contacts collection endpoint.
+    /// </summary>
     private async Task<AllItemsPage> GetAllItemsPageAsync(string requestUri, CancellationToken cancellationToken)
     {
+        // Full reads request complete contact fields up front, unlike delta reads which hydrate ids.
         using var request = await CreateRequestAsync(HttpMethod.Get, requestUri, cancellationToken);
         using var document = await SendForJsonAsync(request, cancellationToken);
 
@@ -214,6 +244,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         {
             foreach (var element in values.EnumerateArray())
             {
+                // Full loads omit deletion records because the collection endpoint represents live state.
                 var contact = ConvertContact(element, EndpointName);
                 if (contact is null || contact.IsDeleted)
                 {
@@ -221,6 +252,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
                 }
 
                 ApplyExtendedPhoneProperties(contact, element);
+                // Keep photo bytes lazy so a full contact scan remains metadata-sized.
                 ContactPhotoLoader.Attach(contact, ct => PopulatePhotoAsync(contact, contact.Provenance.ProviderId, ct));
                 items.Add(contact);
             }
@@ -242,6 +274,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
     /// </remarks>
     private async Task<List<CanonicalContact>> BatchGetContactsAsync(List<string> ids, CancellationToken cancellationToken)
     {
+        // Graph permits only twenty subrequests per JSON batch, so split while retaining input order.
         List<CanonicalContact> items = [];
         foreach (string[] chunk in ids.Chunk(MaxBatchSize))
         {
@@ -263,6 +296,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         Dictionary<string, JsonElement> responseById = [];
         if (document.RootElement.TryGetProperty("responses", out var responses))
         {
+            // Index responses first because Graph does not guarantee response array order.
             foreach (var response in responses.EnumerateArray())
             {
                 string? responseId = ReadString(response, "id");
@@ -274,6 +308,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         }
 
         List<CanonicalContact> items = [];
+        // Walk the original ids so the returned contacts remain in the same order as the delta page.
         for (int i = 0; i < ids.Count; i++)
         {
             string requestId = (i + 1).ToString();
@@ -283,6 +318,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             }
 
             int status = response.GetProperty("status").GetInt32();
+            // Batch HTTP failures are embedded in a successful outer response and need explicit checks.
             if (status < 200 || status >= 300)
             {
                 string detail = response.TryGetProperty("body", out var errorBody)
@@ -296,6 +332,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
                 throw new InvalidOperationException($"Microsoft Graph batch response for '{ids[i]}' did not include a contact payload.");
             }
 
+            // A valid response can still lack fields required to form a canonical contact.
             var contact = ConvertContact(body, EndpointName);
             if (contact is null)
             {
@@ -313,12 +350,17 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
     /// <summary>
     /// Builds the Microsoft Graph batch payload without <see cref="System.Text.Json.Nodes"/> so the connector stays friendly to AOT compilation.
     /// </summary>
+    /// <summary>
+    /// Builds the JSON batch envelope used to hydrate a bounded set of Microsoft contact ids.
+    /// </summary>
     private string CreateBatchRequestBody(IReadOnlyList<string> ids)
     {
+        // The hand-built payload avoids JsonNode reflection and remains compatible with AOT trimming.
         StringBuilder body = new();
         body.Append("{\"requests\":[");
         for (int i = 0; i < ids.Count; i++)
         {
+            // Graph correlates each subrequest by this one-based string id.
             if (i > 0)
             {
                 body.Append(',');
@@ -337,13 +379,20 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         return body.ToString();
     }
 
+    /// <summary>
+    /// Escapes the two characters that can invalidate a JSON string in the batch URL field.
+    /// </summary>
     private static string EscapeJsonString(string value) =>
         value
             .Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("\"", "\\\"", StringComparison.Ordinal);
 
+    /// <summary>
+    /// Creates a version-relative contact URL for a Microsoft Graph batch subrequest.
+    /// </summary>
     private string CreateBatchRelativeContactUrl(string id)
     {
+        // Batch URLs are relative to Graph's batch endpoint, so remove the v1.0 prefix first.
         string relativePath = new Uri(collectionPath).AbsolutePath;
         if (relativePath.StartsWith("/v1.0", StringComparison.OrdinalIgnoreCase))
         {
@@ -365,12 +414,16 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         return request;
     }
 
+    /// <summary>
+    /// Sends a Microsoft request, translating expired delta cursors before parsing JSON.
+    /// </summary>
     private async Task<JsonDocument> SendForJsonAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken,
         bool treatGoneAsExpiredCursor = false)
     {
         using var response = await httpClient.SendAsync(request, cancellationToken);
+        // A 410 has cursor-specific meaning only when the caller supplied a saved cursor.
         if (treatGoneAsExpiredCursor && response.StatusCode == HttpStatusCode.Gone)
         {
             throw new ExpiredCursorException("Microsoft Graph delta cursor expired.");
@@ -398,8 +451,12 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
     private static StringContent CreateJsonContent(JsonNode body) =>
         new(body.ToJsonString(), Encoding.UTF8, "application/json");
 
+    /// <summary>
+    /// Builds the Microsoft Graph contact payload, including supported extended phone properties.
+    /// </summary>
     internal static JsonObject BuildWritableContact(CanonicalContact contact)
     {
+        // Include the complete property set so omitted canonical values explicitly clear old Graph values.
         return new JsonObject
         {
             ["givenName"] = contact.GivenName,
@@ -431,8 +488,12 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         };
     }
 
+    /// <summary>
+    /// Maps canonical extended phone labels to Microsoft single-value extended properties.
+    /// </summary>
     private static JsonArray BuildExtendedPhoneProperties(CanonicalContact contact)
     {
+        // Every known property is emitted, including null values, to make updates idempotently clearing.
         JsonArray array = [];
         foreach (var (label, graphId) in ExtendedPhoneProperties)
         {
@@ -449,6 +510,9 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         return array;
     }
 
+    /// <summary>
+    /// Converts a canonical address into Microsoft Graph's address object shape.
+    /// </summary>
     private static JsonObject ToMicrosoftAddress(ContactAddress? address)
     {
         if (address is null)
@@ -593,8 +657,12 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         return (photoBytes, contentType);
     }
 
+    /// <summary>
+    /// Synchronizes a contact photo while respecting the distinction between absent and unknown state.
+    /// </summary>
     private async Task SyncPhotoAsync(string id, CanonicalContact contact, bool deleteWhenAbsent, CancellationToken cancellationToken)
     {
+        // Upload a known photo before considering deletion so replacement writes cannot remove content.
         if (ContactPhotoMetadataHelper.TryGetPhoto(contact, out byte[] photoBytes, out string contentType))
         {
             using var request = await CreateRequestAsync(HttpMethod.Put, $"{collectionPath}/{Uri.EscapeDataString(id)}/photo/$value", cancellationToken);
@@ -605,6 +673,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             return;
         }
 
+        // Unknown photo state must not cause destructive deletion during an update.
         if (!deleteWhenAbsent || !ContactPhotoMetadataHelper.HasKnownAbsence(contact))
         {
             return;
@@ -620,6 +689,9 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         await EnsureSuccessAsync(deleteResponse, cancellationToken);
     }
 
+    /// <summary>
+    /// Adds non-empty phone values from one Microsoft array property with a canonical label.
+    /// </summary>
     private static void AddPhones(List<ContactPhone> phones, JsonElement element, string propertyName, string label)
     {
         if (!element.TryGetProperty(propertyName, out var values))
@@ -637,8 +709,12 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         }
     }
 
+    /// <summary>
+    /// Applies Microsoft extended phone properties to the canonical phone collection.
+    /// </summary>
     private static void ApplyExtendedPhoneProperties(CanonicalContact contact, JsonElement element)
     {
+        // Build an id lookup once because extended properties are returned in provider-defined order.
         if (!element.TryGetProperty("singleValueExtendedProperties", out var extProps)
             || extProps.ValueKind != JsonValueKind.Array)
         {
@@ -656,6 +732,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             }
         }
 
+        // Iterate the connector's known mapping so provider property order cannot affect labels.
         foreach (var (label, graphId) in ExtendedPhoneProperties)
         {
             if (!valueById.TryGetValue(graphId, out string? value) || string.IsNullOrWhiteSpace(value))
@@ -667,6 +744,9 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         }
     }
 
+    /// <summary>
+    /// Converts one Microsoft address object when it contains at least one meaningful field.
+    /// </summary>
     private static void AddAddress(List<ContactAddress> addresses, JsonElement element, string propertyName, string label)
     {
         if (!element.TryGetProperty(propertyName, out var addressElement) || addressElement.ValueKind != JsonValueKind.Object)

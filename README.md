@@ -1,11 +1,12 @@
 # Kagami
 
-Kagami is a CLI tool to import, export and synchronize contacts.
+Kagami is a CLI tool to import, export, and synchronize contacts and calendar events.
 
 It currently ships with built-in connectors for:
 
-- **Microsoft Graph** contacts via confidential client / app-only auth
+- **Microsoft Graph** contacts and calendar events via confidential client / app-only auth
 - **Google People API** contacts via OAuth 2.0 user sign-in with cached refresh tokens
+- **Google Calendar API** calendar events via OAuth 2.0 user sign-in with cached refresh tokens
 
 ## Overview
 
@@ -15,9 +16,9 @@ Kagami can be used as a library or as a command-line tool. It synchronizes items
 
 - **Polling-first sync engine** with persistent cursor and link-state tracking
 - **Bidirectional or one-way sync** with configurable conflict and delete policies
-- **Interactive CLI** for listing, exporting, importing, and synchronizing contacts
-- **`--interval` mode** on `contacts sync` to repeat the sync in-process with a fixed delay between runs
-- **Built-in provider connectors** for Google People API and Microsoft Graph contacts
+- **Interactive CLI** for listing, exporting, importing, and synchronizing contacts and calendar events
+- **`--interval` mode** on `contacts sync` and `events sync` to repeat the sync in-process with a fixed delay between runs
+- **Built-in provider connectors** for Google People API contacts, Google Calendar events, Microsoft Graph contacts, and Microsoft Graph calendar events
 - **SQLite-backed local state** for cursors, link state, leases, and operation logs
 - **Trim and AOT-friendly packaging** for the shipped project and tool
 - **Open source** under the MIT License

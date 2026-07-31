@@ -8,16 +8,16 @@ public sealed class OperationLogRepository(StateDatabase db)
     /// <summary>
     /// Appends an operation log entry.
     /// </summary>
-    public async Task AppendAsync(string jobKey, string entityType, string operation, string itemId, string side, string result, string? detail = null, CancellationToken cancellationToken = default)
+    public async Task AppendAsync(string jobKey, string itemCategory, string operation, string itemId, string side, string result, string? detail = null, CancellationToken cancellationToken = default)
     {
         await using var conn = db.OpenConnection();
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO operation_log (job_key, entity_type, operation, item_id, side, result, detail)
-            VALUES (@jobKey, @entityType, @operation, @itemId, @side, @result, @detail)
+            VALUES (@jobKey, @itemCategory, @operation, @itemId, @side, @result, @detail)
             """;
         cmd.Parameters.AddWithValue("@jobKey", jobKey);
-        cmd.Parameters.AddWithValue("@entityType", entityType);
+        cmd.Parameters.AddWithValue("@itemCategory", itemCategory);
         cmd.Parameters.AddWithValue("@operation", operation);
         cmd.Parameters.AddWithValue("@itemId", itemId);
         cmd.Parameters.AddWithValue("@side", side);

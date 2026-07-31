@@ -35,6 +35,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     private Dictionary<string, string>? groupNamesByResource;
     private Dictionary<string, string>? groupResourcesByName;
 
+    /// <inheritdoc/>
     public ConnectorCapabilities Capabilities { get; } = new()
     {
         ConnectorType = EndpointOptions.GoogleContacts,
@@ -46,13 +47,16 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         SupportsServerSideFiltering = false,
     };
 
+    /// <inheritdoc/>
     public string EndpointName { get; } = endpointName;
 
+    /// <inheritdoc/>
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
         _ = await credential.GetAccessTokenAsync(cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<ItemSet<CanonicalContact>> GetCursorItemsAsync(string? cursor, CancellationToken cancellationToken = default)
     {
         var pageCursor = cursor is null
@@ -79,9 +83,13 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             pageCursor = ParseCursor(page.Cursor);
         }
 
+        // A provider can repeat an item across pages; retain its final observation, including a later deletion.
+        items = items.GroupBy(static item => item.Provenance.ProviderId, StringComparer.Ordinal).Select(static group => group.Last()).ToList();
+
         return new ItemSet<CanonicalContact>(items, finalCursor);
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalContact?> GetItemAsync(string id, CancellationToken cancellationToken = default)
     {
         await EnsureGroupsReadAsync(cancellationToken);
@@ -97,6 +105,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         return item;
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalContact> CreateItemAsync(CanonicalContact contact, CancellationToken cancellationToken = default)
     {
         await EnsureGroupsWrittenAsync(contact.Categories, cancellationToken);
@@ -111,6 +120,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             ?? throw new InvalidOperationException("Google createContact succeeded but the created item could not be reloaded.");
     }
 
+    /// <inheritdoc/>
     public async Task<CanonicalContact> UpdateItemAsync(CanonicalContact contact, CancellationToken cancellationToken = default)
     {
         await EnsureGroupsWrittenAsync(contact.Categories, cancellationToken);
@@ -135,6 +145,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             ?? throw new InvalidOperationException("Google updateContact succeeded but the updated item could not be reloaded.");
     }
 
+    /// <inheritdoc/>
     public async Task DeleteItemAsync(string id, CancellationToken cancellationToken = default)
     {
         string requestUri = $"https://people.googleapis.com/v1/{id}:deleteContact";
@@ -145,6 +156,8 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
     private async Task<ConnectorPage> GetConnectionsPageAsync(GoogleCursor cursor, CancellationToken cancellationToken)
     {
+        // The connections endpoint is intentionally metadata-only; full person payloads are
+        // hydrated below in bounded batch requests after deleted connections are separated.
         await EnsureGroupsReadAsync(cancellationToken);
         StringBuilder requestUri = new("https://people.googleapis.com/v1/people/me/connections");
         requestUri.Append("?personFields=").Append(Uri.EscapeDataString("metadata"));
@@ -181,6 +194,8 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         List<string> nonDeletedResourceNames = [];
         if (document.RootElement.TryGetProperty("connections", out var connections))
         {
+            // Deletions already contain enough identity to emit tombstones, while live contacts
+            // need batchGet to obtain fields, etags, memberships, and deferred photo metadata.
             foreach (var connection in connections.EnumerateArray())
             {
                 string? resourceName = connection.TryGetProperty("resourceName", out var resourceNameElement)
@@ -213,12 +228,15 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             }
         }
 
+        // Avoid issuing an empty batch request when a page contains only deletions.
         if (nonDeletedResourceNames.Count > 0)
         {
             var batchItems = await BatchGetPeopleAsync(nonDeletedResourceNames, cancellationToken);
             items.AddRange(batchItems);
         }
 
+        // Page tokens continue the current connection enumeration; sync tokens are durable only
+        // after the final page has been consumed.
         string? nextPageToken = document.RootElement.TryGetProperty("nextPageToken", out var nextPageTokenElement)
             ? nextPageTokenElement.GetString()
             : null;
@@ -246,6 +264,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     /// </remarks>
     private async Task<List<CanonicalContact>> BatchGetPeopleAsync(List<string> resourceNames, CancellationToken cancellationToken)
     {
+        // Google limits batchGet query size, so preserve page order while splitting into safe chunks.
         List<CanonicalContact> items = [];
         foreach (string[] chunk in resourceNames.Chunk(MaxBatchSize))
         {
@@ -273,6 +292,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         List<CanonicalContact> items = [];
         if (document.RootElement.TryGetProperty("responses", out var responses))
         {
+            // A response without a person is a provider-side omission; do not create a partial contact.
             foreach (var responseElement in responses.EnumerateArray())
             {
                 if (!responseElement.TryGetProperty("person", out var person))
@@ -283,6 +303,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                 var item = ConvertPerson(person, groupNamesByResource!, EndpointName);
                 if (item is not null)
                 {
+                    // Photos are attached lazily because most sync operations do not need their bytes.
                     if (!item.IsDeleted)
                     {
                         var personClone = person.Clone();
@@ -326,6 +347,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
     private static async Task<bool> IsExpiredSyncTokenResponseAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
+        // Google uses 410 for the common case but can encode the same condition in a 400 error body.
         if (response.StatusCode == HttpStatusCode.Gone)
         {
             return true;
@@ -344,6 +366,8 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
 
         try
         {
+            // Inspect only the documented error detail reason and leave unrelated 400 responses
+            // on the normal error-reporting path.
             using var document = JsonDocument.Parse(detail);
             if (!document.RootElement.TryGetProperty("error", out var error)
                 || !error.TryGetProperty("details", out var details)
@@ -658,8 +682,13 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         return ContentHashHelper.WithComputedHash(contact);
     }
 
+    /// <summary>
+    /// Loads a Google contact photo and records whether the provider has a known photo absence.
+    /// </summary>
     private async Task PopulatePhotoAsync(CanonicalContact item, JsonElement person, CancellationToken cancellationToken)
     {
+        // A missing or unavailable photo is recorded as known absence so later writes can distinguish
+        // "provider has no photo" from "photo was never inspected".
         string? photoUrl = ReadPhotoUrl(person);
         if (string.IsNullOrWhiteSpace(photoUrl))
         {
@@ -677,8 +706,12 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         ContactPhotoMetadataHelper.SetPhoto(item, photo.Value.photoBytes, photo.Value.contentType);
     }
 
+    /// <summary>
+    /// Downloads a Google contact photo, treating a provider 404 or empty response as no photo.
+    /// </summary>
     private async Task<(byte[] photoBytes, string contentType)?> DownloadPhotoAsync(string photoUrl, CancellationToken cancellationToken)
     {
+        // The photo URL is provider-issued, but the request still needs the connector credential.
         using var request = await CreateRequestAsync(HttpMethod.Get, photoUrl, cancellationToken);
         using var response = await httpClient.SendAsync(request, cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -687,6 +720,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         }
 
         await EnsureSuccessAsync(response, cancellationToken);
+        // Empty successful responses are equivalent to an unavailable photo for canonical state.
         byte[] photoBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
         if (photoBytes.Length == 0)
         {
@@ -697,8 +731,13 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         return (photoBytes, contentType);
     }
 
+    /// <summary>
+    /// Uploads or deletes a Google contact photo according to the canonical photo state.
+    /// </summary>
     private async Task SyncPhotoAsync(string personId, CanonicalContact item, bool deleteWhenAbsent, CancellationToken cancellationToken)
     {
+        // Upload takes precedence over deletion; this also avoids deleting an existing photo when the
+        // canonical item contains a valid replacement payload.
         if (ContactPhotoMetadataHelper.TryGetPhoto(item, out byte[] photoBytes, out _))
         {
             JsonObject body = new()
@@ -713,6 +752,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             return;
         }
 
+        // Do not delete when absence is unknown, because a lazy read may not have inspected the photo.
         if (!deleteWhenAbsent || !ContactPhotoMetadataHelper.HasKnownAbsence(item))
         {
             return;
@@ -729,8 +769,12 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         await EnsureSuccessAsync(deleteResponse, cancellationToken);
     }
 
+    /// <summary>
+    /// Ensures every requested custom category has a Google contact group before writing memberships.
+    /// </summary>
     private async Task EnsureGroupsWrittenAsync(IReadOnlyList<string> categories, CancellationToken cancellationToken)
     {
+        // Populate both lookup directions once, then create only genuinely missing custom groups.
         await EnsureGroupsReadAsync(cancellationToken);
         foreach (string category in categories.Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -739,14 +783,20 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
                 continue;
             }
 
+            // Cache the new group immediately so duplicate categories in one request cannot create it twice.
             string createdResourceName = await CreateGroupAsync(category, cancellationToken);
             groupResourcesByName[category] = createdResourceName;
             groupNamesByResource![createdResourceName] = category;
         }
     }
 
+    /// <summary>
+    /// Lazily loads both Google contact-group lookup directions used by reads and writes.
+    /// </summary>
     private async Task EnsureGroupsReadAsync(CancellationToken cancellationToken)
     {
+        // The caches are shared by all operations on this connector instance and are loaded lazily
+        // because read-only endpoints may never need category translation.
         if (groupNamesByResource is not null && groupResourcesByName is not null)
         {
             return;
@@ -759,6 +809,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         string? pageToken = null;
         do
         {
+            // Google paginates contact groups independently from people connections.
             string currentRequestUri = pageToken is null
                 ? requestUri
                 : $"{requestUri}&pageToken={Uri.EscapeDataString(pageToken)}";
@@ -766,6 +817,8 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             using var document = await SendForJsonAsync(request, cancellationToken);
             if (document.RootElement.TryGetProperty("contactGroups", out var groups))
             {
+                // Keep both directions so reads can expose names and writes can resolve names back
+                // to stable provider resource identifiers.
                 foreach (var group in groups.EnumerateArray())
                 {
                     string? resourceName = group.TryGetProperty("resourceName", out var resourceNameElement)
@@ -789,8 +842,12 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         while (!string.IsNullOrWhiteSpace(pageToken));
     }
 
+    /// <summary>
+    /// Creates one custom Google contact group and returns its provider resource name.
+    /// </summary>
     private async Task<string> CreateGroupAsync(string name, CancellationToken cancellationToken)
     {
+        // Group creation returns the stable resource name needed for subsequent membership writes.
         using var request = await CreateRequestAsync(HttpMethod.Post, "https://people.googleapis.com/v1/contactGroups", cancellationToken);
         request.Content = CreateJsonContent(new JsonObject
         {
@@ -805,8 +862,12 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             ?? throw new InvalidOperationException($"Google contact group '{name}' creation did not return a resource name.");
     }
 
+    /// <summary>
+    /// Converts provider group memberships into canonical category names.
+    /// </summary>
     private static List<string> ReadMemberships(JsonElement person, IReadOnlyDictionary<string, string> groupNamesByResource)
     {
+        // System groups are provider bookkeeping and must not leak into canonical categories.
         List<string> categories = [];
         foreach (string resourceName in ReadMembershipResourceNames(person))
         {
@@ -825,6 +886,9 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         return categories.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>
+    /// Extracts Google group resource names from a person JSON payload.
+    /// </summary>
     private static List<string> ReadMembershipResourceNames(JsonElement person)
     {
         List<string> resourceNames = [];
@@ -833,6 +897,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             return resourceNames;
         }
 
+        // Ignore malformed membership nodes so one bad group entry does not discard the contact.
         foreach (var membership in memberships.EnumerateArray())
         {
             if (!membership.TryGetProperty("contactGroupMembership", out var contactGroupMembership))
@@ -852,6 +917,9 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         return resourceNames;
     }
 
+    /// <summary>
+    /// Extracts Google group resource names from a writable JSON payload.
+    /// </summary>
     private static List<string> ReadMembershipResourceNames(JsonObject person)
     {
         List<string> resourceNames = [];
@@ -860,6 +928,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             return resourceNames;
         }
 
+        // Writable payloads use JsonNode traversal instead of JsonElement traversal.
         foreach (var membership in memberships)
         {
             string? resourceName = membership?["contactGroupMembership"]?["contactGroupResourceName"]?.GetValue<string>();
@@ -872,6 +941,9 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         return resourceNames;
     }
 
+    /// <summary>
+    /// Reads the first Google birthday, using the provider's sentinel year for yearless birthdays.
+    /// </summary>
     private static DateOnly? ReadBirthday(JsonElement person)
     {
         if (!person.TryGetProperty("birthdays", out var birthdays) || birthdays.GetArrayLength() == 0)
@@ -879,6 +951,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             return null;
         }
 
+        // Google can omit the year; the sentinel preserves month and day without inventing a year.
         var date = birthdays[0].GetProperty("date");
         int year = date.TryGetProperty("year", out var yearElement) && yearElement.TryGetInt32(out int parsedYear)
             ? parsedYear
@@ -892,6 +965,9 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         return new DateOnly(year, month, day);
     }
 
+    /// <summary>
+    /// Reads the first source update time exposed by Google People metadata.
+    /// </summary>
     private static DateTimeOffset? ReadLastModified(JsonElement person)
     {
         if (!person.TryGetProperty("metadata", out var metadata)
@@ -900,6 +976,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             return null;
         }
 
+        // The source list may contain entries without timestamps, so continue until one parses.
         foreach (var source in sources.EnumerateArray())
         {
             if (source.TryGetProperty("updateTime", out var updateTimeElement)
@@ -912,6 +989,9 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         return null;
     }
 
+    /// <summary>
+    /// Selects a non-default Google photo URL from the person payload.
+    /// </summary>
     private static string? ReadPhotoUrl(JsonElement person)
     {
         if (!person.TryGetProperty("photos", out var photos) || photos.ValueKind != JsonValueKind.Array)
@@ -919,6 +999,7 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             return null;
         }
 
+        // Prefer a user photo over Google's generated default avatar.
         foreach (var photo in photos.EnumerateArray())
         {
             string? url = photo.TryGetProperty("url", out var urlElement) ? urlElement.GetString() : null;
@@ -937,6 +1018,9 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
         return null;
     }
 
+    /// <summary>
+    /// Reads a string property from the first object in a provider array.
+    /// </summary>
     private static string? ReadFirstNestedString(JsonElement element, string arrayPropertyName, string propertyName)
     {
         if (!element.TryGetProperty(arrayPropertyName, out var array) || array.GetArrayLength() == 0)

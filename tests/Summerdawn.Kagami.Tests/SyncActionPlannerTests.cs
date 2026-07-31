@@ -275,7 +275,7 @@ public sealed class SyncActionPlannerTests
         // a1 is already linked to b1 (both present, unchanged).
         // a2 appears and semantically matches b1 (same display name + email).
         // b1 must NOT be a duplicate candidate for a2; a2 should result in Create(Destination).
-        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1", entityType: EntityType.Contact);
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1", itemCategory: "contacts");
         var a1 = CreateItem("a1", version: "v1"); // linked, unchanged → no action
         var a2 = CreateItem("a2", displayName: "Alice", email: "alice@example.com");
         var b1 = CreateItem("b1", version: "v1", displayName: "Alice", email: "alice@example.com");
@@ -297,7 +297,7 @@ public sealed class SyncActionPlannerTests
     {
         // b1 is linked to a1 (both present, unchanged); b2 matches a1 semantically.
         // a1 must NOT be a duplicate candidate for b2; b2 should result in Create(Source).
-        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1", entityType: EntityType.Contact);
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1", itemCategory: "contacts");
         var a1 = CreateItem("a1", version: "v1", displayName: "Alice", email: "alice@example.com");
         var b1 = CreateItem("b1", version: "v1"); // linked, unchanged → no action
         var b2 = CreateItem("b2", displayName: "Alice", email: "alice@example.com");
@@ -627,7 +627,6 @@ public sealed class SyncActionPlannerTests
         bool full = false) =>
         new()
         {
-            EntityType = EntityType.CalendarEvent,
             SourceEndpointName = "endpointA",
             DestinationEndpointName = "endpointB",
             SyncMode = mode,
@@ -660,10 +659,10 @@ public sealed class SyncActionPlannerTests
         string destinationId,
         string? sourceVersion = null,
         string? destinationVersion = null,
-        string entityType = EntityType.CalendarEvent) =>
+        string itemCategory = "events") =>
         new()
         {
-            PartitionKey = $"{entityType}:endpointA:endpointB",
+            PartitionKey = $"{itemCategory}:endpointA:endpointB",
             SourceId = sourceId,
             DestinationId = destinationId,
             SourceVersion = sourceVersion,

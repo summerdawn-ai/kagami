@@ -60,9 +60,9 @@ public sealed class CommandHandler<TItem>(
     /// </summary>
     /// <remarks>
     /// <para>
-    /// One JSON file is written per item, using the contact name as the base filename.
+    /// One JSON file is written per item, using an item-specific base filename convention.
     /// Existing files in <paramref name="outputDirectory"/> that no longer correspond to a
-    /// source contact are only deleted when <paramref name="prune"/> is <c>true</c>; without
+    /// source item are only deleted when <paramref name="prune"/> is <c>true</c>; without
     /// pruning the directory is never clobbered.
     /// </para>
     /// </remarks>
@@ -73,22 +73,16 @@ public sealed class CommandHandler<TItem>(
         IFilter<TItem>? filter = null,
         CancellationToken cancellationToken = default)
     {
-        if (typeof(TItem) != typeof(CanonicalContact))
-        {
-            throw new NotSupportedException("Export is only supported for contacts.");
-        }
-
         await stateDb.InitializeAsync(cancellationToken);
         Directory.CreateDirectory(outputDirectory);
 
         var sourceConnector = BuildConnector(endpointName);
-        var destinationConnector = (IConnector<TItem>)(object)new ImportExportContactsConnector(outputDirectory);
+        var destinationConnector = CreateImportExportConnector(outputDirectory);
 
-        string jobKey = $"contacts:export:{endpointName}:{outputDirectory}";
+        string jobKey = Job<TItem>.CreateOperationKey("export", endpointName, outputDirectory);
 
         var jobOptions = new JobOptions
         {
-            EntityType = EntityType.Contact,
             SourceEndpointName = endpointName,
             DestinationEndpointName = outputDirectory,
             SyncMode = SyncMode.Forward,
@@ -125,13 +119,12 @@ public sealed class CommandHandler<TItem>(
         var sourceConnector = BuildConnector(fromEndpoint);
         var destinationConnector = BuildConnector(toEndpoint);
 
-        // Derive a stable job key from the two endpoint names so that sync state
-        // is persisted consistently across invocations of the same contacts sync command.
-        string jobKey = $"contacts:{fromEndpoint}:{toEndpoint}";
+        // Derive a stable job key from the item category and endpoint names so that sync state
+        // is persisted consistently across invocations.
+        string jobKey = Job<TItem>.CreateJobKey(fromEndpoint, toEndpoint);
 
         var jobOptions = new JobOptions
         {
-            EntityType = EntityType.Contact,
             SourceEndpointName = fromEndpoint,
             DestinationEndpointName = toEndpoint,
             SyncMode = mode,
@@ -159,11 +152,11 @@ public sealed class CommandHandler<TItem>(
     /// <remarks>
     /// <para>
     /// The local JSON directory is presented as the source connector.  Items are matched against
-    /// existing destination contacts by name and identifier fields; no sync-DB state is read or
+    /// existing destination items by canonical identity and content fields; no sync-DB state is read or
     /// written during the run.
     /// </para>
     /// <para>
-    /// When <paramref name="prune"/> is <c>true</c>, destination contacts that do not match any
+    /// When <paramref name="prune"/> is <c>true</c>, destination items that do not match any
     /// imported item are deleted.  The <paramref name="whatIf"/> flag logs planned actions
     /// without performing any writes.
     /// </para>
@@ -178,21 +171,15 @@ public sealed class CommandHandler<TItem>(
         bool force = false,
         CancellationToken cancellationToken = default)
     {
-        if (typeof(TItem) != typeof(CanonicalContact))
-        {
-            throw new NotSupportedException("Import is only supported for contacts.");
-        }
-
         await stateDb.InitializeAsync(cancellationToken);
 
-        var sourceConnector = (IConnector<TItem>)(object)new ImportExportContactsConnector(sourceDirectory);
+        var sourceConnector = CreateImportExportConnector(sourceDirectory);
         var destinationConnector = BuildConnector(toEndpoint);
 
-        string jobKey = $"contacts:import:{sourceDirectory}:{toEndpoint}";
+        string jobKey = Job<TItem>.CreateOperationKey("import", sourceDirectory, toEndpoint);
 
         var jobOptions = new JobOptions
         {
-            EntityType = EntityType.Contact,
             SourceEndpointName = sourceDirectory,
             DestinationEndpointName = toEndpoint,
             SyncMode = SyncMode.Forward,
@@ -221,4 +208,19 @@ public sealed class CommandHandler<TItem>(
     /// Resolves and returns a connector for the named endpoint.
     /// </summary>
     private IConnector<TItem> BuildConnector(string endpointName) => connectorResolver(endpointName);
+
+    private static IConnector<TItem> CreateImportExportConnector(string directory)
+    {
+        if (typeof(TItem) == typeof(CanonicalContact))
+        {
+            return (IConnector<TItem>)(object)new ImportExportContactsConnector(directory);
+        }
+
+        if (typeof(TItem) == typeof(CanonicalEvent))
+        {
+            return (IConnector<TItem>)(object)new ImportExportEventsConnector(directory);
+        }
+
+        throw new NotSupportedException("Import and export are only supported for contacts and calendar events.");
+    }
 }

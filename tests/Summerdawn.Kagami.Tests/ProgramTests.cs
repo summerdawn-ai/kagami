@@ -11,6 +11,10 @@ public sealed class ProgramTests
             data.Add(["contacts", "export", "--from", "Microsoft", "--to", "/tmp/out", "--verbose"]);
             data.Add(["contacts", "import", "--from", "/tmp/in", "--to", "Google", "--verbose"]);
             data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--verbose"]);
+            data.Add(["events", "list", "--from", "Microsoft", "--verbose"]);
+            data.Add(["events", "export", "--from", "Microsoft", "--to", "/tmp/out", "--verbose"]);
+            data.Add(["events", "import", "--from", "/tmp/in", "--to", "Google", "--verbose"]);
+            data.Add(["events", "sync", "--from", "Microsoft", "--to", "Google", "--verbose"]);
             data.Add(["jobs", "list", "--verbose"]);
             data.Add(["jobs", "reset", "--all", "--verbose"]);
             data.Add(["jobs", "unlock", "--all", "--verbose"]);
@@ -25,6 +29,7 @@ public sealed class ProgramTests
             TheoryData<string[]> data = [];
             data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--confirm"]);
             data.Add(["contacts", "import", "--from", "/tmp/in", "--to", "Google", "--confirm"]);
+            data.Add(["events", "import", "--from", "/tmp/in", "--to", "Google", "--confirm"]);
             return data;
         }
     }
@@ -46,6 +51,7 @@ public sealed class ProgramTests
             TheoryData<string[]> data = [];
             data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--what-if", "--confirm"]);
             data.Add(["contacts", "import", "--from", "/tmp/in", "--to", "Google", "--what-if", "--confirm"]);
+            data.Add(["events", "import", "--from", "/tmp/in", "--to", "Google", "--what-if", "--confirm"]);
             return data;
         }
     }
@@ -293,5 +299,88 @@ public sealed class ProgramTests
     public void ParseIntervalArgument_ThrowsOnUnsupportedUnit()
     {
         Assert.Throws<FormatException>(() => Program.ParseIntervalArgument("P1D"));
+    }
+
+    [Fact]
+    public void FormatTableCell_LeavesShortValuesUnchanged()
+    {
+        string result = Program.FormatTableCell("Short title", 40);
+
+        Assert.Equal("Short title", result);
+    }
+
+    [Fact]
+    public void FormatTableCell_TruncatesLongValuesWithEllipsis()
+    {
+        string result = Program.FormatTableCell("This is a very long event title that should not overflow", 20);
+
+        Assert.Equal("This is a very lo...", result);
+        Assert.Equal(20, result.Length);
+    }
+
+    public static TheoryData<string[]> ValidEventsSyncCommands
+    {
+        get
+        {
+            TheoryData<string[]> data = [];
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents"]);
+            data.Add(["events", "export", "--from", "MicrosoftEvents", "--to", "/tmp/out"]);
+            data.Add(["events", "import", "--from", "/tmp/in", "--to", "GoogleEvents"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--bidirectional"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--reverse"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--what-if"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--on-conflict", "destination-wins"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--interval", "PT15M"]);
+            return data;
+        }
+    }
+
+    public static TheoryData<string[]> InvalidDestWinsCommands
+    {
+        get
+        {
+            TheoryData<string[]> data = [];
+            data.Add(["contacts", "sync", "--from", "Microsoft", "--to", "Google", "--on-conflict", "dest-wins"]);
+            data.Add(["events", "sync", "--from", "MicrosoftEvents", "--to", "GoogleEvents", "--on-conflict", "dest-wins"]);
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(ValidEventsSyncCommands))]
+    public void CreateRootCommand_AcceptsValidEventsSyncArgs(string[] args)
+    {
+        var parseResult = Program.CreateRootCommand().Parse(args);
+
+        Assert.Empty(parseResult.Errors);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidDestWinsCommands))]
+    public void CreateRootCommand_RejectsDestWinsAlias(string[] args)
+    {
+        var parseResult = Program.CreateRootCommand().Parse(args);
+
+        Assert.NotEmpty(parseResult.Errors);
+    }
+
+    [Fact]
+    public void CreateRootCommand_ExposesEventsCommand()
+    {
+        var rootCommand = Program.CreateRootCommand();
+
+        Assert.Contains(rootCommand.Subcommands, cmd => cmd.Name == "events");
+    }
+
+    [Fact]
+    public void CreateRootCommand_EventsCommandHasListImportExportAndSync()
+    {
+        var rootCommand = Program.CreateRootCommand();
+        var eventsCommand = rootCommand.Subcommands.First(cmd => cmd.Name == "events");
+
+        Assert.Contains(eventsCommand.Subcommands, cmd => cmd.Name == "list");
+        Assert.Contains(eventsCommand.Subcommands, cmd => cmd.Name == "export");
+        Assert.Contains(eventsCommand.Subcommands, cmd => cmd.Name == "import");
+        Assert.Contains(eventsCommand.Subcommands, cmd => cmd.Name == "sync");
     }
 }

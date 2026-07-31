@@ -47,6 +47,7 @@ public sealed class ImportExportContactsConnector(string directory) : IConnector
         SupportsServerSideFiltering = false,
     };
 
+    /// <inheritdoc/>
     public string EndpointName => "importExport";
 
     /// <summary>
@@ -154,6 +155,7 @@ public sealed class ImportExportContactsConnector(string directory) : IConnector
     /// </summary>
     private string AllocateUniqueBaseName(string desiredBaseName)
     {
+        // The initial name is preferred for readable exports; suffixes are reserved for collisions.
         if (usedBaseNames.Add(desiredBaseName))
         {
             return desiredBaseName;
@@ -161,6 +163,8 @@ public sealed class ImportExportContactsConnector(string directory) : IConnector
 
         for (int count = 2; ; count++)
         {
+            // Add each candidate to the shared set immediately so concurrent creates in this
+            // connector instance cannot claim the same filename base name.
             string candidate = $"{desiredBaseName}_{count}";
             if (usedBaseNames.Add(candidate))
             {
@@ -176,6 +180,8 @@ public sealed class ImportExportContactsConnector(string directory) : IConnector
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "KagamiJsonContext supports CanonicalContact")]
     private async Task<CanonicalContact?> ReadContactAsync(string jsonFile, string baseName, CancellationToken cancellationToken)
     {
+        // Invalid individual files are skipped by the caller's collection scan rather than
+        // preventing all other valid contacts from being imported.
         string json = await File.ReadAllTextAsync(jsonFile, cancellationToken);
         CanonicalContact? contact;
         try
@@ -184,6 +190,7 @@ public sealed class ImportExportContactsConnector(string directory) : IConnector
         }
         catch (JsonException)
         {
+            // Keep malformed export files isolated; a later run can repair or remove them.
             return null;
         }
 
@@ -194,7 +201,8 @@ public sealed class ImportExportContactsConnector(string directory) : IConnector
 
         contact.Provenance = new() { ProviderId = baseName };
 
-        // Attach sibling photo if present.
+        // Photo bytes remain outside the JSON document so contact metadata can be edited without
+        // inflating the serialized record. The first recognized sidecar is the deterministic read choice.
         foreach (string ext in PhotoExtensions)
         {
             string photoPath = Path.Combine(directory, baseName + ext);
@@ -217,9 +225,11 @@ public sealed class ImportExportContactsConnector(string directory) : IConnector
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "KagamiJsonContext supports CanonicalContact")]
     private async Task WriteContactAsync(CanonicalContact item, string filePath, CancellationToken cancellationToken)
     {
+        // JSON remains the source of truth while photo bytes use a sibling file for compactness.
         string json = JsonSerializer.Serialize(item, KagamiJsonContext.ImportExportJsonOptions);
         await File.WriteAllTextAsync(filePath, json, cancellationToken);
 
+        // Only write a sidecar when the item explicitly carries photo bytes.
         if (ContactPhotoMetadataHelper.TryGetPhoto(item, out byte[] photoBytes, out string contentType))
         {
             string extension = ContactPhotoMetadataHelper.GetFileExtension(contentType, photoBytes);
@@ -228,8 +238,12 @@ public sealed class ImportExportContactsConnector(string directory) : IConnector
         }
     }
 
+    /// <summary>
+    /// Loads the existing JSON base names so newly created contacts cannot overwrite them.
+    /// </summary>
     private static HashSet<string> GetUsedBaseNames(string directory)
     {
+        // Existing files establish the starting identity set; the in-memory set tracks later creates.
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         if (Directory.Exists(directory))

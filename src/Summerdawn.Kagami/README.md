@@ -1,25 +1,26 @@
 # Summerdawn.Kagami
 
-Kagami is a contact synchronization CLI tool with internal SQLite state.
+Kagami is a contact and calendar event synchronization CLI tool with internal SQLite state.
 
 ## Overview
 
 Kagami can be used as a library or as a command-line tool. It synchronizes items between configured endpoints, stores cursors and link state in SQLite, and can run once or continuously at a user-specified interval.
 
-At the moment, the built-in provider connectors are focused on **contacts**. Calendar models exist in the codebase, but concrete Google and Microsoft calendar connectors are intentionally not included yet.
-
 ### Features
 
 - Google People API contacts
+- Google Calendar events
 - Microsoft Graph / Exchange Online contacts
+- Microsoft Graph / Exchange Online calendar events
 - Contact categories / labels
   - Graph `categories`
   - Google contact-group memberships / labels
-- Interactive CLI commands to list, export, import, and sync contacts
-- OData-style in-memory contact filters for list, export, and sync operations
+- Interactive CLI commands to list, export, import, and sync contacts and events
+- OData-style in-memory event filters for list, export, import, and sync operations
+- OData-style in-memory contact filters for list, export, import, and sync operations
 - `--force` mode to unconditionally rewrite all in-scope contacts, bypassing version and content checks — for edge cases only, not normal runs
 - `--what-if` mode that logs planned create / update / delete operations without writing changes
-- `--interval` mode on `contacts sync` to repeat the sync in-process with a fixed delay between runs
+- `--interval` mode on `contacts sync` and `events sync` to repeat the sync in-process with a fixed delay between runs
 - Cached Google OAuth tokens for repeat runs after the initial interactive sign-in
 
 ## Getting Started
@@ -30,6 +31,7 @@ The fastest way to get started is to install Kagami as a .NET tool, create a set
 dotnet tool install --global Summerdawn.Kagami
 kagami --help
 kagami contacts --help
+kagami events --help
 ```
 
 If you are developing from source instead, run:
@@ -37,6 +39,7 @@ If you are developing from source instead, run:
 ```bash
 dotnet run --project src/Summerdawn.Kagami -- --help
 dotnet run --project src/Summerdawn.Kagami -- contacts --help
+dotnet run --project src/Summerdawn.Kagami -- events --help
 ```
 
 ## Installation
@@ -68,20 +71,28 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddKagami(builder.Configuration.GetSection("Kagami"));
 ```
 
-This registers the sync engine, persistence services, `ContactsService`, and a named `HttpClient` and keyed `IConnector` singleton for each configured endpoint. Connectors are resolved by endpoint name via `Func<string, IConnector>`.
+This registers the sync engine, persistence services, and a named `HttpClient` plus keyed `IConnector` singleton for each configured endpoint. Connectors are resolved by endpoint name via `Func<string, IConnector<TItem>>`.
 
 ### CLI commands
 
-Kagami exposes two top-level command groups:
+Kagami exposes three top-level command groups:
 
 ```text
 # Contact operations
 kagami contacts list   --from=<endpoint> [--filter=<expr>] [--all]
-kagami contacts export --from=<endpoint> --to=<dir> [--filter=<expr>]
+kagami contacts export --from=<endpoint> --to=<dir> [--filter=<expr>] [--prune]
 kagami contacts import --from=<dir> --to=<endpoint> [--prune] [--filter=<expr>] [--what-if|--confirm]
 kagami contacts sync   --from=<endpoint> --to=<endpoint> [--bidirectional|--reverse]
                        [--prune] [--on-conflict=last-write-wins|source-wins|destination-wins|skip]
                        [--what-if|--confirm] [--filter=<expr>] [--force] [--interval=<ISO8601>]
+
+# Calendar event operations
+kagami events list     --from=<endpoint> [--filter=<expr>] [--all]
+kagami events export   --from=<endpoint> --to=<dir> [--filter=<expr>] [--prune]
+kagami events import   --from=<dir> --to=<endpoint> [--prune] [--filter=<expr>] [--force] [--what-if|--confirm]
+kagami events sync     --from=<endpoint> --to=<endpoint> [--bidirectional|--reverse]
+                       [--prune] [--on-conflict=last-write-wins|source-wins|destination-wins|skip]
+                       [--full] [--what-if|--confirm] [--filter=<expr>] [--force] [--interval=<ISO8601>]
 
 # Job admin / housekeeping
 kagami jobs list
@@ -95,7 +106,7 @@ All CLI commands accept `--settings`, `--no-default-settings`, and `--verbose`. 
 
 #### `kagami contacts list`
 
-Fetch and display contacts from a configured endpoint. By default, `kagami contacts list` returns up to 100 matching contacts; use `--all` to fetch the full result set.
+Fetch and display contacts from a configured endpoint. By default, `kagami contacts list` displays up to 100 matching contacts; use `--all` to display everything.
 
 ```bash
 kagami contacts list --from Microsoft
@@ -106,10 +117,11 @@ kagami contacts list --from Microsoft --filter "contains(categories,'Recruiter')
 
 #### `kagami contacts export`
 
-Export contacts as one JSON file per contact into a local directory. Existing `*.json` files and previously exported photo files in the destination are deleted before writing.
+Export contacts as one JSON file per contact into a local directory. Existing export files are preserved by default; when `--prune` is specified, stale `*.json` files and previously exported photo files that are no longer present in the source set are removed.
 
 ```bash
-kagami contacts export --from Microsoft --to ./export
+kagami contacts export --from Microsoft --to ./export --settings appsettings.json
+kagami contacts export --from Microsoft --to ./export --prune --settings appsettings.json
 ```
 
 #### `kagami contacts import`
@@ -168,9 +180,81 @@ kagami contacts sync --from Microsoft --to Google --filter "contains(categories,
 - `--filter`: apply an OData-style filter in memory before planning or writing changes
 - `--interval`: ISO 8601 duration (e.g. `PT15M`, `PT2H`). When specified, the sync repeats indefinitely with the given delay between runs; without it the command runs once and exits. If a run fails, the process exits nonzero immediately (works well with Docker/container restart policies).
 
+#### `kagami events list`
+
+Fetch and display calendar events from a configured endpoint. By default, `kagami events list` displays up to 100 matching events; use `--all` to display everything.
+
+```bash
+kagami events list --from WorkCalendar --settings appsettings.json
+kagami events list --from WorkCalendar --all --settings appsettings.json
+kagami events list --from WorkCalendar --filter "startswith(title,'Team')" --settings appsettings.json
+```
+
+#### `kagami events export`
+
+Export events as one JSON file per event into a local directory. Filenames are derived from a sanitized, truncated event title plus start date/time. Existing export files are preserved by default; when `--prune` is specified, stale event JSON files are removed.
+
+```bash
+kagami events export --from WorkCalendar --to ./event-export --settings appsettings.json
+kagami events export --from WorkCalendar --to ./event-export --prune --settings appsettings.json
+```
+
+#### `kagami events import`
+
+Import events from local JSON files in a directory into a configured endpoint.
+
+```bash
+# Import all events from a local directory
+kagami events import --from ./event-export --to ArchiveCalendar --settings appsettings.json
+
+# Import with prune: remove destination events not present in the import set
+kagami events import --from ./event-export --to ArchiveCalendar --prune --settings appsettings.json
+
+# Dry run
+kagami events import --from ./event-export --to ArchiveCalendar --what-if --settings appsettings.json
+```
+
+When `--prune` is specified, Kagami deletes destination events that did not appear in the import set.
+
+#### `kagami events sync`
+
+Synchronize calendar events between two configured endpoints.
+
+```bash
+# Forward sync (default: source to destination)
+kagami events sync --from WorkCalendar --to ArchiveCalendar --settings appsettings.json
+
+# Bidirectional sync
+kagami events sync --from WorkCalendar --to ArchiveCalendar --bidirectional --settings appsettings.json
+
+# Reverse sync
+kagami events sync --from WorkCalendar --to ArchiveCalendar --reverse --settings appsettings.json
+
+# One-directional with prune (mirror mode)
+kagami events sync --from WorkCalendar --to ArchiveCalendar --prune --settings appsettings.json
+
+# Dry run: log planned actions without writing anything
+kagami events sync --from WorkCalendar --to ArchiveCalendar --what-if --settings appsettings.json
+
+# Force: re-evaluate all in-scope events even if unchanged
+kagami events sync --from WorkCalendar --to ArchiveCalendar --force --settings appsettings.json
+
+# Filter: only synchronize events whose title starts with 'Team'
+kagami events sync --from WorkCalendar --to ArchiveCalendar --filter "startswith(title,'Team')" --settings appsettings.json
+```
+
+- `--bidirectional`: sync in both directions; otherwise changes flow from `--from` to `--to`
+- `--reverse`: sync from `--to` back to `--from`
+- `--prune`: delete destination events that no longer exist on the source (or vice versa)
+- `--on-conflict`: `last-write-wins` (default), `source-wins`, `destination-wins`, or `skip`
+- `--full`: ignore saved cursors and fetch all rows from both sides, but still skip events whose content is already identical on both sides
+- `--force`: fetch all rows, bypass all change and sameness checks for every in-scope event, and write unconditionally — use only when normal change detection via version/hash is known to be unreliable. Do not use for normal runs.
+- `--filter`: apply an OData-style filter in memory before planning or writing changes
+- `--interval`: ISO 8601 duration (e.g. `PT15M`, `PT2H`). When specified, the sync repeats indefinitely with the given delay between runs; without it the command runs once and exits. If a run fails, the process exits nonzero immediately (works well with Docker/container restart policies).
+
 ### `kagami jobs` commands
 
-The `jobs` command group provides operational/admin access to persisted job state. Job keys use the canonical format `contacts:{from}:{to}` (e.g. `contacts:Microsoft:Google`).
+The `jobs` command group provides operational/admin access to persisted job state. Sync job keys use the canonical format `{category}:{from}:{to}` (for example `contacts:Microsoft:Google` or `events:WorkCalendar:ArchiveCalendar`). Import and export runs also create job keys in the format `{category}:{operation}:{left}:{right}`.
 
 #### `kagami jobs list`
 
@@ -303,7 +387,7 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
 ```json
 {
   "Kagami": {
-    "DataDirectory": "./data",
+    "DataDirectory": "C:\\Users\\Alice\\AppData\\Local\\Summerdawn.ai\\Kagami",
     "Endpoints": {
       "googleContacts": {
         "Type": "GoogleContacts",
@@ -314,8 +398,31 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
         },
         "Properties": {}
       },
+      "googleEvents": {
+        "Type": "GoogleEvents",
+        "Credential": {
+          "Type": "GoogleOAuthCredential",
+          "ClientId": "your-google-client-id.apps.googleusercontent.com",
+          "ClientSecret": "replace-me"
+        },
+        "Properties": {
+          "calendarId": "primary"
+        }
+      },
       "exchangeContacts": {
         "Type": "MicrosoftContacts",
+        "Credential": {
+          "Type": "MicrosoftClientCredential",
+          "TenantId": "00000000-0000-0000-0000-000000000000",
+          "ClientId": "11111111-1111-1111-1111-111111111111",
+          "ClientSecret": "replace-me"
+        },
+        "Properties": {
+          "userId": "person@summerdawn.ai"
+        }
+      },
+      "exchangeEvents": {
+        "Type": "MicrosoftEvents",
         "Credential": {
           "Type": "MicrosoftClientCredential",
           "TenantId": "00000000-0000-0000-0000-000000000000",
@@ -366,6 +473,24 @@ Notes:
 - Kagami requests the Google contacts scope `https://www.googleapis.com/auth/contacts`
 - The built-in Google contacts connector currently uses end-user OAuth; service-account and domain-wide-delegation auth are not supported
 
+#### `GoogleEvents`
+
+Credential fields (`Type = "GoogleOAuthCredential"`):
+
+- `ClientId`: Google OAuth client ID
+- `ClientSecret`: Google OAuth client secret
+
+Endpoint properties:
+
+- `calendarId`: optional; defaults to `primary`
+
+Notes:
+
+- On first use, Kagami opens the browser for OAuth consent and listens on `http://localhost:4189/` for the callback
+- Access and refresh tokens are cached in the `tokens` subdirectory of `Kagami:DataDirectory`
+- Kagami requests the Google Calendar scope `https://www.googleapis.com/auth/calendar`
+- Birthday and other non-default special event types are filtered out; only regular calendar events are synchronized
+
 #### `MicrosoftContacts`
 
 Credential fields (`Type = "MicrosoftClientCredential"`):
@@ -388,6 +513,28 @@ Behavior:
 - reads and writes Microsoft Graph contacts
 - maps Outlook categories to canonical contact categories / labels
 
+#### `MicrosoftEvents`
+
+Credential fields (`Type = "MicrosoftClientCredential"`):
+
+- `TenantId`: Entra tenant ID
+- `ClientId`: app registration client ID
+- `ClientSecret`: client secret for MVP setups
+- `CertificatePath`: optional PFX/PKCS#12 certificate path for long-term unattended use
+- `CertificatePassword`: optional certificate password
+
+Use either `ClientSecret` or `CertificatePath` (+ `CertificatePassword` if needed).
+
+Endpoint properties:
+
+- `userId`: required; the mailbox owner to access, typically a user principal name or user ID
+- `calendarId`: optional calendar ID; if omitted, Kagami uses the default calendar collection
+
+Behavior:
+
+- reads and writes Microsoft Graph events
+- uses the Microsoft Graph v1.0 `/events/delta` endpoint for incremental polling
+
 ## State Database
 
 Kagami stores its SQLite state database as `sync.db` in `Kagami:DataDirectory`. The directory is created automatically on first run.
@@ -406,29 +553,35 @@ Minimal unattended setup:
 Required Graph permission for write sync:
 
 - `Contacts.ReadWrite` (Application)
+- `Calendars.ReadWrite` (Application) for calendar event sync
 
 Kagami uses app-only access against:
 
 - `/users/{userId}/contacts`
 - `/users/{userId}/contactFolders/{folderId}/contacts`
+- `/users/{userId}/events`
+- `/users/{userId}/calendars/{calendarId}/events`
 
-### Google Workspace / People API
+### Google Workspace / People API and Google Calendar API
 
 Minimal setup:
 
 1. Create a Google Cloud project
 2. Enable the People API
-3. Create an OAuth 2.0 client for a desktop or installed application
-4. Configure the loopback callback `http://localhost:4189/`
-5. Configure Kagami with `clientId` and `clientSecret`
-6. Run a Google-backed Kagami command once and complete the browser sign-in flow
+3. Enable the Google Calendar API when syncing events
+4. Create an OAuth 2.0 client for a desktop or installed application
+5. Configure the loopback callback `http://localhost:4189/`
+6. Configure Kagami with `clientId` and `clientSecret`
+7. Run a Google-backed Kagami command once and complete the browser sign-in flow
 
 Kagami uses:
 
 - Google OAuth 2.0 authorization-code flow with a local loopback callback
 - cached access and refresh tokens for subsequent runs
-- the People API contacts scope
+- the People API contacts scope for contact endpoints
+- the Google Calendar scope for calendar endpoints
 - `people.connections.list` sync tokens for incremental polling
+- Google Calendar `events.list` sync tokens for incremental polling on calendar endpoints
 
 ## Contact Mapping Notes
 
@@ -448,6 +601,36 @@ Label/category mapping:
 
 - **Microsoft Graph**: `CanonicalContact.Categories` ⇄ `contact.categories`
 - **Google**: `CanonicalContact.Categories` ⇄ contact-group memberships / labels
+
+## Calendar Event Mapping Notes
+
+Canonical event fields currently include:
+
+- title
+- description
+- start / end date-time
+- location
+- organizer
+- attendees
+- recurrence
+- iCal UID
+
+Notes:
+
+- Synced events are created as attendee-free, mailbox-owned copies, and attendees are ignored during updates. This avoids problems with sending out stale invitations (**Microsoft Graph**) and mismatches between the attendee list and the mailbox id (**Google Calendar**). Event exports retain all organizer and attendee data.
+- **Google Calendar** syncs regular calendar events only (`eventTypes=default`) and skips special event types such as birthdays
+- **Microsoft Graph** maps event timestamps through the API's `dateTimeTimeZone` payloads and uses Graph event delta tokens for incremental polling
+
+## Event Filter Expressions
+
+| Expression | Meaning |
+|---|---|
+| `startswith(title,'Tea')` | Event title starts with `Tea` (case-insensitive) |
+| `endswith(title,'Sync')` | Event title ends with `Sync` (case-insensitive) |
+| `contains(title,'Team')` | Event title contains `Team` (case-insensitive) |
+| `title eq 'Planning'` | Event title is exactly `Planning` (case-insensitive) |
+
+Event filters currently apply to the canonical event title only.
 
 ## Error Handling
 
@@ -491,8 +674,7 @@ Link-state updates written before a transient fault are left in place and are no
 
 ## Current Limitations
 
-- Built-in concrete provider connectors are currently contact-focused
-- Calendar provider connectors are not implemented yet
+- Built-in concrete provider connectors support contacts (Google People, Microsoft Exchange) and calendar events (Google Calendar, Microsoft Calendar)
 - What-if mode logs planned operations but intentionally does not update cursors or link state
 
 ## Development

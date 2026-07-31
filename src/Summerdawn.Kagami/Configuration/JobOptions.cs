@@ -6,11 +6,6 @@ namespace Summerdawn.Kagami.Configuration;
 public sealed class JobOptions
 {
     /// <summary>
-    /// Gets or sets the entity type to synchronize (e.g., <c>"calendar-event"</c>, <c>"contact"</c>).
-    /// </summary>
-    public string EntityType { get; set; } = string.Empty;
-
-    /// <summary>
     /// Gets or sets the name of the source endpoint.
     /// </summary>
     public string SourceEndpointName { get; set; } = string.Empty;

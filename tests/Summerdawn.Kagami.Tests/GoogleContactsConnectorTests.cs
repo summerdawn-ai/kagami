@@ -337,7 +337,7 @@ public sealed class GoogleContactsConnectorTests
         var endpoint = new EndpointOptions
         {
             Type = EndpointOptions.GoogleContacts,
-            Properties = new Dictionary<string, string>(),
+            Properties = [],
         };
 
         return new GoogleContactsConnector(
