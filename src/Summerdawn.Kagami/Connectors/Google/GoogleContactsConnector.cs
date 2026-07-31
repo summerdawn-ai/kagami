@@ -83,6 +83,9 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             pageCursor = ParseCursor(page.Cursor);
         }
 
+        // A provider can repeat an item across pages; retain its final observation, including a later deletion.
+        items = items.GroupBy(static item => item.Provenance.ProviderId, StringComparer.Ordinal).Select(static group => group.Last()).ToList();
+
         return new ItemSet<CanonicalContact>(items, finalCursor);
     }
 

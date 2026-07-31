@@ -74,6 +74,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             parsedCursor = ParseCursor(page.Cursor);
         }
 
+        // A provider can repeat an item across pages; retain its final observation, including a later deletion.
+        items = items.GroupBy(static item => item.Provenance.ProviderId, StringComparer.Ordinal).Select(static group => group.Last()).ToList();
+
         return new ItemSet<CanonicalEvent>(items, finalCursor);
     }
 

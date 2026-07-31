@@ -85,8 +85,8 @@ public sealed class MicrosoftEventsConnectorTests
             {
               "value": [
                 {
-                  "id": "second-page",
-                  "subject": "Second Page",
+                  "id": "first-page",
+                  "subject": "Updated First Page",
                   "start": { "dateTime": "2026-05-01T12:00:00", "timeZone": "UTC" },
                   "end": { "dateTime": "2026-05-01T13:00:00", "timeZone": "UTC" },
                   "isOrganizer": true
@@ -98,7 +98,8 @@ public sealed class MicrosoftEventsConnectorTests
 
         var result = await connector.GetCursorItemsAsync(null, CancellationToken.None);
 
-        Assert.Equal(2, result.Items.Count);
+        var item = Assert.Single(result.Items);
+        Assert.Equal("Updated First Page", item.Title);
         Assert.Equal("https://graph.microsoft.com/v1.0/users/user@contoso.com/events/delta?$deltatoken=final", result.Cursor);
     }
 

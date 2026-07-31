@@ -89,6 +89,9 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             requestUri = page.Cursor ?? throw new InvalidOperationException("Microsoft connector returned HasMore=true without a cursor.");
         }
 
+        // A provider can repeat an item across pages; retain its final observation, including a later deletion.
+        items = items.GroupBy(static item => item.Provenance.ProviderId, StringComparer.Ordinal).Select(static group => group.Last()).ToList();
+
         return new ItemSet<CanonicalContact>(items, finalCursor);
     }
 
@@ -107,6 +110,8 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             requestUri = page.NextLink;
         }
 
+        // A provider can repeat an item across pages; retain its final observation.
+        items = items.GroupBy(static item => item.Provenance.ProviderId, StringComparer.Ordinal).Select(static group => group.Last()).ToList();
         return items;
     }
 

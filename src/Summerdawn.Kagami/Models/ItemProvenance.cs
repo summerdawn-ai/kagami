@@ -8,6 +8,9 @@ public sealed class ItemProvenance
     /// <summary>
     /// Gets or sets the provider-assigned item identifier.
     /// </summary>
+    /// <remarks>
+    /// Provider IDs can be case-sensitive. For example, Microsoft event IDs must be compared using ordinal, case-sensitive semantics.
+    /// </remarks>
     public string ProviderId { get; set; } = string.Empty;
 
     /// <summary>
