@@ -315,8 +315,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
     /// Creates the writable subset of a canonical event understood by Google Calendar.
     /// </summary>
     /// <remarks>
-    /// Empty attendee addresses are omitted because Google rejects attendee entries without an
-    /// address. Recurrence rules are split into the repeated-string shape required by the API.
+    /// Organizer and attendee fields are omitted so creates become private mailbox-owned copies
+    /// and updates preserve participant data already held by the destination. Recurrence rules
+    /// are split into the repeated-string shape required by the API.
     /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "Calendar writable payload uses known JsonNode shapes.")]
@@ -342,39 +343,6 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(rule => (JsonNode?)rule)
                 .ToArray());
-        }
-
-        if (item.Organizer is not null && !string.IsNullOrWhiteSpace(item.Organizer.Email))
-        {
-            body["organizer"] = new JsonObject
-            {
-                ["email"] = item.Organizer.Email,
-                ["displayName"] = item.Organizer.Name,
-            };
-        }
-
-        if (item.Attendees.Count > 0)
-        {
-            JsonArray attendees = [];
-            foreach (var attendee in item.Attendees)
-            {
-                if (string.IsNullOrWhiteSpace(attendee.Email))
-                {
-                    continue;
-                }
-
-                attendees.Add(new JsonObject
-                {
-                    ["email"] = attendee.Email,
-                    ["displayName"] = attendee.Name,
-                    ["responseStatus"] = attendee.ResponseStatus,
-                });
-            }
-
-            if (attendees.Count > 0)
-            {
-                body["attendees"] = attendees;
-            }
         }
 
         return body;

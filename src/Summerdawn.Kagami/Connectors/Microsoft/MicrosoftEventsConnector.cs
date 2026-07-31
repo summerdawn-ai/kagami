@@ -278,48 +278,6 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             },
         };
 
-        // Organizer and attendee entries are emitted only when they contain routable email addresses.
-        if (item.Organizer is not null && !string.IsNullOrWhiteSpace(item.Organizer.Email))
-        {
-            body["organizer"] = new JsonObject
-            {
-                ["emailAddress"] = new JsonObject
-                {
-                    ["address"] = item.Organizer.Email,
-                    ["name"] = item.Organizer.Name,
-                },
-            };
-        }
-
-        // Microsoft treats attendees as required by default; response state is provider-managed and
-        // therefore is intentionally not sent back during ordinary synchronization writes.
-        if (item.Attendees.Count > 0)
-        {
-            JsonArray attendees = [];
-            foreach (var attendee in item.Attendees)
-            {
-                if (string.IsNullOrWhiteSpace(attendee.Email))
-                {
-                    continue;
-                }
-
-                attendees.Add(new JsonObject
-                {
-                    ["emailAddress"] = new JsonObject
-                    {
-                        ["address"] = attendee.Email,
-                        ["name"] = attendee.Name,
-                    },
-                    ["type"] = "required",
-                });
-            }
-
-            if (attendees.Count > 0)
-            {
-                body["attendees"] = attendees;
-            }
-        }
-
         if (item.RecurrencePattern is not null
             && SerializeRecurrence(item.RecurrencePattern, item.From) is JsonObject recurrenceNode)
         {

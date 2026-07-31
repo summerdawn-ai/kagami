@@ -194,7 +194,7 @@ public sealed class MicrosoftEventsConnectorTests
     }
 
     [Fact]
-    public void BuildWritableEvent_WritesOrganizerAttendeesAndRecurrence()
+    public void BuildWritableEvent_OmitsOrganizerAndAttendees()
     {
         var item = new CanonicalEvent
         {
@@ -215,8 +215,8 @@ public sealed class MicrosoftEventsConnectorTests
 
         Assert.Contains("\"subject\":\"Standup\"", json, StringComparison.Ordinal);
         Assert.Contains("\"contentType\":\"html\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"organizer\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"attendees\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"organizer\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"attendees\"", json, StringComparison.Ordinal);
         Assert.Contains("\"recurrence\"", json, StringComparison.Ordinal);
         Assert.Contains("\"type\":\"daily\"", json, StringComparison.Ordinal);
     }
