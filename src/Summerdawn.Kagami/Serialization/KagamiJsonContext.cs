@@ -39,8 +39,16 @@ internal partial class KagamiJsonContext : JsonSerializerContext
     };
 
     /// <summary>
-    /// Defines JSON serialization options to compute hashes on canonical properties without provider-specific data.
+    /// Defines JSON serialization options to compute hashes on synchronizable canonical content.
     /// </summary>
+    ///
+    /// <remarks>
+    /// Event organizer and attendee data is retained by import/export and provider reads, but is
+    /// excluded from synchronization hashes. Event writes intentionally omit those fields so a
+    /// provider-owned copy cannot be mistaken for a participant-faithful meeting. Excluding them
+    /// here prevents the resulting provider-specific participant state from causing repeated
+    /// cross-provider updates.
+    /// </remarks>
     public static readonly JsonSerializerOptions HashJsonOptions = new()
     {
         TypeInfoResolver = new KagamiJsonContext().WithAddedModifier(typeInfo =>
@@ -55,6 +63,13 @@ internal partial class KagamiJsonContext : JsonSerializerContext
             if (typeInfo.Type == typeof(ItemProvenance))
             {
                 typeInfo.Properties.Clear();
+            }
+
+            if (typeInfo.Type == typeof(CanonicalEvent))
+            {
+                RemoveProperty(typeInfo, "Organizer");
+                RemoveProperty(typeInfo, "Attendees");
+                RemoveProperty(typeInfo, "HasAttendees");
             }
         })
     };

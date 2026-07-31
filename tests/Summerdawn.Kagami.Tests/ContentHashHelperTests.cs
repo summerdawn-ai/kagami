@@ -17,6 +17,20 @@ public sealed class ContentHashHelperTests
         Assert.Equal(firstHash, secondHash);
     }
 
+    [Fact]
+    public void ComputeContentHash_IgnoresEventParticipants()
+    {
+        var withoutParticipants = CreateEvent("google-1", "Google");
+        var withParticipants = CreateEvent("microsoft-1", "Microsoft");
+        withParticipants.Organizer = new CalendarEventParticipant { Email = "organizer@example.test" };
+        withParticipants.Attendees.Add(new CalendarEventParticipant { Email = "attendee@example.test" });
+
+        Assert.Equal(
+            ContentHashHelper.ComputeContentHash(withoutParticipants),
+            ContentHashHelper.ComputeContentHash(withParticipants));
+        Assert.True(ContentHashHelper.HaveIdenticalContent(withoutParticipants, withParticipants));
+    }
+
     private static CanonicalEvent CreateEvent(string providerId, string endpointName) => new()
     {
         Title = "Design Review",
