@@ -228,7 +228,7 @@ public static class Program
             await using (var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings))
             {
                 var handler = provider.GetRequiredService<CommandHandler<CanonicalContact>>();
-                result = await handler.ExportAsync(from, to, prune: prune, contactFilter, CancellationToken.None);
+                result = await handler.ExportAsync(from, to, prune, contactFilter, CancellationToken.None);
             }
 
             Console.WriteLine(result.Succeeded
@@ -612,7 +612,7 @@ public static class Program
             await using (var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings))
             {
                 var handler = provider.GetRequiredService<CommandHandler<CanonicalEvent>>();
-                result = await handler.ExportAsync(from, to, prune: prune, eventFilter, CancellationToken.None);
+                result = await handler.ExportAsync(from, to, prune, eventFilter, CancellationToken.None);
             }
 
             Console.WriteLine(result.Succeeded
