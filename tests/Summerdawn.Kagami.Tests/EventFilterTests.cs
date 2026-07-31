@@ -47,4 +47,52 @@ public sealed class EventFilterTests
         var matched = Assert.Single(result);
         Assert.Equal("Team Sync", matched.Title);
     }
+
+    [Fact]
+    public void Parse_AndRequiresEveryClauseToMatch()
+    {
+        const string expression = "contains(title,'Sync') and start gt '2026-01-01T00:00:00Z' and end lt '2026-02-01T00:00:00Z'";
+        var filter = EventFilter.Parse(expression);
+
+        Assert.NotNull(filter);
+        Assert.Equal(expression, filter!.Scope);
+        Assert.True(filter.Matches(new CanonicalEvent
+        {
+            Title = "Team Sync",
+            From = new DateTimeOffset(2026, 1, 10, 9, 0, 0, TimeSpan.Zero),
+            To = new DateTimeOffset(2026, 1, 10, 10, 0, 0, TimeSpan.Zero),
+        }));
+        Assert.False(filter.Matches(new CanonicalEvent
+        {
+            Title = "Team Sync",
+            From = new DateTimeOffset(2025, 12, 10, 9, 0, 0, TimeSpan.Zero),
+            To = new DateTimeOffset(2025, 12, 10, 10, 0, 0, TimeSpan.Zero),
+        }));
+    }
+
+    [Fact]
+    public void Parse_AndInsideQuotedValueIsNotASeparator()
+    {
+        var filter = EventFilter.Parse("contains(title,'Research and Planning') and start gt '2026-01-01T00:00:00Z'");
+
+        Assert.NotNull(filter);
+        Assert.True(filter!.Matches(new CanonicalEvent
+        {
+            Title = "Research and Planning",
+            From = new DateTimeOffset(2026, 1, 2, 9, 0, 0, TimeSpan.Zero),
+        }));
+    }
+
+    [Fact]
+    public void Parse_DateComparisonsUseStrictBoundaries()
+    {
+        var filter = EventFilter.Parse("start gt '2026-01-01T00:00:00Z' and end lt '2026-01-02T00:00:00Z'");
+
+        Assert.NotNull(filter);
+        Assert.False(filter!.Matches(new CanonicalEvent
+        {
+            From = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+            To = new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
+        }));
+    }
 }

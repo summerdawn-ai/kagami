@@ -41,6 +41,10 @@ public sealed partial class ContactFilter : IFilter<CanonicalContact>
     /// <param name="filterExpression">The OData-style filter expression.</param>
     /// <returns>A filter instance, or <c>null</c> if no filtering is required.</returns>
     /// <exception cref="ArgumentException">Thrown when the expression is non-empty but not recognised.</exception>
+    /// <remarks>
+    /// Multiple atomic expressions may be combined with a flat, case-insensitive <c>and</c>.
+    /// Text inside quoted string values is not treated as an operator.
+    /// </remarks>
     public static ContactFilter? Parse(string? filterExpression)
     {
         if (string.IsNullOrWhiteSpace(filterExpression))
@@ -49,48 +53,67 @@ public sealed partial class ContactFilter : IFilter<CanonicalContact>
         }
 
         string expr = filterExpression.Trim();
+        var clauses = FilterExpressionParser.SplitAnd(expr);
+        if (clauses.Count > 1)
+        {
+            var filters = clauses.Select(clause => ParseClause(clause)).ToArray();
+            return new ContactFilter(contact => filters.All(filter => filter.Matches(contact)), filterExpression);
+        }
+
+        return ParseClause(expr, filterExpression);
+    }
+
+    /// <summary>
+    /// Parses one atomic contact filter clause.
+    /// </summary>
+    /// <param name="expression">The atomic clause to parse.</param>
+    /// <param name="scope">The complete filter expression to retain as the filter scope.</param>
+    /// <returns>A filter for the atomic clause.</returns>
+    private static ContactFilter ParseClause(string expression, string? scope = null)
+    {
+        string filterScope = scope ?? expression;
 
         // startswith(name,'value')  — value may contain escaped quotes ('')
-        var m = StartsWithPattern().Match(expr);
+        var m = StartsWithPattern().Match(expression);
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(contact => MatchesName(contact, name => name.StartsWith(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
+            return new ContactFilter(contact => MatchesName(contact, name => name.StartsWith(value, StringComparison.OrdinalIgnoreCase)), filterScope);
         }
 
         // endswith(name,'value')
-        m = EndsWithPattern().Match(expr);
+        m = EndsWithPattern().Match(expression);
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(contact => MatchesName(contact, name => name.EndsWith(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
+            return new ContactFilter(contact => MatchesName(contact, name => name.EndsWith(value, StringComparison.OrdinalIgnoreCase)), filterScope);
         }
 
         // contains(name,'value')
-        m = ContainsPattern().Match(expr);
+        m = ContainsPattern().Match(expression);
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(contact => MatchesName(contact, name => name.Contains(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
+            return new ContactFilter(contact => MatchesName(contact, name => name.Contains(value, StringComparison.OrdinalIgnoreCase)), filterScope);
         }
 
         // contains(categories,'value')
-        m = ContainsCategoriesPattern().Match(expr);
+        m = ContainsCategoriesPattern().Match(expression);
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(contact => contact.Categories.Any(category => string.Equals(category, value, StringComparison.OrdinalIgnoreCase)), filterExpression);
+            return new ContactFilter(contact => contact.Categories.Any(category => string.Equals(category, value, StringComparison.OrdinalIgnoreCase)), filterScope);
         }
 
         // name eq 'value'
-        m = EqPattern().Match(expr);
+        m = EqPattern().Match(expression);
         if (m.Success)
         {
             string value = UnescapeODataString(m.Groups["val"].Value);
-            return new ContactFilter(contact => MatchesName(contact, name => name.Equals(value, StringComparison.OrdinalIgnoreCase)), filterExpression);
+            return new ContactFilter(contact => MatchesName(contact, name => name.Equals(value, StringComparison.OrdinalIgnoreCase)), filterScope);
         }
 
-        throw new ArgumentException($"Unrecognized filter expression: '{filterExpression}'. " +
+        throw new ArgumentException($"Unrecognized filter expression: '{expression}'. " +
             "Supported forms: startswith(name,'x'), endswith(name,'x'), contains(name,'x'), contains(categories,'x'), name eq 'x'");
     }
 
