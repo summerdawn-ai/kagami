@@ -17,7 +17,7 @@ namespace Summerdawn.Kagami.Connectors;
 /// <summary>
 /// Synchronizes Microsoft Graph events with silent write operations.
 /// </summary>
-public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, MicrosoftClientCredential credential) : IConnector<CanonicalEvent>
+public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, MicrosoftClientCredential credential, ILogger<MicrosoftEventsConnector> logger) : IConnector<CanonicalEvent>
 {
     private const string MicrosoftScope = "https://graph.microsoft.com/.default";
     private const string GraphBaseUri = "https://graph.microsoft.com/v1.0";
@@ -43,7 +43,9 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
     /// <inheritdoc/>
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Authenticating to {Endpoint}...", EndpointName);
         _ = await credential.TokenCredential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
+        logger.LogInformation("Authenticated to {Endpoint}.", EndpointName);
     }
 
     /// <inheritdoc/>

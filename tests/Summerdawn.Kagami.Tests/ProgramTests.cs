@@ -18,6 +18,9 @@ public sealed class ProgramTests
             data.Add(["jobs", "list", "--verbose"]);
             data.Add(["jobs", "reset", "--all", "--verbose"]);
             data.Add(["jobs", "unlock", "--all", "--verbose"]);
+            data.Add(["endpoints", "list", "--verbose"]);
+            data.Add(["endpoints", "login", "--endpoint", "Google", "--verbose"]);
+            data.Add(["endpoints", "logout", "--endpoint", "Google", "--verbose"]);
             return data;
         }
     }
@@ -253,6 +256,17 @@ public sealed class ProgramTests
         Assert.Contains(jobsCommand.Subcommands, cmd => cmd.Name == "list");
         Assert.Contains(jobsCommand.Subcommands, cmd => cmd.Name == "reset");
         Assert.Contains(jobsCommand.Subcommands, cmd => cmd.Name == "unlock");
+    }
+
+    [Fact]
+    public void CreateRootCommand_ExposesEndpointCommands()
+    {
+        var rootCommand = Program.CreateRootCommand();
+        var endpointsCommand = rootCommand.Subcommands.First(cmd => cmd.Name == "endpoints");
+
+        Assert.Contains(endpointsCommand.Subcommands, cmd => cmd.Name == "list");
+        Assert.Contains(endpointsCommand.Subcommands, cmd => cmd.Name == "login");
+        Assert.Contains(endpointsCommand.Subcommands, cmd => cmd.Name == "logout");
     }
 
     [Fact]

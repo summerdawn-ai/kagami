@@ -5,6 +5,8 @@ using System.Text.Json.Nodes;
 
 using Azure.Core;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
@@ -26,7 +28,7 @@ public sealed class MicrosoftContactsConnectorTests
             Properties = new Dictionary<string, string> { ["userId"] = "user@example.com" },
         };
         var credential = new MicrosoftClientCredential(new FakeTokenCredential());
-        return new MicrosoftContactsConnector(httpClient, "test", endpoint, credential);
+        return new MicrosoftContactsConnector(httpClient, "test", endpoint, credential, NullLogger<MicrosoftContactsConnector>.Instance);
     }
 
     private static string ContactJson(

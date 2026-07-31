@@ -3,6 +3,8 @@ using System.Text.Json;
 
 using Azure.Core;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
@@ -254,7 +256,7 @@ public sealed class MicrosoftEventsConnectorTests
             }
         };
 
-        return new MicrosoftEventsConnector(httpClient, "test", endpoint, credential);
+        return new MicrosoftEventsConnector(httpClient, "test", endpoint, credential, NullLogger<MicrosoftEventsConnector>.Instance);
     }
 
     private static HttpResponseMessage CreateJsonResponse(string json) =>

@@ -8,6 +8,17 @@ namespace Summerdawn.Kagami.Authentication;
 /// <summary>
 /// Authenticates against Google OAuth and caches tokens for subsequent requests.
 /// </summary>
+/// <remarks>
+/// The cache is scoped to the configured endpoint name. A cached entry is usable only when it
+/// contains the expected account email, which prevents a token obtained for one configured
+/// Google account from being used by another endpoint. A mismatch is intentionally treated as a
+/// cache miss so the normal interactive authorization flow can obtain a replacement credential.
+///
+/// The account email is obtained from the ID token returned by the authorization-code exchange.
+/// This class uses that token only as a source of the email claim; it does not validate the token
+/// signature or any other claims. Refresh responses are trusted to belong to the account already
+/// accepted when the cached refresh token was created.
+/// </remarks>
 public sealed class GoogleOAuthCredential : IConnectorCredential
 {
     private const string AuthEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -18,11 +29,14 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
     private readonly string clientId;
     private readonly string clientSecret;
     private readonly string endpointName;
+    private readonly string expectedUserId;
     private readonly IReadOnlyList<string> scopes;
     private readonly HttpClient httpClient;
     private readonly GoogleTokenCache tokenCache;
     private string? accessToken;
     private string? refreshToken;
+    private string? accountEmail;
+    private string? idToken;
     private DateTimeOffset tokenExpiry;
 
     /// <summary>
@@ -32,6 +46,7 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
         string clientId,
         string clientSecret,
         string endpointName,
+        string expectedUserId,
         IReadOnlyList<string> scopes,
         HttpClient httpClient,
         GoogleTokenCache tokenCache)
@@ -39,15 +54,20 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
         this.clientId = clientId;
         this.clientSecret = clientSecret;
         this.endpointName = endpointName;
+        this.expectedUserId = expectedUserId;
         this.scopes = scopes;
         this.httpClient = httpClient;
         this.tokenCache = tokenCache;
 
         var cached = tokenCache.Load(endpointName);
-        if (cached is not null)
+        // A cache entry for a different account is deliberately ignored without diagnostics. The
+        // caller will fall through to interactive authorization when it next requests a token.
+        if (cached is { AccountEmail: not null } && string.Equals(cached.AccountEmail, expectedUserId, StringComparison.OrdinalIgnoreCase))
         {
             accessToken = cached.AccessToken;
             refreshToken = cached.RefreshToken;
+            accountEmail = cached.AccountEmail;
+            idToken = cached.IdToken;
             tokenExpiry = cached.Expiry;
         }
     }
@@ -55,6 +75,11 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
     /// <summary>
     /// Gets a valid Google access token, refreshing or interactively acquiring one when necessary.
     /// </summary>
+    /// <remarks>
+    /// Access tokens are considered stale five minutes before their reported expiry. The method
+    /// first returns a still-valid access token, then tries the cached refresh token, and finally
+    /// starts the interactive flow if neither cached value can be used.
+    /// </remarks>
     public async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
     {
         if (!string.IsNullOrEmpty(accessToken) && DateTimeOffset.UtcNow < tokenExpiry - TokenExpiryBuffer)
@@ -75,6 +100,30 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
         return accessToken!;
     }
 
+    /// <summary>
+    /// Removes the cached Google credential for this endpoint.
+    /// </summary>
+    public bool Logout()
+    {
+        bool deleted = tokenCache.Delete(endpointName);
+        accessToken = null;
+        refreshToken = null;
+        accountEmail = null;
+        idToken = null;
+        tokenExpiry = default;
+        return deleted;
+    }
+
+    /// <summary>
+    /// Attempts to replace the cached access token by using its refresh token.
+    /// </summary>
+    /// <remarks>
+    /// Google may omit a replacement refresh token, in which case the existing one remains in
+    /// memory and is persisted again. A failed HTTP response or a response without an access
+    /// token is reported as <c>false</c>, allowing the caller to fall back to interactive login.
+    /// The response is not checked for an ID token because the cached account identity was already
+    /// established during the authorization-code exchange.
+    /// </remarks>
     private async Task<bool> TryRefreshTokenAsync(CancellationToken cancellationToken)
     {
         FormUrlEncodedContent body = new([
@@ -113,6 +162,14 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
         return true;
     }
 
+    /// <summary>
+    /// Runs Google's localhost authorization-code flow and stores the resulting credential.
+    /// </summary>
+    /// <remarks>
+    /// A random state value is included in the authorization URL and verified by the callback
+    /// listener. Offline access and consent are requested so Google returns a refresh token that
+    /// can be cached for later invocations.
+    /// </remarks>
     private async Task AuthorizeInteractivelyAsync(CancellationToken cancellationToken)
     {
         string state = Guid.NewGuid().ToString("N");
@@ -137,6 +194,14 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
         await ExchangeCodeAsync(code, cancellationToken);
     }
 
+    /// <summary>
+    /// Waits for the OAuth callback on the fixed localhost redirect URI.
+    /// </summary>
+    /// <remarks>
+    /// The listener returns a short browser response before processing the callback. It rejects
+    /// provider errors, mismatched state values, and callbacks without an authorization code.
+    /// Cancellation stops the listener and is surfaced as <see cref="OperationCanceledException"/>.
+    /// </remarks>
     private static async Task<string> ListenForCallbackAsync(string expectedState, CancellationToken cancellationToken)
     {
         using HttpListener listener = new();
@@ -188,6 +253,14 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
         }
     }
 
+    /// <summary>
+    /// Exchanges an authorization code for Google tokens and verifies the authorized account.
+    /// </summary>
+    /// <remarks>
+    /// The access token and ID token are both required. The ID token payload is decoded only to
+    /// read its email claim, which is compared with the configured account before any token is
+    /// persisted. A mismatch therefore cannot poison the endpoint's cache.
+    /// </remarks>
     private async Task ExchangeCodeAsync(string code, CancellationToken cancellationToken)
     {
         FormUrlEncodedContent body = new([
@@ -207,6 +280,12 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
 
         accessToken = root.GetProperty("access_token").GetString()
             ?? throw new InvalidOperationException("Token exchange response did not include an access token.");
+        string idToken = root.TryGetProperty("id_token", out var idTokenElement)
+            ? idTokenElement.GetString() ?? throw new InvalidOperationException("Google OAuth token response did not include an ID token.")
+            : throw new InvalidOperationException("Google OAuth token response did not include an ID token.");
+        this.idToken = idToken;
+        accountEmail = GetIdTokenEmail(idToken);
+        ValidateAccountEmail(accountEmail);
         int expiresIn = root.TryGetProperty("expires_in", out var expElem) ? expElem.GetInt32() : 3600;
         tokenExpiry = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(expiresIn);
 
@@ -218,6 +297,12 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
         PersistTokens();
     }
 
+    /// <summary>
+    /// Opens the authorization URL using the operating system's default browser when possible.
+    /// </summary>
+    /// <remarks>
+    /// Browser startup is best effort because the URL is also printed for manual navigation.
+    /// </remarks>
     private static void OpenBrowser(string url)
     {
         try
@@ -230,8 +315,55 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
         }
     }
 
+    /// <summary>
+    /// Saves the current Google token state for this endpoint.
+    /// </summary>
     private void PersistTokens()
     {
-        tokenCache.Save(endpointName, new GoogleTokenCacheEntry(accessToken, refreshToken, tokenExpiry));
+        tokenCache.Save(endpointName, new GoogleTokenCacheEntry(accessToken, refreshToken, tokenExpiry, accountEmail, idToken));
+    }
+
+    /// <summary>
+    /// Reads the email claim from the payload of a Google ID token.
+    /// </summary>
+    /// <remarks>
+    /// This is deliberately payload decoding rather than ID-token validation. The token is used
+    /// only to identify the account returned by the interactive login; Google token signature and
+    /// claim validation are outside this credential's responsibility.
+    /// </remarks>
+    private static string GetIdTokenEmail(string idToken)
+    {
+        string[] parts = idToken.Split('.');
+        if (parts.Length != 3)
+        {
+            throw new InvalidOperationException("Google OAuth response did not contain a usable ID token.");
+        }
+
+        try
+        {
+            byte[] payload = Convert.FromBase64String(parts[1].Replace('-', '+').Replace('_', '/') + new string('=', (4 - parts[1].Length % 4) % 4));
+            using var document = JsonDocument.Parse(payload);
+            return document.RootElement.GetProperty("email").GetString()
+                ?? throw new InvalidOperationException("Google OAuth ID token did not contain an email.");
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is FormatException or JsonException or KeyNotFoundException)
+        {
+            throw new InvalidOperationException("Google OAuth response did not contain a usable ID token.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Ensures that a newly authorized Google account matches the endpoint configuration.
+    /// </summary>
+    private void ValidateAccountEmail(string accountEmail)
+    {
+        if (!string.Equals(accountEmail, expectedUserId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Google credential belongs to '{accountEmail}', but endpoint '{endpointName}' requires '{expectedUserId}'.");
+        }
     }
 }

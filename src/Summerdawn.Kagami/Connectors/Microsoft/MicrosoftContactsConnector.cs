@@ -16,7 +16,7 @@ namespace Summerdawn.Kagami.Connectors;
 /// <summary>
 /// Synchronizes Microsoft Graph contacts using delta queries for persisted syncs and direct full collection reads for explicit full loads.
 /// </summary>
-public sealed class MicrosoftContactsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, MicrosoftClientCredential credential) : IConnector<CanonicalContact>
+public sealed class MicrosoftContactsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, MicrosoftClientCredential credential, ILogger<MicrosoftContactsConnector> logger) : IConnector<CanonicalContact>
 {
     private const string MicrosoftScope = "https://graph.microsoft.com/.default";
     private const string GraphBaseUri = "https://graph.microsoft.com/v1.0";
@@ -66,7 +66,9 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
     /// <inheritdoc/>
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Authenticating to {Endpoint}...", EndpointName);
         _ = await credential.TokenCredential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
+        logger.LogInformation("Authenticated to {Endpoint}.", EndpointName);
     }
 
     /// <inheritdoc/>

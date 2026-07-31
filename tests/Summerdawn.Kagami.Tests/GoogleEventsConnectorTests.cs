@@ -2,6 +2,8 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
@@ -188,12 +190,13 @@ public sealed class GoogleEventsConnectorTests
     {
         string endpointName = $"google-calendar-test-{Guid.NewGuid():N}";
         var tokenCache = new GoogleTokenCache(Path.Combine(Path.GetTempPath(), "kagami-tests", Guid.NewGuid().ToString("N")));
-        tokenCache.Save(endpointName, new GoogleTokenCacheEntry("fake-token", "fake-refresh-token", DateTimeOffset.UtcNow.AddHours(1)));
+        tokenCache.Save(endpointName, new GoogleTokenCacheEntry("fake-token", "fake-refresh-token", DateTimeOffset.UtcNow.AddHours(1), "user@contoso.com"));
 
         var credential = new GoogleOAuthCredential(
             "client-id",
             "client-secret",
             endpointName,
+            "user@contoso.com",
             ["https://www.googleapis.com/auth/calendar.readonly"],
         new HttpClient(new SequenceHttpHandler()),
         tokenCache);
@@ -208,7 +211,8 @@ public sealed class GoogleEventsConnectorTests
             new HttpClient(connectorHandler),
             "google",
             endpoint,
-            credential);
+            credential,
+            NullLogger<GoogleEventsConnector>.Instance);
     }
 
     private static HttpResponseMessage CreateJsonResponse(HttpStatusCode statusCode, string json) =>

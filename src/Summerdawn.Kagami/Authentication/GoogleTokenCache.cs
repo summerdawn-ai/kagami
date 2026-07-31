@@ -44,6 +44,21 @@ public sealed class GoogleTokenCache(string storageDirectory)
         File.WriteAllText(path, json);
     }
 
+    /// <summary>
+    /// Deletes the cached tokens for an endpoint.
+    /// </summary>
+    public bool Delete(string endpointName)
+    {
+        string path = GetPath(endpointName);
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        File.Delete(path);
+        return true;
+    }
+
     private string GetPath(string endpointName)
     {
         char[] invalid = Path.GetInvalidFileNameChars();
@@ -58,4 +73,6 @@ public sealed class GoogleTokenCache(string storageDirectory)
 public sealed record GoogleTokenCacheEntry(
     string? AccessToken,
     string? RefreshToken,
-    DateTimeOffset Expiry);
+    DateTimeOffset Expiry,
+    string? AccountEmail = null,
+    string? IdToken = null);

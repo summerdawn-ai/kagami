@@ -324,12 +324,13 @@ public sealed class GoogleContactsConnectorTests
     {
         string endpointName = $"{TestEndpointNamePrefix}{Guid.NewGuid():N}";
         var tokenCache = new GoogleTokenCache(Path.Combine(Path.GetTempPath(), "kagami-tests", Guid.NewGuid().ToString("N")));
-        tokenCache.Save(endpointName, new GoogleTokenCacheEntry("fake-token", "fake-refresh-token", DateTimeOffset.UtcNow.AddHours(1)));
+        tokenCache.Save(endpointName, new GoogleTokenCacheEntry("fake-token", "fake-refresh-token", DateTimeOffset.UtcNow.AddHours(1), "user@example.com"));
 
         var credential = new GoogleOAuthCredential(
             "client-id",
             "client-secret",
             endpointName,
+            "user@example.com",
             ["https://www.googleapis.com/auth/contacts.readonly"],
             new HttpClient(new SequenceHttpHandler()),
             tokenCache);

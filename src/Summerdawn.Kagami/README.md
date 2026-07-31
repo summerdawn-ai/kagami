@@ -75,7 +75,7 @@ This registers the sync engine, persistence services, and a named `HttpClient` p
 
 ### CLI commands
 
-Kagami exposes three top-level command groups:
+Kagami exposes four top-level command groups:
 
 ```text
 # Contact operations
@@ -100,9 +100,26 @@ kagami jobs reset  --key <jobKey>
 kagami jobs reset  --all
 kagami jobs unlock --key <jobKey>
 kagami jobs unlock --all
+
+# Endpoint authentication and status
+kagami endpoints list
+kagami endpoints login  --endpoint <endpoint>
+kagami endpoints logout --endpoint <endpoint>
 ```
 
 All CLI commands accept `--settings`, `--no-default-settings`, and `--verbose`. Run a command with `--help` for its operation-specific options.
+
+#### `kagami endpoints` commands
+
+The `endpoints` command group reports configured endpoint and credential status and manages interactive Google OAuth credentials. `endpoints list` reports whether a Google token is cached; Microsoft client credentials are reported as `Not applicable` because they do not require interactive login.
+
+```bash
+kagami endpoints list --settings appsettings.json
+kagami endpoints login --endpoint Google --settings appsettings.json
+kagami endpoints logout --endpoint Google --settings appsettings.json
+```
+
+Google login reuses a valid cached credential, refreshes an expired one, or opens the browser for interactive authorization. Google logout removes the endpoint-scoped token cache. Microsoft client credentials do not support either operation.
 
 #### `kagami contacts list`
 
@@ -409,7 +426,9 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
           "ClientId": "your-google-client-id.apps.googleusercontent.com",
           "ClientSecret": "replace-me"
         },
-        "Properties": {}
+        "Properties": {
+          "userId": "person@gmail.com"
+        }
       },
       "googleEvents": {
         "Type": "GoogleEvents",
@@ -419,6 +438,7 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
           "ClientSecret": "replace-me"
         },
         "Properties": {
+          "userId": "person@gmail.com",
           "calendarId": "primary"
         }
       },
@@ -477,12 +497,13 @@ Credential fields (`Type = "GoogleOAuthCredential"`):
 
 Endpoint properties:
 
-- none required
+- `userId`: required; the Google account email that must match the authenticated OAuth account
 
 Notes:
 
 - On first use, Kagami opens the browser for OAuth consent and listens on `http://localhost:4189/` for the callback
 - Access and refresh tokens are cached in the `tokens` subdirectory of `Kagami:DataDirectory`
+- The cached token file can be copied from the login machine to the same `tokens` directory on a headless server
 - Kagami requests the Google contacts scope `https://www.googleapis.com/auth/contacts`
 - The built-in Google contacts connector currently uses end-user OAuth; service-account and domain-wide-delegation auth are not supported
 
@@ -495,7 +516,9 @@ Credential fields (`Type = "GoogleOAuthCredential"`):
 
 Endpoint properties:
 
+- `userId`: required; the Google account email that must match the authenticated OAuth account
 - `calendarId`: optional; defaults to `primary`
+- The cached token file can be copied from the login machine to the same `tokens` directory on a headless server
 
 Notes:
 
