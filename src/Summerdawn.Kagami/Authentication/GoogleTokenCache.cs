@@ -58,4 +58,6 @@ public sealed class GoogleTokenCache(string storageDirectory)
 public sealed record GoogleTokenCacheEntry(
     string? AccessToken,
     string? RefreshToken,
-    DateTimeOffset Expiry);
+    DateTimeOffset Expiry,
+    string? AccountEmail = null,
+    string? IdToken = null);

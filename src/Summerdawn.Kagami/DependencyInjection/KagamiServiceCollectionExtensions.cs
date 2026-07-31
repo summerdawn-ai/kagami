@@ -38,7 +38,8 @@ public static class KagamiServiceCollectionExtensions
             if (!string.IsNullOrWhiteSpace(endpoint.Credential.Type))
             {
                 var scopes = ScopesFor(endpoint.Type);
-                credentials[endpointName] = credentialFactory.Create(endpoint.Credential, authHttpClient, scopes, endpointName);
+                string? configuredUserId = endpoint.Properties.GetOptionalValue("userId");
+                credentials[endpointName] = credentialFactory.Create(endpoint.Credential, configuredUserId, authHttpClient, scopes, endpointName);
             }
         }
 
@@ -129,14 +130,11 @@ public static class KagamiServiceCollectionExtensions
     /// </summary>
     private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType switch
     {
-        EndpointOptions.GoogleContacts => ["https://www.googleapis.com/auth/contacts"],
-        EndpointOptions.GoogleEvents => ["https://www.googleapis.com/auth/calendar"],
+        EndpointOptions.GoogleContacts => ["https://www.googleapis.com/auth/contacts", "openid", "email"],
+        EndpointOptions.GoogleEvents => ["https://www.googleapis.com/auth/calendar", "openid", "email"],
         _ => []
     };
 
-    /// <summary>
-    /// Registers a named <see cref="HttpClient"/> for the endpoint, configured with a resilience pipeline that honours <c>Retry-After</c> headers.
-    /// </summary>
     private static void RegisterEndpointHttpClient(IServiceCollection services, string endpointName)
     {
         var builder = services.AddHttpClient($"kagami-{endpointName}", client =>

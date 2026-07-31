@@ -14,21 +14,22 @@ internal sealed class CredentialFactory(GoogleTokenCache tokenCache)
     /// <summary>
     /// Creates a connector credential for the specified configuration.
     /// </summary>
-    public IConnectorCredential Create(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
+    public IConnectorCredential Create(CredentialOptions options, string? configuredUserId, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
     {
         return options.Type switch
         {
-            CredentialOptions.GoogleOAuthCredential => CreateGoogleOAuth(options, httpClient, scopes, endpointName),
+            CredentialOptions.GoogleOAuthCredential => CreateGoogleOAuth(options, configuredUserId, httpClient, scopes, endpointName),
             CredentialOptions.MicrosoftClientCredential => CreateMicrosoftClientCredential(options),
             _ => throw new InvalidOperationException($"Unknown credential type '{options.Type}'.")
         };
     }
 
-    private GoogleOAuthCredential CreateGoogleOAuth(CredentialOptions options, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
+    private GoogleOAuthCredential CreateGoogleOAuth(CredentialOptions options, string? configuredUserId, HttpClient httpClient, IReadOnlyList<string> scopes, string endpointName)
     {
         string clientId = RequireField(options.ClientId, "ClientId", CredentialOptions.GoogleOAuthCredential);
         string clientSecret = RequireField(options.ClientSecret, "ClientSecret", CredentialOptions.GoogleOAuthCredential);
-        return new GoogleOAuthCredential(clientId, clientSecret, endpointName, scopes, httpClient, tokenCache);
+        string expectedUserId = RequireField(configuredUserId, "userId", CredentialOptions.GoogleOAuthCredential);
+        return new GoogleOAuthCredential(clientId, clientSecret, endpointName, expectedUserId, scopes, httpClient, tokenCache);
     }
 
     private static MicrosoftClientCredential CreateMicrosoftClientCredential(CredentialOptions options)

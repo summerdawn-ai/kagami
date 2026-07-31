@@ -409,7 +409,9 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
           "ClientId": "your-google-client-id.apps.googleusercontent.com",
           "ClientSecret": "replace-me"
         },
-        "Properties": {}
+        "Properties": {
+          "userId": "person@gmail.com"
+        }
       },
       "googleEvents": {
         "Type": "GoogleEvents",
@@ -419,6 +421,7 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
           "ClientSecret": "replace-me"
         },
         "Properties": {
+          "userId": "person@gmail.com",
           "calendarId": "primary"
         }
       },
@@ -477,12 +480,13 @@ Credential fields (`Type = "GoogleOAuthCredential"`):
 
 Endpoint properties:
 
-- none required
+- `userId`: required; the Google account email that must match the authenticated OAuth account
 
 Notes:
 
 - On first use, Kagami opens the browser for OAuth consent and listens on `http://localhost:4189/` for the callback
 - Access and refresh tokens are cached in the `tokens` subdirectory of `Kagami:DataDirectory`
+- The cached token file can be copied from the login machine to the same `tokens` directory on a headless server
 - Kagami requests the Google contacts scope `https://www.googleapis.com/auth/contacts`
 - The built-in Google contacts connector currently uses end-user OAuth; service-account and domain-wide-delegation auth are not supported
 
@@ -495,7 +499,9 @@ Credential fields (`Type = "GoogleOAuthCredential"`):
 
 Endpoint properties:
 
+- `userId`: required; the Google account email that must match the authenticated OAuth account
 - `calendarId`: optional; defaults to `primary`
+- The cached token file can be copied from the login machine to the same `tokens` directory on a headless server
 
 Notes:
 
