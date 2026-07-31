@@ -25,23 +25,21 @@ public static class KagamiServiceCollectionExtensions
         configuration.Bind(options);
         services.AddSingleton(options);
 
-        // Build a shared HttpClient for credential/token operations (not API calls)
+        // Build a shared HttpClient for credential/token operations (not API calls).
         HttpClient authHttpClient = new();
         authHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd("kagami/0.1");
         var tokenCache = new GoogleTokenCache(options.DataDirectory);
-        var credentialFactory = new CredentialFactory(tokenCache);
+        var credentialManager = new CredentialManager(tokenCache, authHttpClient);
 
         // Pre-build one credential per endpoint at startup
-        var credentials = new Dictionary<string, IConnectorCredential>(StringComparer.OrdinalIgnoreCase);
         foreach (var (endpointName, endpoint) in options.Endpoints)
         {
             if (!string.IsNullOrWhiteSpace(endpoint.Credential.Type))
             {
-                var scopes = ScopesFor(endpoint.Type);
-                string? configuredUserId = endpoint.Properties.GetOptionalValue("userId");
-                credentials[endpointName] = credentialFactory.Create(endpoint.Credential, configuredUserId, authHttpClient, scopes, endpointName);
+                credentialManager.Create(endpointName, endpoint);
             }
         }
+        services.AddSingleton(credentialManager);
 
         // Register a named HttpClient and a keyed IConnector singleton per endpoint
         services.AddHttpClient();
@@ -56,7 +54,7 @@ public static class KagamiServiceCollectionExtensions
             {
                 var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
                 var httpClient = httpClientFactory.CreateClient($"kagami-{capturedEndpointName}");
-                credentials.TryGetValue(capturedEndpointName, out var credential);
+                var credential = credentialManager.Get(capturedEndpointName);
                 return capturedEndpoint.Type switch
                 {
                     EndpointOptions.GoogleContacts => new GoogleContactsConnector(
@@ -81,7 +79,7 @@ public static class KagamiServiceCollectionExtensions
             {
                 var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
                 var httpClient = httpClientFactory.CreateClient($"kagami-{capturedEndpointName}");
-                credentials.TryGetValue(capturedEndpointName, out var credential);
+                var credential = credentialManager.Get(capturedEndpointName);
                 return capturedEndpoint.Type switch
                 {
                     EndpointOptions.GoogleEvents => new GoogleEventsConnector(
@@ -124,16 +122,6 @@ public static class KagamiServiceCollectionExtensions
         services.AddSingleton<CommandHandler<CanonicalEvent>>();
         return services;
     }
-
-    /// <summary>
-    /// Returns the OAuth scopes required for the named endpoint type.
-    /// </summary>
-    private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType switch
-    {
-        EndpointOptions.GoogleContacts => ["https://www.googleapis.com/auth/contacts", "openid", "email"],
-        EndpointOptions.GoogleEvents => ["https://www.googleapis.com/auth/calendar", "openid", "email"],
-        _ => []
-    };
 
     private static void RegisterEndpointHttpClient(IServiceCollection services, string endpointName)
     {

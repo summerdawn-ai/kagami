@@ -75,7 +75,7 @@ This registers the sync engine, persistence services, and a named `HttpClient` p
 
 ### CLI commands
 
-Kagami exposes three top-level command groups:
+Kagami exposes four top-level command groups:
 
 ```text
 # Contact operations
@@ -100,9 +100,26 @@ kagami jobs reset  --key <jobKey>
 kagami jobs reset  --all
 kagami jobs unlock --key <jobKey>
 kagami jobs unlock --all
+
+# Endpoint authentication and status
+kagami endpoints list
+kagami endpoints login  --endpoint <endpoint>
+kagami endpoints logout --endpoint <endpoint>
 ```
 
 All CLI commands accept `--settings`, `--no-default-settings`, and `--verbose`. Run a command with `--help` for its operation-specific options.
+
+#### `kagami endpoints` commands
+
+The `endpoints` command group reports configured endpoint and credential status and manages interactive Google OAuth credentials. `endpoints list` reports whether a Google token is cached; Microsoft client credentials are reported as `Not applicable` because they do not require interactive login.
+
+```bash
+kagami endpoints list --settings appsettings.json
+kagami endpoints login --endpoint Google --settings appsettings.json
+kagami endpoints logout --endpoint Google --settings appsettings.json
+```
+
+Google login reuses a valid cached credential, refreshes an expired one, or opens the browser for interactive authorization. Google logout removes the endpoint-scoped token cache. Microsoft client credentials do not support either operation.
 
 #### `kagami contacts list`
 

@@ -101,6 +101,20 @@ public sealed class GoogleOAuthCredential : IConnectorCredential
     }
 
     /// <summary>
+    /// Removes the cached Google credential for this endpoint.
+    /// </summary>
+    public bool Logout()
+    {
+        bool deleted = tokenCache.Delete(endpointName);
+        accessToken = null;
+        refreshToken = null;
+        accountEmail = null;
+        idToken = null;
+        tokenExpiry = default;
+        return deleted;
+    }
+
+    /// <summary>
     /// Attempts to replace the cached access token by using its refresh token.
     /// </summary>
     /// <remarks>

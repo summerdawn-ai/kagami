@@ -3,6 +3,7 @@ using System.CommandLine;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
+using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.DependencyInjection;
 using Summerdawn.Kagami.Engine;
@@ -48,6 +49,7 @@ public static class Program
             CreateContactsCommand(),
             CreateEventsCommand(),
             CreateJobsCommand(),
+            CreateEndpointsCommand(),
         };
 
         return rootCommand;
@@ -992,6 +994,121 @@ public static class Program
 
         return jobsCommand;
     }
+
+    private static Command CreateEndpointsCommand()
+    {
+        // ── endpoints command group ──────────────────────────────────────────
+        var settingsOption = new Option<string[]>("--settings")
+        {
+            Description = "Path to one or more settings JSON files to load",
+            Arity = ArgumentArity.ZeroOrMore,
+            AllowMultipleArgumentsPerToken = true,
+        };
+
+        var noDefaultSettingsOption = new Option<bool>("--no-default-settings")
+        {
+            Description = "Skip loading embedded default settings",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var verboseOption = new Option<bool>("--verbose")
+        {
+            Description = "Enable more detailed logging for this run",
+            Arity = ArgumentArity.Zero,
+        };
+
+        var endpointOption = new Option<string>("--endpoint")
+        {
+            Description = "Configured endpoint name",
+            Required = true,
+        };
+
+        var endpointsListCommand = new Command("list", "List configured endpoints and credential status")
+        {
+            settingsOption,
+            noDefaultSettingsOption,
+            verboseOption,
+        };
+        endpointsListCommand.SetAction(parseResult =>
+        {
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
+            bool verboseSettings = parseResult.GetValue(verboseOption);
+
+            using var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings);
+            var options = provider.GetRequiredService<KagamiOptions>();
+            var manager = provider.GetRequiredService<CredentialManager>();
+            var endpoints = manager.List(options.Endpoints);
+
+            if (endpoints.Count == 0)
+            {
+                Console.WriteLine("No endpoints configured.");
+                return;
+            }
+
+            Console.WriteLine($"{"Name",-25} {"Type",-20} {"Credential",-25} {"Status"}");
+            Console.WriteLine(new string('-', 85));
+            foreach (var endpoint in endpoints)
+            {
+                Console.WriteLine($"{endpoint.EndpointName,-25} {endpoint.EndpointType,-20} {endpoint.CredentialType,-25} {endpoint.Status}");
+            }
+        });
+
+        var endpointsLoginCommand = new Command("login", "Log in to a configured endpoint when supported")
+        {
+            settingsOption,
+            noDefaultSettingsOption,
+            endpointOption,
+            verboseOption,
+        };
+        endpointsLoginCommand.SetAction(async parseResult =>
+        {
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
+            string endpointName = parseResult.GetValue(endpointOption)!;
+            bool verboseSettings = parseResult.GetValue(verboseOption);
+
+            await using var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings);
+            var options = provider.GetRequiredService<KagamiOptions>();
+            var endpoint = GetEndpoint(options, endpointName);
+            var manager = provider.GetRequiredService<CredentialManager>();
+            var result = await manager.LoginAsync(endpointName, endpoint, CancellationToken.None);
+            Console.WriteLine(result.Message);
+        });
+
+        var endpointsLogoutCommand = new Command("logout", "Log out of a configured endpoint when supported")
+        {
+            settingsOption,
+            noDefaultSettingsOption,
+            endpointOption,
+            verboseOption,
+        };
+        endpointsLogoutCommand.SetAction(parseResult =>
+        {
+            string[] settingsFiles = parseResult.GetValue(settingsOption) ?? [];
+            bool noDefaultSettings = parseResult.GetValue(noDefaultSettingsOption);
+            string endpointName = parseResult.GetValue(endpointOption)!;
+            bool verboseSettings = parseResult.GetValue(verboseOption);
+
+            using var provider = BuildServiceProvider(settingsFiles, noDefaultSettings, verboseSettings);
+            var options = provider.GetRequiredService<KagamiOptions>();
+            var endpoint = GetEndpoint(options, endpointName);
+            var manager = provider.GetRequiredService<CredentialManager>();
+            Console.WriteLine(manager.Logout(endpointName, endpoint).Message);
+        });
+
+        return new Command("endpoints", "Inspect and manage configured endpoints")
+        {
+            endpointsListCommand,
+            endpointsLoginCommand,
+            endpointsLogoutCommand,
+        };
+    }
+
+    private static EndpointOptions GetEndpoint(KagamiOptions options, string endpointName) =>
+        options.Endpoints.TryGetValue(endpointName, out var endpoint)
+            ? endpoint
+            : throw new InvalidOperationException($"Endpoint '{endpointName}' is not configured.");
 
     private static ServiceProvider BuildServiceProvider(string[] settingsFiles, bool noDefaultSettings, bool verboseSettings)
     {
