@@ -20,7 +20,7 @@ namespace Summerdawn.Kagami.Connectors;
 /// cancellation records so the sync engine can remove deleted events. Writes use the
 /// provider's import, patch, and delete operations without sending attendee notifications.
 /// </remarks>
-public class GoogleEventsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, GoogleOAuthCredential credential) : IConnector<CanonicalEvent>
+public class GoogleEventsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, GoogleOAuthCredential credential, ILogger<GoogleEventsConnector> logger) : IConnector<CanonicalEvent>
 {
     private const string GraphBaseUri = "https://www.googleapis.com/calendar/v3";
     private const int PageSize = 250;
@@ -44,7 +44,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
     /// <inheritdoc/>
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Authenticating to {Endpoint}...", EndpointName);
         _ = await credential.GetAccessTokenAsync(cancellationToken);
+        logger.LogInformation("Authenticated to {Endpoint}.", EndpointName);
     }
 
     /// <inheritdoc/>

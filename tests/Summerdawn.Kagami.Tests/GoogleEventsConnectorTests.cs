@@ -2,6 +2,8 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Summerdawn.Kagami.Authentication;
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Connectors;
@@ -209,7 +211,8 @@ public sealed class GoogleEventsConnectorTests
             new HttpClient(connectorHandler),
             "google",
             endpoint,
-            credential);
+            credential,
+            NullLogger<GoogleEventsConnector>.Instance);
     }
 
     private static HttpResponseMessage CreateJsonResponse(HttpStatusCode statusCode, string json) =>

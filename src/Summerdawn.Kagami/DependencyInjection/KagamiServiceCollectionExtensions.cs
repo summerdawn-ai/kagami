@@ -69,7 +69,8 @@ public static class KagamiServiceCollectionExtensions
                         capturedEndpointName,
                         capturedEndpoint,
                         credential as MicrosoftClientCredential
-                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a MicrosoftClientCredential.")),
+                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a MicrosoftClientCredential."),
+                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<MicrosoftContactsConnector>()),
                     _ => throw new InvalidOperationException(
                         $"No connector registered for endpoint '{capturedEndpointName}' of type '{capturedEndpoint.Type}'."),
                 };
@@ -87,13 +88,15 @@ public static class KagamiServiceCollectionExtensions
                         capturedEndpointName,
                         capturedEndpoint,
                         credential as GoogleOAuthCredential
-                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a GoogleOAuthCredential.")),
+                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a GoogleOAuthCredential."),
+                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<GoogleEventsConnector>()),
                     EndpointOptions.MicrosoftEvents => new MicrosoftEventsConnector(
                         httpClient,
                         capturedEndpointName,
                         capturedEndpoint,
                         credential as MicrosoftClientCredential
-                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a MicrosoftClientCredential.")),
+                            ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a MicrosoftClientCredential."),
+                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<MicrosoftEventsConnector>()),
                     _ => throw new InvalidOperationException(
                         $"No event connector registered for endpoint '{capturedEndpointName}' of type '{capturedEndpoint.Type}'."),
                 };

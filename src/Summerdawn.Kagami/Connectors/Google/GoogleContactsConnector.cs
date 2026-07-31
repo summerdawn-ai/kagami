@@ -53,7 +53,9 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
     /// <inheritdoc/>
     public async Task AuthenticateAsync(CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Authenticating to {Endpoint}...", EndpointName);
         _ = await credential.GetAccessTokenAsync(cancellationToken);
+        logger.LogInformation("Authenticated to {Endpoint}.", EndpointName);
     }
 
     /// <inheritdoc/>

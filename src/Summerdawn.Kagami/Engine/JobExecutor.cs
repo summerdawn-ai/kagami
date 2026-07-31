@@ -190,13 +190,9 @@ public sealed class JobExecutor(
         bool whatIf = executionFlags.HasFlag(JobExecutionFlags.WhatIf);
         bool confirm = executionFlags.HasFlag(JobExecutionFlags.Confirm);
         string itemCategory = job.GetItemCategory();
-        logger.LogInformation("Authenticating to {Endpoint}...", job.SourceConnector.EndpointName);
         await job.SourceConnector.AuthenticateAsync(cancellationToken);
-        logger.LogInformation("Authenticated to {Endpoint}.", job.SourceConnector.EndpointName);
 
-        logger.LogInformation("Authenticating to {Endpoint}...", job.DestinationConnector.EndpointName);
         await job.DestinationConnector.AuthenticateAsync(cancellationToken);
-        logger.LogInformation("Authenticated to {Endpoint}.", job.DestinationConnector.EndpointName);
 
         var filter = CreateFilter<TItem>(job.Options.Filter);
 
