@@ -118,7 +118,7 @@ public sealed class MicrosoftEventsConnectorTests
             }
             """);
 
-        var result = await connector.GetCursorItemsAsync(null, CancellationToken.None);
+        var result = await connector.GetCursorItemsAsync("https://graph.microsoft.com/v1.0/users/user@contoso.com/events/delta?$deltatoken=previous", CancellationToken.None);
 
         var deleted = Assert.Single(result.Items);
         Assert.True(deleted.IsDeleted);
