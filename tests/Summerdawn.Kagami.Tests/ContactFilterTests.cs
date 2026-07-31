@@ -160,6 +160,36 @@ public sealed class ContactFilterTests
         Assert.Throws<ArgumentException>(() => ContactFilter.Parse("lt(name,'A')"));
     }
 
+    [Fact]
+    public void AndRequiresNameAndCategoryToMatch()
+    {
+        var filter = ContactFilter.Parse("startswith(name,'A') and contains(categories,'Recruiter')");
+
+        Assert.NotNull(filter);
+        Assert.True(filter!.Matches(MakeContact("Alice", categories: ["Recruiter"])));
+        Assert.False(filter.Matches(MakeContact("Alice", categories: ["VIP"])));
+        Assert.False(filter.Matches(MakeContact("Bob", categories: ["Recruiter"])));
+    }
+
+    [Fact]
+    public void AndInsideQuotedValueIsNotASeparator()
+    {
+        var filter = ContactFilter.Parse("contains(name,'Research and Planning') and contains(categories,'Recruiter')");
+
+        Assert.NotNull(filter);
+        Assert.True(filter!.Matches(MakeContact("Research and Planning", categories: ["Recruiter"])));
+    }
+
+    [Fact]
+    public void AndSupportsMultipleCategoryClauses()
+    {
+        var filter = ContactFilter.Parse("contains(categories,'Recruiter') and contains(categories,'VIP')");
+
+        Assert.NotNull(filter);
+        Assert.True(filter!.Matches(MakeContact("Alice", categories: ["Recruiter", "VIP"])));
+        Assert.False(filter.Matches(MakeContact("Bob", categories: ["Recruiter"])));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private static CanonicalContact MakeContact(string displayName, string? organization = null, List<string>? categories = null) => new()

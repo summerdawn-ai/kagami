@@ -169,6 +169,9 @@ kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')
 
 # Filter: only synchronize contacts in the Recruiter category
 kagami contacts sync --from Microsoft --to Google --filter "contains(categories,'Recruiter')"
+
+# Filter: require both a name prefix and category
+kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A') and contains(categories,'Recruiter')"
 ```
 
 - `--bidirectional`: sync in both directions; otherwise changes flow from `--from` to `--to`
@@ -188,6 +191,7 @@ Fetch and display calendar events from a configured endpoint. By default, `kagam
 kagami events list --from WorkCalendar --settings appsettings.json
 kagami events list --from WorkCalendar --all --settings appsettings.json
 kagami events list --from WorkCalendar --filter "startswith(title,'Team')" --settings appsettings.json
+kagami events list --from WorkCalendar --filter "start gt '2026-01-01T00:00:00Z' and end lt '2026-02-01T00:00:00Z'" --settings appsettings.json
 ```
 
 #### `kagami events export`
@@ -241,6 +245,9 @@ kagami events sync --from WorkCalendar --to ArchiveCalendar --force --settings a
 
 # Filter: only synchronize events whose title starts with 'Team'
 kagami events sync --from WorkCalendar --to ArchiveCalendar --filter "startswith(title,'Team')" --settings appsettings.json
+
+# Filter: require both a title and date range
+kagami events sync --from WorkCalendar --to ArchiveCalendar --filter "contains(title,'Team') and start gt '2026-01-01T00:00:00Z' and end lt '2026-02-01T00:00:00Z'" --settings appsettings.json
 ```
 
 - `--bidirectional`: sync in both directions; otherwise changes flow from `--from` to `--to`
@@ -379,6 +386,12 @@ This means link-state rows for contacts that are outside the current scope on bo
 | `name eq 'Alice'` | Effective contact name is exactly `Alice` (case-insensitive) |
 
 `name` maps to the effective contact name: `DisplayName` when present, otherwise `Organization`. `categories` matches exact entries in `CanonicalContact.Categories`, not substrings.
+
+Multiple expressions can be combined with `and`; every expression must match. Only one flat level is supported: `or` and grouped expressions are not supported. For example:
+
+```text
+startswith(name,'A') and contains(categories,'Recruiter')
+```
 
 ## Configuration
 
@@ -629,8 +642,12 @@ Notes:
 | `endswith(title,'Sync')` | Event title ends with `Sync` (case-insensitive) |
 | `contains(title,'Team')` | Event title contains `Team` (case-insensitive) |
 | `title eq 'Planning'` | Event title is exactly `Planning` (case-insensitive) |
+| `start gt '2026-01-01T00:00:00Z'` | Event starts after the specified timestamp |
+| `start lt '2026-02-01T00:00:00Z'` | Event starts before the specified timestamp |
+| `end gt '2026-01-01T00:00:00Z'` | Event ends after the specified timestamp |
+| `end lt '2026-02-01T00:00:00Z'` | Event ends before the specified timestamp |
 
-Event filters currently apply to the canonical event title only.
+Date values use ISO 8601 timestamps. Date comparisons are strict, and multiple expressions can be combined with `and`; every expression must match. Only one flat level is supported: `or` and grouped expressions are not supported.
 
 ## Error Handling
 
