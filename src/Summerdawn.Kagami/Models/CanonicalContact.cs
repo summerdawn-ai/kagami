@@ -3,6 +3,11 @@ namespace Summerdawn.Kagami.Models;
 /// <summary>
 /// Canonical model for a contact.
 /// </summary>
+/// <remarks>
+/// Contact properties in this type are synchronized content and participate in content
+/// comparison. Operational fields inherited from <see cref="CanonicalItem"/> retain their
+/// documented export-only or synchronization-metadata behavior.
+/// </remarks>
 public sealed record CanonicalContact : CanonicalItem
 {
     /// <summary>Given (first) name.</summary>

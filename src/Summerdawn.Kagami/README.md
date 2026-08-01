@@ -666,6 +666,7 @@ Canonical event fields currently include:
 Notes:
 
 - Synced events are created as attendee-free, mailbox-owned copies, and attendees are ignored during updates. This avoids problems with sending out stale invitations (**Microsoft Graph**) and mismatches between the attendee list and the mailbox id (**Google Calendar**). Event exports retain all organizer and attendee data.
+- **Google Calendar** event creates use the regular `events.insert` operation rather than `events.import`. Google treats `iCalUID` as an import upsert key, while Kagami treats it as provider-owned metadata that is not written or used for cross-provider matching.
 - **Google Calendar** syncs regular calendar events only (`eventTypes=default`) and skips special event types such as birthdays
 - **Microsoft Graph** maps event timestamps through the API's `dateTimeTimeZone` payloads and uses Graph event delta tokens for incremental polling
 

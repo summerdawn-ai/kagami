@@ -24,7 +24,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
     // Request immutable ids to avoid Graph returning a new id if an event is moved.
     private const string ImmutableIdPreference = "IdType=\"ImmutableId\"";
     private const int PageSize = 100;
-    private const string SelectFields = "id,subject,body,start,end,location,organizer,attendees,responseStatus,isOrganizer,recurrence,iCalUId,lastModifiedDateTime,changeKey";
+    private const string SelectFields = "id,subject,body,start,end,isAllDay,location,organizer,attendees,responseStatus,isOrganizer,recurrence,iCalUId,lastModifiedDateTime,changeKey";
     private readonly string collectionPath = GetCollectionPath(endpointName, endpoint);
 
     /// <inheritdoc/>
@@ -218,10 +218,11 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         var item = new CanonicalEvent
         {
             Title = ReadString(element, "subject") ?? string.Empty,
-            Description = element.TryGetProperty("body", out var bodyNode) ? ReadString(bodyNode, "content") : null,
-            From = ReadDateTimeTimeZone(element, "start"),
-            To = ReadDateTimeTimeZone(element, "end"),
-            Location = element.TryGetProperty("location", out var locationNode) ? ReadString(locationNode, "displayName") : null,
+            Description = element.TryGetProperty("body", out var bodyNode) ? ReadStringOrNull(bodyNode, "content") : null,
+            From = IsAllDayEvent(element) ? ReadAllDayDate(element, "start") : ReadDateTimeTimeZone(element, "start"),
+            To = IsAllDayEvent(element) ? ReadAllDayDate(element, "end") : ReadDateTimeTimeZone(element, "end"),
+            IsAllDay = IsAllDayEvent(element),
+            Location = element.TryGetProperty("location", out var locationNode) ? ReadStringOrNull(locationNode, "displayName") : null,
             Organizer = ReadOrganizer(element),
             Attendees = ReadAttendees(element),
             RecurrencePattern = element.TryGetProperty("recurrence", out var recurrenceNode)
@@ -255,12 +256,18 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             item.Metadata["microsoft.changeKey"] = changeKey;
         }
 
-        return item;
+        return ContentHashHelper.WithComputedHash(item);
     }
 
     /// <summary>
     /// Builds the Microsoft Graph writable event payload from a canonical event.
     /// </summary>
+    /// <remarks>
+    /// Organizer, attendee, and provider-supplied iCalendar UID fields are intentionally omitted.
+    /// Microsoft assigns the UID, treats it as immutable, and does not reliably honor a supplied
+    /// value; participant fields are preserved on the destination rather than written by this
+    /// connector.
+    /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     internal static JsonObject BuildWritableEvent(CanonicalEvent item)
@@ -281,6 +288,11 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
                 ["displayName"] = item.Location,
             },
         };
+
+        if (item.IsAllDay)
+        {
+            body["isAllDay"] = true;
+        }
 
         if (item.RecurrencePattern is not null
             && SerializeRecurrence(item.RecurrencePattern, item.From) is JsonObject recurrenceNode)
@@ -360,8 +372,37 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             }
         }
 
-        return $"RRULE:{string.Join(';', parts)}";
+        return NormalizeRecurrenceRule($"RRULE:{string.Join(';', parts)}");
     }
+
+    /// <summary>
+    /// Emits the Microsoft recurrence translation in the canonical RRULE property order.
+    /// </summary>
+    /// <remarks>
+    /// Microsoft and Google can describe the same recurrence with different property ordering.
+    /// The connector performs this provider-to-canonical translation before hashing, rather than
+    /// making the canonical event model rewrite values supplied by callers or local imports.
+    /// </remarks>
+    private static string NormalizeRecurrenceRule(string rule)
+    {
+        const string recurrenceRulePrefix = "RRULE:";
+        string[] properties = rule[recurrenceRulePrefix.Length..]
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return $"{recurrenceRulePrefix}{string.Join(';', properties.OrderBy(GetRecurrencePropertyOrder).ThenBy(GetRecurrencePropertyName, StringComparer.Ordinal).ThenBy(property => property, StringComparer.Ordinal))}";
+    }
+
+    private static int GetRecurrencePropertyOrder(string property) => GetRecurrencePropertyName(property) switch
+    {
+        "FREQ" => 0,
+        "UNTIL" or "COUNT" => 1,
+        "INTERVAL" => 2,
+        var name when name.StartsWith("BY", StringComparison.Ordinal) => 3,
+        "WKST" => 4,
+        _ => 5,
+    };
+
+    private static string GetRecurrencePropertyName(string property) =>
+        property.Split('=', 2)[0].Trim().ToUpperInvariant();
 
     internal static JsonObject? SerializeRecurrence(string pattern, DateTimeOffset start)
     {
@@ -565,7 +606,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         if (HasExplicitUtcOrOffset(dateTime)
             && DateTimeOffset.TryParse(dateTime, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedOffset))
         {
-            return parsedOffset.ToUniversalTime();
+            return ToSecondPrecision(parsedOffset.ToUniversalTime());
         }
 
         if (DateTime.TryParse(dateTime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDateTime))
@@ -576,15 +617,38 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             string? timeZoneId = ReadString(node, "timeZone");
             if (TryResolveTimeZone(timeZoneId, out var timeZone))
             {
-                return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(unspecifiedDateTime, timeZone), TimeSpan.Zero);
+                return ToSecondPrecision(new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(unspecifiedDateTime, timeZone), TimeSpan.Zero));
             }
 
             // Unknown zones are treated as UTC to keep the canonical model deterministic.
-            return new DateTimeOffset(DateTime.SpecifyKind(parsedDateTime, DateTimeKind.Utc));
+            return ToSecondPrecision(new DateTimeOffset(DateTime.SpecifyKind(parsedDateTime, DateTimeKind.Utc)));
         }
 
         return DateTimeOffset.MinValue;
     }
+
+    /// <summary>
+    /// Reduces a timestamp to the second precision supported by both calendar providers.
+    /// </summary>
+    private static DateTimeOffset ToSecondPrecision(DateTimeOffset value) =>
+        value.AddTicks(-(value.Ticks % TimeSpan.TicksPerSecond));
+
+    /// <summary>
+    /// Reads a Microsoft all-day event date without applying its time-zone value.
+    /// </summary>
+    private static DateTimeOffset ReadAllDayDate(JsonElement element, string propertyName)
+    {
+        string? dateTime = element.TryGetProperty(propertyName, out var node) ? ReadString(node, "dateTime") : null;
+        return DateTime.TryParse(dateTime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? new DateTimeOffset(DateOnly.FromDateTime(parsed).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+            : DateTimeOffset.MinValue;
+    }
+
+    /// <summary>
+    /// Determines whether a Microsoft event represents an all-day event.
+    /// </summary>
+    private static bool IsAllDayEvent(JsonElement element) =>
+        element.TryGetProperty("isAllDay", out var value) && value.ValueKind == JsonValueKind.True;
 
     /// <summary>
     /// Determines whether a Microsoft date-time string carries its own UTC or numeric offset.
@@ -676,6 +740,12 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         element.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.GetString()
             : null;
+
+    /// <summary>
+    /// Reads a nullable string property and treats an empty value as absent.
+    /// </summary>
+    private static string? ReadStringOrNull(JsonElement element, string propertyName) =>
+        ReadString(element, propertyName) is { Length: > 0 } value ? value : null;
 
     private static DateTimeOffset? ReadDateTimeOffset(JsonElement element, string propertyName)
     {

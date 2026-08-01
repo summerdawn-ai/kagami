@@ -577,8 +577,12 @@ public static class Program
             Console.WriteLine(new string('-', EventTitleColumnWidth + EventDateColumnWidth + EventDateColumnWidth + EventLocationColumnWidth + 3));
             foreach (var ev in events)
             {
-                string start = ev.From == DateTimeOffset.MinValue ? string.Empty : ev.From.ToString("yyyy-MM-dd HH:mm");
-                string end = ev.To == DateTimeOffset.MinValue ? string.Empty : ev.To.ToString("yyyy-MM-dd HH:mm");
+                string start = ev.From == DateTimeOffset.MinValue
+                    ? string.Empty
+                    : ev.IsAllDay ? ev.From.UtcDateTime.ToString("yyyy-MM-dd") : ev.From.ToString("yyyy-MM-dd HH:mm");
+                string end = ev.To == DateTimeOffset.MinValue
+                    ? string.Empty
+                    : ev.IsAllDay ? ev.To.UtcDateTime.AddDays(-1).ToString("yyyy-MM-dd") : ev.To.ToString("yyyy-MM-dd HH:mm");
                 Console.WriteLine($"{FormatTableCell(ev.Title, EventTitleColumnWidth),-EventTitleColumnWidth} {start,-EventDateColumnWidth} {end,-EventDateColumnWidth} {FormatTableCell(ev.Location, EventLocationColumnWidth),-EventLocationColumnWidth}");
             }
 

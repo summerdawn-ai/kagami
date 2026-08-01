@@ -10,7 +10,10 @@ namespace Summerdawn.Kagami.Engine;
 /// <b>Contacts</b> use a two-step strategy: name identity followed by detail disambiguation.
 /// </para>
 /// <para>
-/// <b>Events</b> are matched by normalized title and exact start instant.
+/// <b>Events</b> are matched by normalized title and start value. The start is compared as a UTC
+/// instant so an all-day event represented at midnight by one provider can match a timed event
+/// represented at the same instant by another provider. The all-day state remains synchronized
+/// content and is updated after the logical event has been matched.
 /// </para>
 /// <para>
 /// <see cref="IsMatch"/> is a convenience wrapper that requires both steps to pass and is suitable
@@ -47,7 +50,9 @@ public static class ItemMatcher
     ///   <item>
     ///     <term>Calendar events</term>
     ///     <description>
-    ///       Events are candidates when their normalized titles and exact UTC start instants match.
+    ///       Events are candidates when their normalized titles and UTC start instants match. The
+    ///       all-day state is intentionally excluded from identity so equivalent provider
+    ///       representations can be linked and then synchronized.
     ///       Groups with multiple items on either side remain ambiguous and are not auto-linked.
     ///     </description>
     ///   </item>
@@ -149,8 +154,13 @@ public static class ItemMatcher
         return result;
     }
 
-    private static (string Title, long StartSeconds) GetEventIdentityKey(CanonicalEvent item) =>
-        (NormalizeText(item.Title), item.From.ToUniversalTime().ToUnixTimeSeconds());
+    /// <summary>
+    /// Creates the normalized identity key used to match calendar events.
+    /// </summary>
+    private static (string Title, long Start) GetEventIdentityKey(CanonicalEvent item) =>
+        (
+            NormalizeText(item.Title),
+            item.From.ToUniversalTime().ToUnixTimeSeconds());
 
     /// <summary>
     /// Determines whether two contacts share the same primary name identity.

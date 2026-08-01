@@ -43,11 +43,10 @@ internal partial class KagamiJsonContext : JsonSerializerContext
     /// </summary>
     ///
     /// <remarks>
-    /// Event organizer and attendee data is retained by import/export and provider reads, but is
-    /// excluded from synchronization hashes. Event writes intentionally omit those fields so a
-    /// provider-owned copy cannot be mistaken for a participant-faithful meeting. Excluding them
-    /// here prevents the resulting provider-specific participant state from causing repeated
-    /// cross-provider updates.
+    /// Event organizer, attendee, and iCalendar UID data is retained by import/export and provider
+    /// reads, but is excluded from synchronization hashes. Event writes intentionally omit
+    /// participant data, and providers can assign their own iCalendar UID to imported events.
+    /// Excluding those provider-owned values prevents repeated cross-provider updates.
     /// </remarks>
     public static readonly JsonSerializerOptions HashJsonOptions = new()
     {
@@ -60,16 +59,12 @@ internal partial class KagamiJsonContext : JsonSerializerContext
                 RemoveProperty(typeInfo, "ContentHash");
             }
 
-            if (typeInfo.Type == typeof(ItemProvenance))
-            {
-                typeInfo.Properties.Clear();
-            }
-
             if (typeInfo.Type == typeof(CanonicalEvent))
             {
                 RemoveProperty(typeInfo, "Organizer");
                 RemoveProperty(typeInfo, "Attendees");
                 RemoveProperty(typeInfo, "HasAttendees");
+                RemoveProperty(typeInfo, "ICalUid");
             }
         })
     };

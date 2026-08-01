@@ -61,6 +61,24 @@ public sealed class ItemMatcherTests
     }
 
     [Fact]
+    public void IsMatch_MatchesAllDayEventsByTitleAndStartInstant()
+    {
+        var left = CreateEvent("a1", "Blocker", new DateTimeOffset(2026, 08, 01, 00, 00, 00, TimeSpan.Zero)) with { IsAllDay = true };
+        var right = CreateEvent("b1", " blocker ", new DateTimeOffset(2026, 08, 01, 02, 00, 00, TimeSpan.FromHours(2))) with { IsAllDay = true };
+
+        Assert.True(ItemMatcher.IsMatch(left, right));
+    }
+
+    [Fact]
+    public void IsMatch_MatchesEquivalentAllDayAndTimedEvents()
+    {
+        var allDay = CreateEvent("a1", "Blocker", new DateTimeOffset(2026, 08, 01, 00, 00, 00, TimeSpan.Zero)) with { IsAllDay = true };
+        var timed = CreateEvent("b1", "Blocker", new DateTimeOffset(2026, 08, 01, 00, 00, 00, TimeSpan.Zero));
+
+        Assert.True(ItemMatcher.IsMatch(allDay, timed));
+    }
+
+    [Fact]
     public void BuildDuplicateCandidateMap_MatchesUniqueEventsByTitleAndStart()
     {
         var source = CreateEvent("a1", "Design Review", new DateTimeOffset(2026, 5, 14, 15, 30, 0, TimeSpan.Zero));

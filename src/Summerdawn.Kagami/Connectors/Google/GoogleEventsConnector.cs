@@ -17,8 +17,9 @@ namespace Summerdawn.Kagami.Connectors;
 /// <remarks>
 /// Full reads begin one year before the current month and use Google Calendar's ordinary
 /// collection pagination. Persisted reads use the Calendar API sync token and preserve
-/// cancellation records so the sync engine can remove deleted events. Writes use the
-/// provider's import, patch, and delete operations without sending attendee notifications.
+/// cancellation records so the sync engine can remove deleted events. Writes use regular event
+/// creation, patch, and delete operations without sending attendee notifications. Regular
+/// creation avoids Google's import operation, which treats iCalendar UIDs as upsert keys.
 /// </remarks>
 public class GoogleEventsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, GoogleOAuthCredential credential, ILogger<GoogleEventsConnector> logger) : IConnector<CanonicalEvent>
 {
@@ -95,14 +96,14 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
     /// <inheritdoc/>
     public async Task<CanonicalEvent> CreateItemAsync(CanonicalEvent item, CancellationToken cancellationToken = default)
     {
-        string requestUri = $"{collectionPath}/import";
+        string requestUri = $"{collectionPath}?sendUpdates=none";
         using var request = await CreateRequestAsync(HttpMethod.Post, requestUri, cancellationToken);
         request.Content = CreateJsonContent(BuildWritableEvent(item));
         using var document = await SendForJsonAsync(request, cancellationToken);
         string id = ReadString(document.RootElement, "id")
-            ?? throw new InvalidOperationException("Google calendar import returned no event id.");
+            ?? throw new InvalidOperationException("Google calendar create returned no event id.");
         return await GetItemAsync(id, cancellationToken)
-            ?? throw new InvalidOperationException("Google calendar import succeeded but the created event could not be reloaded.");
+            ?? throw new InvalidOperationException("Google calendar create succeeded but the created event could not be reloaded.");
     }
 
     /// <inheritdoc/>
@@ -261,9 +262,10 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         var item = new CanonicalEvent
         {
             Title = ReadString(element, "summary") ?? string.Empty,
-            Description = ReadString(element, "description"),
+            Description = ReadStringOrNull(element, "description"),
             From = ReadEventDateTime(element, "start"),
             To = ReadEventDateTime(element, "end"),
+            IsAllDay = IsAllDayEvent(element, "start"),
             Location = ReadLocation(element),
             RecurrencePattern = ReadRecurrencePattern(element),
             Organizer = ReadParticipant(element, "organizer"),
@@ -310,7 +312,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             }
         }
 
-        return item;
+        return ContentHashHelper.WithComputedHash(item);
     }
 
     /// <summary>
@@ -319,7 +321,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
     /// <remarks>
     /// Organizer and attendee fields are omitted so creates become private mailbox-owned copies
     /// and updates preserve participant data already held by the destination. Recurrence rules
-    /// are split into the repeated-string shape required by the API.
+    /// are split into the repeated-string shape required by the API. The provider-supplied
+    /// iCalendar UID is intentionally omitted: Google treats it as an import upsert key, and it
+    /// cannot be changed reliably after creation.
     /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "Calendar writable payload uses known JsonNode shapes.")]
@@ -334,9 +338,10 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             ["end"] = CreateEventDateTimeNode(item.To),
         };
 
-        if (!string.IsNullOrWhiteSpace(item.ICalUid))
+        if (item.IsAllDay)
         {
-            body["iCalUID"] = item.ICalUid;
+            body["start"] = CreateAllDayDateNode(item.From);
+            body["end"] = CreateAllDayDateNode(item.To);
         }
 
         if (!string.IsNullOrWhiteSpace(item.RecurrencePattern))
@@ -364,10 +369,45 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             .Select(value => value.GetString())
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Cast<string>()
+            .Select(NormalizeRecurrenceRule)
             .ToArray();
 
         return rules.Length == 0 ? null : string.Join('\n', rules);
     }
+
+    /// <summary>
+    /// Converts Google's RRULE text to the canonical property order used by Kagami.
+    /// </summary>
+    /// <remarks>
+    /// RRULE property order has no semantic meaning, but it does affect the canonical content
+    /// hash. This translation belongs in the provider connector: the canonical event remains a
+    /// passive DTO, and imported JSON is already expected to contain canonical values.
+    /// </remarks>
+    private static string NormalizeRecurrenceRule(string rule)
+    {
+        const string recurrenceRulePrefix = "RRULE:";
+        if (!rule.StartsWith(recurrenceRulePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return rule;
+        }
+
+        string[] properties = rule[recurrenceRulePrefix.Length..]
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return $"{recurrenceRulePrefix}{string.Join(';', properties.OrderBy(GetRecurrencePropertyOrder).ThenBy(GetRecurrencePropertyName, StringComparer.Ordinal).ThenBy(property => property, StringComparer.Ordinal))}";
+    }
+
+    private static int GetRecurrencePropertyOrder(string property) => GetRecurrencePropertyName(property) switch
+    {
+        "FREQ" => 0,
+        "UNTIL" or "COUNT" => 1,
+        "INTERVAL" => 2,
+        var name when name.StartsWith("BY", StringComparison.Ordinal) => 3,
+        "WKST" => 4,
+        _ => 5,
+    };
+
+    private static string GetRecurrencePropertyName(string property) =>
+        property.Split('=', 2)[0].Trim().ToUpperInvariant();
 
     /// <summary>
     /// Chooses the most useful location representation available in a Google event.
@@ -474,7 +514,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         string? dateTime = ReadString(dateNode, "dateTime");
         if (DateTimeOffset.TryParse(dateTime, out var parsedDateTime))
         {
-            return parsedDateTime.ToUniversalTime();
+            return ToSecondPrecision(parsedDateTime.ToUniversalTime());
         }
 
         string? date = ReadString(dateNode, "date");
@@ -487,6 +527,12 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
     }
 
     /// <summary>
+    /// Reduces a timestamp to the second precision supported by both calendar providers.
+    /// </summary>
+    private static DateTimeOffset ToSecondPrecision(DateTimeOffset value) =>
+        value.AddTicks(-(value.Ticks % TimeSpan.TicksPerSecond));
+
+    /// <summary>
     /// Creates the UTC date-time object used in writable Google event payloads.
     /// </summary>
     private static JsonObject CreateEventDateTimeNode(DateTimeOffset value) =>
@@ -495,6 +541,21 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             ["dateTime"] = value.ToUniversalTime().ToString("o"),
             ["timeZone"] = "UTC",
         };
+
+    /// <summary>
+    /// Creates the date-only object used in writable Google all-day event payloads.
+    /// </summary>
+    private static JsonObject CreateAllDayDateNode(DateTimeOffset value) =>
+        new()
+        {
+            ["date"] = value.UtcDateTime.ToString("yyyy-MM-dd"),
+        };
+
+    /// <summary>
+    /// Determines whether a Google event date value represents an all-day event.
+    /// </summary>
+    private static bool IsAllDayEvent(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var node) && node.TryGetProperty("date", out _);
 
     /// <summary>
     /// Creates an authenticated Google Calendar request.
@@ -545,6 +606,12 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         element.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.GetString()
             : null;
+
+    /// <summary>
+    /// Reads a nullable string property and treats an empty value as absent.
+    /// </summary>
+    private static string? ReadStringOrNull(JsonElement element, string propertyName) =>
+        ReadString(element, propertyName) is { Length: > 0 } value ? value : null;
 
     /// <summary>
     /// Calculates the start boundary for a full calendar read.

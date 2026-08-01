@@ -116,7 +116,7 @@ public sealed class GoogleEventsConnectorTests
               "description": "Agenda",
               "location": "Room 1",
               "iCalUID": "ical-123",
-              "recurrence": [ "RRULE:FREQ=WEEKLY;BYDAY=MO" ],
+              "recurrence": [ "RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=3" ],
               "start": { "dateTime": "2026-05-01T10:00:00Z" },
               "end": { "dateTime": "2026-05-01T11:00:00Z" },
               "organizer": { "email": "organizer@contoso.com", "displayName": "Organizer" },
@@ -133,7 +133,7 @@ public sealed class GoogleEventsConnectorTests
         Assert.Equal("Agenda", item.Description);
         Assert.Equal("Room 1", item.Location);
         Assert.Equal("ical-123", item.ICalUid);
-        Assert.Equal("RRULE:FREQ=WEEKLY;BYDAY=MO", item.RecurrencePattern);
+        Assert.Equal("RRULE:FREQ=WEEKLY;COUNT=3;BYDAY=MO", item.RecurrencePattern);
         Assert.Equal("organizer@contoso.com", item.Organizer?.Email);
         Assert.Single(item.Attendees);
     }
@@ -161,7 +161,77 @@ public sealed class GoogleEventsConnectorTests
     }
 
     [Fact]
-    public void BuildWritableEvent_OmitsOrganizerAndAttendees()
+    public void ConvertEvent_NormalizesEmptyDescriptionAndSubsecondTimes()
+    {
+        using var document = JsonDocument.Parse("""
+          {
+            "id": "event-3",
+            "summary": "Planning",
+            "description": "",
+            "start": { "dateTime": "2026-05-01T10:00:00.789Z" },
+            "end": { "dateTime": "2026-05-01T11:00:00.789Z" }
+          }
+          """);
+
+        var item = GoogleEventsConnector.ConvertEvent(document.RootElement, "google");
+
+        Assert.NotNull(item);
+        Assert.Null(item!.Description);
+        Assert.Equal(new DateTimeOffset(2026, 05, 01, 10, 00, 00, TimeSpan.Zero), item.From);
+        Assert.Equal(new DateTimeOffset(2026, 05, 01, 11, 00, 00, TimeSpan.Zero), item.To);
+    }
+
+    [Fact]
+    public void ConvertEvent_MapsAllDayDateValuesAndComputesHash()
+    {
+        using var document = JsonDocument.Parse("""
+          {
+          "id": "all-day",
+          "summary": "Blocker",
+          "start": { "date": "2026-08-01" },
+          "end": { "date": "2026-08-02" }
+          }
+          """);
+
+        var item = GoogleEventsConnector.ConvertEvent(document.RootElement, "GoogleEvents");
+
+        Assert.NotNull(item);
+        Assert.True(item!.IsAllDay);
+        Assert.Equal(new DateTimeOffset(2026, 08, 01, 00, 00, 00, TimeSpan.Zero), item.From);
+        Assert.NotNull(item.Provenance.ContentHash);
+    }
+
+    [Fact]
+    public async Task CreateItemAsync_UsesInsertEndpoint()
+    {
+        var handler = new SequenceHttpHandler(
+          CreateJsonResponse(HttpStatusCode.OK, """{ "id": "created-1" }"""),
+          CreateJsonResponse(HttpStatusCode.OK, """
+            {
+              "id": "created-1",
+              "summary": "Standup",
+              "start": { "dateTime": "2026-05-01T08:00:00Z" },
+              "end": { "dateTime": "2026-05-01T08:15:00Z" },
+              "organizer": { "email": "user@contoso.com", "self": true }
+            }
+            """));
+        var connector = CreateConnector(handler);
+
+        _ = await connector.CreateItemAsync(new CanonicalEvent
+        {
+            Title = "Standup",
+            From = new DateTimeOffset(2026, 05, 01, 08, 00, 00, TimeSpan.Zero),
+            To = new DateTimeOffset(2026, 05, 01, 08, 15, 00, TimeSpan.Zero),
+            ICalUid = "provider-owned@example.invalid",
+        });
+
+        Assert.Equal(2, handler.RequestUris.Count);
+        Assert.Contains("/events?sendUpdates=none", handler.RequestUris[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("/import", handler.RequestUris[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildWritableEvent_OmitsProviderOwnedFields()
     {
         var item = new CanonicalEvent
         {
@@ -171,6 +241,7 @@ public sealed class GoogleEventsConnectorTests
             To = new DateTimeOffset(2026, 05, 01, 08, 15, 00, TimeSpan.Zero),
             Location = "Teams",
             RecurrencePattern = "RRULE:FREQ=DAILY",
+            ICalUid = "provider-owned@example.invalid",
             Organizer = new CalendarEventParticipant { Email = "organizer@contoso.com", Name = "Organizer" },
             Attendees =
             [
@@ -183,7 +254,26 @@ public sealed class GoogleEventsConnectorTests
         Assert.Contains("\"summary\":\"Standup\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain("\"organizer\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain("\"attendees\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"iCalUID\"", json, StringComparison.Ordinal);
         Assert.Contains("\"recurrence\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildWritableEvent_WritesAllDayDateValues()
+    {
+        var item = new CanonicalEvent
+        {
+            Title = "Blocker",
+            IsAllDay = true,
+            From = new DateTimeOffset(2026, 08, 01, 00, 00, 00, TimeSpan.Zero),
+            To = new DateTimeOffset(2026, 08, 02, 00, 00, 00, TimeSpan.Zero),
+        };
+
+        string json = GoogleEventsConnector.BuildWritableEvent(item).ToJsonString();
+
+        Assert.Contains("\"start\":{\"date\":\"2026-08-01\"}", json, StringComparison.Ordinal);
+        Assert.Contains("\"end\":{\"date\":\"2026-08-02\"}", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("dateTime", json, StringComparison.Ordinal);
     }
 
     private static GoogleEventsConnector CreateConnector(SequenceHttpHandler connectorHandler)

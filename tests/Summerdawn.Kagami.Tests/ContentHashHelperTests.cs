@@ -31,6 +31,41 @@ public sealed class ContentHashHelperTests
         Assert.True(ContentHashHelper.HaveIdenticalContent(withoutParticipants, withParticipants));
     }
 
+    [Fact]
+    public void ComputeContentHash_IgnoresEventICalUid()
+    {
+        var first = CreateEvent("google-1", "Google");
+        var second = CreateEvent("microsoft-1", "Microsoft") with { ICalUid = "provider-generated@example.test" };
+
+        Assert.Equal(
+            ContentHashHelper.ComputeContentHash(first),
+            ContentHashHelper.ComputeContentHash(second));
+        Assert.True(ContentHashHelper.HaveIdenticalContent(first, second));
+    }
+
+    [Fact]
+    public void ComputeContentHash_IgnoresDescriptionBeyondSharedProviderLimit()
+    {
+        var truncated = CreateEvent("google-1", "Google") with { Description = new string('a', 8_192) };
+        var complete = CreateEvent("microsoft-1", "Microsoft") with { Description = new string('a', 8_193) };
+
+        Assert.Equal(
+            ContentHashHelper.ComputeContentHash(truncated),
+            ContentHashHelper.ComputeContentHash(complete));
+        Assert.True(ContentHashHelper.HaveIdenticalContent(truncated, complete));
+    }
+
+    [Fact]
+    public void ComputeContentHash_DiffersForAllDayRepresentation()
+    {
+        var timed = CreateEvent("google-1", "Google");
+        var allDay = timed with { IsAllDay = true };
+
+        Assert.NotEqual(
+            ContentHashHelper.ComputeContentHash(timed),
+            ContentHashHelper.ComputeContentHash(allDay));
+    }
+
     private static CanonicalEvent CreateEvent(string providerId, string endpointName) => new()
     {
         Title = "Design Review",

@@ -158,7 +158,7 @@ public sealed class MicrosoftEventsConnectorTests
               ],
               "responseStatus": { "response": "accepted" },
               "isOrganizer": false,
-              "recurrence": { "pattern": { "type": "daily", "interval": 1 }, "range": { "type": "noEnd", "startDate": "2026-05-01" } }
+              "recurrence": { "pattern": { "type": "weekly", "interval": 1, "daysOfWeek": [ "monday" ] }, "range": { "type": "numbered", "startDate": "2026-05-01", "numberOfOccurrences": 3 } }
             }
             """);
 
@@ -170,7 +170,7 @@ public sealed class MicrosoftEventsConnectorTests
         Assert.Equal("Room 1", item.Location);
         Assert.Equal("organizer@contoso.com", item.Organizer?.Email);
         Assert.Single(item.Attendees);
-        Assert.Equal("RRULE:FREQ=DAILY", item.RecurrencePattern);
+        Assert.Equal("RRULE:FREQ=WEEKLY;COUNT=3;BYDAY=MO", item.RecurrencePattern);
         Assert.Equal("W/\"etag-1\"", item.Provenance.Version);
         Assert.Equal("ck1", item.Metadata["microsoft.changeKey"]);
     }
@@ -193,6 +193,50 @@ public sealed class MicrosoftEventsConnectorTests
         Assert.NotNull(item);
         Assert.Equal(new DateTimeOffset(2026, 05, 01, 17, 00, 00, TimeSpan.Zero), item!.From);
         Assert.Equal(new DateTimeOffset(2026, 05, 01, 18, 30, 00, TimeSpan.Zero), item.To);
+    }
+
+    [Fact]
+    public void ConvertEvent_NormalizesEmptyBodyAndLocationAndSubsecondTimes()
+    {
+        using var document = JsonDocument.Parse("""
+          {
+            "id": "event-3",
+            "subject": "Planning",
+            "body": { "content": "" },
+            "location": { "displayName": "" },
+            "start": { "dateTime": "2026-05-01T10:00:00.789", "timeZone": "UTC" },
+            "end": { "dateTime": "2026-05-01T11:00:00.789", "timeZone": "UTC" }
+          }
+          """);
+
+        var item = MicrosoftEventsConnector.ConvertEvent(document.RootElement, "microsoft");
+
+        Assert.NotNull(item);
+        Assert.Null(item!.Description);
+        Assert.Null(item.Location);
+        Assert.Equal(new DateTimeOffset(2026, 05, 01, 10, 00, 00, TimeSpan.Zero), item.From);
+        Assert.Equal(new DateTimeOffset(2026, 05, 01, 11, 00, 00, TimeSpan.Zero), item.To);
+    }
+
+    [Fact]
+    public void ConvertEvent_MapsAllDayDatesAndComputesHash()
+    {
+        using var document = JsonDocument.Parse("""
+          {
+          "id": "all-day",
+          "subject": "Blocker",
+          "isAllDay": true,
+          "start": { "dateTime": "2026-08-01T00:00:00.0000000", "timeZone": "W. Europe Standard Time" },
+          "end": { "dateTime": "2026-08-02T00:00:00.0000000", "timeZone": "W. Europe Standard Time" }
+          }
+          """);
+
+        var item = MicrosoftEventsConnector.ConvertEvent(document.RootElement, "MicrosoftEvents");
+
+        Assert.NotNull(item);
+        Assert.True(item!.IsAllDay);
+        Assert.Equal(new DateTimeOffset(2026, 08, 01, 00, 00, 00, TimeSpan.Zero), item.From);
+        Assert.NotNull(item.Provenance.ContentHash);
     }
 
     [Fact]
@@ -221,6 +265,22 @@ public sealed class MicrosoftEventsConnectorTests
         Assert.DoesNotContain("\"attendees\"", json, StringComparison.Ordinal);
         Assert.Contains("\"recurrence\"", json, StringComparison.Ordinal);
         Assert.Contains("\"type\":\"daily\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildWritableEvent_PreservesAllDayFlag()
+    {
+        var item = new CanonicalEvent
+        {
+            Title = "Blocker",
+            IsAllDay = true,
+            From = new DateTimeOffset(2026, 08, 01, 00, 00, 00, TimeSpan.Zero),
+            To = new DateTimeOffset(2026, 08, 02, 00, 00, 00, TimeSpan.Zero),
+        };
+
+        string json = MicrosoftEventsConnector.BuildWritableEvent(item).ToJsonString();
+
+        Assert.Contains("\"isAllDay\":true", json, StringComparison.Ordinal);
     }
 
     [Fact]
