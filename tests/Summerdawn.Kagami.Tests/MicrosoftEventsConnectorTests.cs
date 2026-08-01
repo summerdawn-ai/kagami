@@ -158,7 +158,7 @@ public sealed class MicrosoftEventsConnectorTests
               ],
               "responseStatus": { "response": "accepted" },
               "isOrganizer": false,
-              "recurrence": { "pattern": { "type": "daily", "interval": 1 }, "range": { "type": "noEnd", "startDate": "2026-05-01" } }
+              "recurrence": { "pattern": { "type": "weekly", "interval": 1, "daysOfWeek": [ "monday" ] }, "range": { "type": "numbered", "startDate": "2026-05-01", "numberOfOccurrences": 3 } }
             }
             """);
 
@@ -170,7 +170,7 @@ public sealed class MicrosoftEventsConnectorTests
         Assert.Equal("Room 1", item.Location);
         Assert.Equal("organizer@contoso.com", item.Organizer?.Email);
         Assert.Single(item.Attendees);
-        Assert.Equal("RRULE:FREQ=DAILY", item.RecurrencePattern);
+        Assert.Equal("RRULE:FREQ=WEEKLY;COUNT=3;BYDAY=MO", item.RecurrencePattern);
         Assert.Equal("W/\"etag-1\"", item.Provenance.Version);
         Assert.Equal("ck1", item.Metadata["microsoft.changeKey"]);
     }

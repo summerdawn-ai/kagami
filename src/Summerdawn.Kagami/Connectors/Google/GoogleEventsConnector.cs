@@ -369,10 +369,45 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             .Select(value => value.GetString())
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Cast<string>()
+            .Select(NormalizeRecurrenceRule)
             .ToArray();
 
         return rules.Length == 0 ? null : string.Join('\n', rules);
     }
+
+    /// <summary>
+    /// Converts Google's RRULE text to the canonical property order used by Kagami.
+    /// </summary>
+    /// <remarks>
+    /// RRULE property order has no semantic meaning, but it does affect the canonical content
+    /// hash. This translation belongs in the provider connector: the canonical event remains a
+    /// passive DTO, and imported JSON is already expected to contain canonical values.
+    /// </remarks>
+    private static string NormalizeRecurrenceRule(string rule)
+    {
+        const string recurrenceRulePrefix = "RRULE:";
+        if (!rule.StartsWith(recurrenceRulePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return rule;
+        }
+
+        string[] properties = rule[recurrenceRulePrefix.Length..]
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return $"{recurrenceRulePrefix}{string.Join(';', properties.OrderBy(GetRecurrencePropertyOrder).ThenBy(GetRecurrencePropertyName, StringComparer.Ordinal).ThenBy(property => property, StringComparer.Ordinal))}";
+    }
+
+    private static int GetRecurrencePropertyOrder(string property) => GetRecurrencePropertyName(property) switch
+    {
+        "FREQ" => 0,
+        "UNTIL" or "COUNT" => 1,
+        "INTERVAL" => 2,
+        var name when name.StartsWith("BY", StringComparison.Ordinal) => 3,
+        "WKST" => 4,
+        _ => 5,
+    };
+
+    private static string GetRecurrencePropertyName(string property) =>
+        property.Split('=', 2)[0].Trim().ToUpperInvariant();
 
     /// <summary>
     /// Chooses the most useful location representation available in a Google event.

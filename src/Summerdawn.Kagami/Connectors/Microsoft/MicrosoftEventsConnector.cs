@@ -372,8 +372,37 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             }
         }
 
-        return $"RRULE:{string.Join(';', parts)}";
+        return NormalizeRecurrenceRule($"RRULE:{string.Join(';', parts)}");
     }
+
+    /// <summary>
+    /// Emits the Microsoft recurrence translation in the canonical RRULE property order.
+    /// </summary>
+    /// <remarks>
+    /// Microsoft and Google can describe the same recurrence with different property ordering.
+    /// The connector performs this provider-to-canonical translation before hashing, rather than
+    /// making the canonical event model rewrite values supplied by callers or local imports.
+    /// </remarks>
+    private static string NormalizeRecurrenceRule(string rule)
+    {
+        const string recurrenceRulePrefix = "RRULE:";
+        string[] properties = rule[recurrenceRulePrefix.Length..]
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return $"{recurrenceRulePrefix}{string.Join(';', properties.OrderBy(GetRecurrencePropertyOrder).ThenBy(GetRecurrencePropertyName, StringComparer.Ordinal).ThenBy(property => property, StringComparer.Ordinal))}";
+    }
+
+    private static int GetRecurrencePropertyOrder(string property) => GetRecurrencePropertyName(property) switch
+    {
+        "FREQ" => 0,
+        "UNTIL" or "COUNT" => 1,
+        "INTERVAL" => 2,
+        var name when name.StartsWith("BY", StringComparison.Ordinal) => 3,
+        "WKST" => 4,
+        _ => 5,
+    };
+
+    private static string GetRecurrencePropertyName(string property) =>
+        property.Split('=', 2)[0].Trim().ToUpperInvariant();
 
     internal static JsonObject? SerializeRecurrence(string pattern, DateTimeOffset start)
     {

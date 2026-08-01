@@ -116,7 +116,7 @@ public sealed class GoogleEventsConnectorTests
               "description": "Agenda",
               "location": "Room 1",
               "iCalUID": "ical-123",
-              "recurrence": [ "RRULE:FREQ=WEEKLY;BYDAY=MO" ],
+              "recurrence": [ "RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=3" ],
               "start": { "dateTime": "2026-05-01T10:00:00Z" },
               "end": { "dateTime": "2026-05-01T11:00:00Z" },
               "organizer": { "email": "organizer@contoso.com", "displayName": "Organizer" },
@@ -133,7 +133,7 @@ public sealed class GoogleEventsConnectorTests
         Assert.Equal("Agenda", item.Description);
         Assert.Equal("Room 1", item.Location);
         Assert.Equal("ical-123", item.ICalUid);
-        Assert.Equal("RRULE:FREQ=WEEKLY;BYDAY=MO", item.RecurrencePattern);
+        Assert.Equal("RRULE:FREQ=WEEKLY;COUNT=3;BYDAY=MO", item.RecurrencePattern);
         Assert.Equal("organizer@contoso.com", item.Organizer?.Email);
         Assert.Single(item.Attendees);
     }
