@@ -57,14 +57,14 @@ public static class KagamiServiceCollectionExtensions
                 var credential = credentialManager.Get(capturedEndpointName);
                 return capturedEndpoint.Type switch
                 {
-                    EndpointOptions.GoogleContacts => new GoogleContactsConnector(
+                    EndpointOptions.Google or EndpointOptions.GoogleContacts => new GoogleContactsConnector(
                         httpClient,
                         capturedEndpointName,
                         capturedEndpoint,
                         credential as GoogleOAuthCredential
                             ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a GoogleOAuthCredential."),
                         sp.GetRequiredService<ILoggerFactory>().CreateLogger<GoogleContactsConnector>()),
-                    EndpointOptions.MicrosoftContacts => new MicrosoftContactsConnector(
+                    EndpointOptions.Microsoft or EndpointOptions.MicrosoftContacts => new MicrosoftContactsConnector(
                         httpClient,
                         capturedEndpointName,
                         capturedEndpoint,
@@ -83,14 +83,14 @@ public static class KagamiServiceCollectionExtensions
                 var credential = credentialManager.Get(capturedEndpointName);
                 return capturedEndpoint.Type switch
                 {
-                    EndpointOptions.GoogleEvents => new GoogleEventsConnector(
+                    EndpointOptions.Google or EndpointOptions.GoogleEvents => new GoogleEventsConnector(
                         httpClient,
                         capturedEndpointName,
                         capturedEndpoint,
                         credential as GoogleOAuthCredential
                             ?? throw new InvalidOperationException($"Endpoint '{capturedEndpointName}' requires a GoogleOAuthCredential."),
                         sp.GetRequiredService<ILoggerFactory>().CreateLogger<GoogleEventsConnector>()),
-                    EndpointOptions.MicrosoftEvents => new MicrosoftEventsConnector(
+                    EndpointOptions.Microsoft or EndpointOptions.MicrosoftEvents => new MicrosoftEventsConnector(
                         httpClient,
                         capturedEndpointName,
                         capturedEndpoint,

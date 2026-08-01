@@ -125,6 +125,7 @@ internal sealed class CredentialManager(GoogleTokenCache tokenCache, HttpClient 
 
     private static IReadOnlyList<string> ScopesFor(string endpointType) => endpointType switch
     {
+        EndpointOptions.Google => ["https://www.googleapis.com/auth/contacts", "https://www.googleapis.com/auth/calendar", "openid", "email"],
         EndpointOptions.GoogleContacts => ["https://www.googleapis.com/auth/contacts", "openid", "email"],
         EndpointOptions.GoogleEvents => ["https://www.googleapis.com/auth/calendar", "openid", "email"],
         _ => [],

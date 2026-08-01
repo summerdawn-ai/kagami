@@ -419,19 +419,8 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
   "Kagami": {
     "DataDirectory": "C:\\Users\\Alice\\AppData\\Local\\Summerdawn.ai\\Kagami",
     "Endpoints": {
-      "googleContacts": {
-        "Type": "GoogleContacts",
-        "Credential": {
-          "Type": "GoogleOAuthCredential",
-          "ClientId": "your-google-client-id.apps.googleusercontent.com",
-          "ClientSecret": "replace-me"
-        },
-        "Properties": {
-          "userId": "person@gmail.com"
-        }
-      },
-      "googleEvents": {
-        "Type": "GoogleEvents",
+      "google": {
+        "Type": "Google",
         "Credential": {
           "Type": "GoogleOAuthCredential",
           "ClientId": "your-google-client-id.apps.googleusercontent.com",
@@ -442,8 +431,8 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
           "calendarId": "primary"
         }
       },
-      "exchangeContacts": {
-        "Type": "MicrosoftContacts",
+      "microsoft": {
+        "Type": "Microsoft",
         "Credential": {
           "Type": "MicrosoftClientCredential",
           "TenantId": "00000000-0000-0000-0000-000000000000",
@@ -451,19 +440,8 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
           "ClientSecret": "replace-me"
         },
         "Properties": {
-          "userId": "person@summerdawn.ai"
-        }
-      },
-      "exchangeEvents": {
-        "Type": "MicrosoftEvents",
-        "Credential": {
-          "Type": "MicrosoftClientCredential",
-          "TenantId": "00000000-0000-0000-0000-000000000000",
-          "ClientId": "11111111-1111-1111-1111-111111111111",
-          "ClientSecret": "replace-me"
-        },
-        "Properties": {
-          "userId": "person@summerdawn.ai"
+          "userId": "person@summerdawn.ai",
+          "calendarId": "calendar-id"
         }
       }
     }
@@ -488,7 +466,11 @@ Use `--settings` to run with a configuration file outside the standard locations
 
 Named endpoint definitions. Each endpoint includes its credential inline.
 
-#### `GoogleContacts`
+#### `Google`
+
+Supports both Google contacts and calendar events. Use this type when the same OAuth
+credential should be able to access both resources. Kagami requests both the Google
+contacts and calendar scopes for this endpoint.
 
 Credential fields (`Type = "GoogleOAuthCredential"`):
 
@@ -498,6 +480,12 @@ Credential fields (`Type = "GoogleOAuthCredential"`):
 Endpoint properties:
 
 - `userId`: required; the Google account email that must match the authenticated OAuth account
+- `calendarId`: optional; defaults to `primary` when syncing events
+
+Use `Type = "GoogleContacts"` or `Type = "GoogleEvents"` instead when the OAuth
+credential must be limited to only one resource.
+
+#### `GoogleContacts`
 
 Notes:
 
@@ -526,6 +514,30 @@ Notes:
 - Access and refresh tokens are cached in the `tokens` subdirectory of `Kagami:DataDirectory`
 - Kagami requests the Google Calendar scope `https://www.googleapis.com/auth/calendar`
 - Birthday and other non-default special event types are filtered out; only regular calendar events are synchronized
+
+#### `Microsoft`
+
+Supports both Microsoft contacts and calendar events. Use this type when the same
+Microsoft client credential should be used for both resources.
+
+Credential fields (`Type = "MicrosoftClientCredential"`):
+
+- `TenantId`: Entra tenant ID
+- `ClientId`: app registration client ID
+- `ClientSecret`: client secret for MVP setups
+- `CertificatePath`: optional PFX/PKCS#12 certificate path for long-term unattended use
+- `CertificatePassword`: optional certificate password
+
+Use either `ClientSecret` or `CertificatePath` (+ `CertificatePassword` if needed).
+
+Endpoint properties:
+
+- `userId`: required; the mailbox owner to access, typically a user principal name or user ID
+- `folderId`: optional contact folder ID; if omitted, Kagami uses the default contacts collection
+- `calendarId`: optional calendar ID; if omitted, Kagami uses the default calendar collection
+
+Use `Type = "MicrosoftContacts"` or `Type = "MicrosoftEvents"` instead when
+configuring an endpoint for only one resource.
 
 #### `MicrosoftContacts`
 
