@@ -274,6 +274,7 @@ kagami events sync --from WorkCalendar --to ArchiveCalendar --filter "contains(t
 - `--full`: ignore saved cursors and fetch all rows from both sides, but still skip events whose content is already identical on both sides
 - `--force`: fetch all rows, bypass all change and sameness checks for every in-scope event, and write unconditionally — use only when normal change detection via version/hash is known to be unreliable. Do not use for normal runs.
 - `--filter`: apply an OData-style filter in memory before planning or writing changes
+- Event full reads without an applicable delta cursor use a rolling one-year lookback by default; delta runs continue from their saved provider cursors.
 - `--interval`: ISO 8601 duration (e.g. `PT15M`, `PT2H`). When specified, the sync repeats indefinitely with the given delay between runs; without it the command runs once and exits. If a run fails, the process exits nonzero immediately (works well with Docker/container restart policies).
 
 ### `kagami jobs` commands
