@@ -3,16 +3,14 @@ using Summerdawn.Kagami.Models;
 namespace Summerdawn.Kagami.Engine;
 
 /// <summary>
-/// Provides a two-step matching strategy for canonical contacts.
+/// Provides matching strategies for canonical contacts and calendar events.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Step 1 – name identity</b> (<see cref="HasNameMatch"/>): contacts are compared by display
-/// name, falling back to organisation name when display name is absent on both sides.
+/// <b>Contacts</b> use a two-step strategy: name identity followed by detail disambiguation.
 /// </para>
 /// <para>
-/// <b>Step 2 – detail disambiguation</b> (<see cref="HasDetailMatch"/>): contacts are compared by
-/// overlapping identifiers (email addresses, phone numbers).
+/// <b>Events</b> are matched by normalized title and exact start instant.
 /// </para>
 /// <para>
 /// <see cref="IsMatch"/> is a convenience wrapper that requires both steps to pass and is suitable
@@ -22,15 +20,14 @@ namespace Summerdawn.Kagami.Engine;
 public static class ItemMatcher
 {
     /// <summary>
-    /// Builds a candidate map from each source item's ID to its matching target items using a
-    /// two-step best-match strategy.
+    /// Builds a candidate map from each source item's ID to its matching target items.
     /// </summary>
     /// <remarks>
-    /// <list type="number">
+    /// <list type="bullet">
     ///   <item>
     ///     <term>Step 1 – unique name match</term>
     ///     <description>
-    ///       When exactly one source item and exactly one target item share the same primary name
+    ///       For contacts, when exactly one source item and exactly one target item share the same primary name
     ///       (display name or organisation), they are treated as a match without requiring
     ///       overlapping identifiers. This handles contacts that only carry non-contactable data
     ///       (e.g. a LinkedIn URL) and would otherwise be incorrectly duplicated on every resync.
@@ -39,12 +36,19 @@ public static class ItemMatcher
     ///   <item>
     ///     <term>Step 2 – detail disambiguation</term>
     ///     <description>
-    ///       When the name group is ambiguous (multiple sources or multiple targets share the same
+    ///       For contacts, when the name group is ambiguous (multiple sources or multiple targets share the same
     ///       primary name), a second pass filters the name-group candidates by overlapping
     ///       identifiers (email, phone). Only targets that share at least one identifier with
     ///       the source item are included in the candidate set. If no identifier overlap exists
     ///       the candidate set is empty for that source item and the planner falls back to
     ///       creating a new contact.
+    ///     </description>
+    ///   </item>
+    ///   <item>
+    ///     <term>Calendar events</term>
+    ///     <description>
+    ///       Events are candidates when their normalized titles and exact UTC start instants match.
+    ///       Groups with multiple items on either side remain ambiguous and are not auto-linked.
     ///     </description>
     ///   </item>
     /// </list>
@@ -53,6 +57,11 @@ public static class ItemMatcher
         IReadOnlyList<TItem> sourceItems,
         IReadOnlyList<TItem> targetItems) where TItem : CanonicalItem
     {
+        if (typeof(TItem) == typeof(CanonicalEvent))
+        {
+            return BuildEventCandidateMap(sourceItems, targetItems);
+        }
+
         // Group contact items by their normalised primary name.
         var targetsByName = targetItems
             .Where(t => t is CanonicalContact)
@@ -101,10 +110,47 @@ public static class ItemMatcher
     }
 
     /// <summary>
-    /// Determines whether two items represent the same contact, requiring both name identity and at least one overlapping identifier (email or phone).
+    /// Determines whether two items represent the same contact or calendar event.
     /// </summary>
-    public static bool IsMatch(CanonicalItem leftItem, CanonicalItem rightItem) =>
-        HasNameMatch(leftItem, rightItem) && HasDetailMatch(leftItem, rightItem);
+    public static bool IsMatch(CanonicalItem leftItem, CanonicalItem rightItem)
+    {
+        if (leftItem is CanonicalEvent leftEvent && rightItem is CanonicalEvent rightEvent)
+        {
+            return GetEventIdentityKey(leftEvent).Equals(GetEventIdentityKey(rightEvent));
+        }
+
+        return HasNameMatch(leftItem, rightItem) && HasDetailMatch(leftItem, rightItem);
+    }
+
+    private static Dictionary<string, TItem[]> BuildEventCandidateMap<TItem>(
+        IReadOnlyList<TItem> sourceItems,
+        IReadOnlyList<TItem> targetItems) where TItem : CanonicalItem
+    {
+        var targetsByKey = targetItems
+            .Cast<CanonicalEvent>()
+            .GroupBy(GetEventIdentityKey)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        var sourceCountByKey = sourceItems
+            .Cast<CanonicalEvent>()
+            .GroupBy(GetEventIdentityKey)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        var result = new Dictionary<string, TItem[]>(StringComparer.Ordinal);
+        foreach (var item in sourceItems.Cast<CanonicalEvent>())
+        {
+            var key = GetEventIdentityKey(item);
+            var targetsWithKey = targetsByKey.GetValueOrDefault(key) ?? [];
+            result[item.Provenance.ProviderId] = sourceCountByKey.GetValueOrDefault(key) == 1 && targetsWithKey.Count == 1
+                ? [.. targetsWithKey.Cast<TItem>()]
+                : [];
+        }
+
+        return result;
+    }
+
+    private static (string Title, long StartSeconds) GetEventIdentityKey(CanonicalEvent item) =>
+        (NormalizeText(item.Title), item.From.ToUniversalTime().ToUnixTimeSeconds());
 
     /// <summary>
     /// Determines whether two contacts share the same primary name identity.

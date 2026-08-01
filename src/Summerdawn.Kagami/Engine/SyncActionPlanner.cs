@@ -346,14 +346,14 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 Kind = Update,
                 Direction = DestinationToSource,
                 Link = examined,
-                Reason = "Matched existing contact on target side",
+                Reason = "Matched existing item on target side",
             }
             : new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = SourceToDestination,
                 Link = examined,
-                Reason = "Matched existing contact on target side",
+                Reason = "Matched existing item on target side",
             };
     }
 
@@ -441,7 +441,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 Kind = SyncActionKind.Skip,
                 Direction = SourceToDestination,
                 Link = examined,
-                Reason = "Multiple matching contacts on target side",
+                Reason = "Multiple matching items on target side",
             };
         }
 
@@ -458,7 +458,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 Kind = SyncActionKind.Skip,
                 Direction = DestinationToSource,
                 Link = examined,
-                Reason = "Target contact matches multiple source contacts",
+                Reason = "Target item matches multiple source items",
             };
         }
 
