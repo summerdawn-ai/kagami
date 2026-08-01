@@ -361,6 +361,9 @@ public sealed class JobExecutor(
     private async Task<ItemSet<TItem>> LoadItemsAsync<TItem>(Job<TItem> job, IConnector<TItem> connector, string? cursor, CancellationToken cancellationToken) where TItem : CanonicalItem
     {
         string itemCategory = job.GetItemCategory();
+        string filteringSuffix = string.IsNullOrWhiteSpace(job.Options.Filter)
+            ? "."
+            : " before client-side filtering.";
         logger.LogInformation("Reading {Category} items from {Endpoint}...", itemCategory, connector.EndpointName);
 
         // Use optimized endpoint if cursor not needed.
@@ -368,7 +371,7 @@ public sealed class JobExecutor(
         {
             logger.LogDebug("No persistence for {Endpoint}; performing full load without cursors.", connector.EndpointName);
             var items = await connector.GetAllItemsAsync(cancellationToken);
-            logger.LogInformation("Read {Count} {Category} items from {Endpoint}.", items.Count, itemCategory, connector.EndpointName);
+            logger.LogInformation("Read {Count} {Category} items from {Endpoint}{FilteringSuffix}", items.Count, itemCategory, connector.EndpointName, filteringSuffix);
             return new ItemSet<TItem>(items, null);
         }
 
@@ -385,7 +388,7 @@ public sealed class JobExecutor(
         }
 
         var itemSet = await connector.GetCursorItemsAsync(cursor, cancellationToken);
-        logger.LogInformation("Read {Count} {Category} items from {Endpoint}.", itemSet.Items.Count, itemCategory, connector.EndpointName);
+        logger.LogInformation("Read {Count} {Category} items from {Endpoint}{FilteringSuffix}", itemSet.Items.Count, itemCategory, connector.EndpointName, filteringSuffix);
         return itemSet;
     }
 
