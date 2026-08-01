@@ -10,8 +10,10 @@ namespace Summerdawn.Kagami.Engine;
 /// <b>Contacts</b> use a two-step strategy: name identity followed by detail disambiguation.
 /// </para>
 /// <para>
-/// <b>Events</b> are matched by normalized title, all-day state, and start value. All-day events
-/// use their calendar date, while timed events use their exact UTC start instant.
+/// <b>Events</b> are matched by normalized title and start value. The start is compared as a UTC
+/// instant so an all-day event represented at midnight by one provider can match a timed event
+/// represented at the same instant by another provider. The all-day state remains synchronized
+/// content and is updated after the logical event has been matched.
 /// </para>
 /// <para>
 /// <see cref="IsMatch"/> is a convenience wrapper that requires both steps to pass and is suitable
@@ -48,8 +50,9 @@ public static class ItemMatcher
     ///   <item>
     ///     <term>Calendar events</term>
     ///     <description>
-    ///       Events are candidates when their normalized titles, all-day states, and start values match.
-    ///       All-day events match by calendar date, while timed events match by exact UTC start instant.
+    ///       Events are candidates when their normalized titles and UTC start instants match. The
+    ///       all-day state is intentionally excluded from identity so equivalent provider
+    ///       representations can be linked and then synchronized.
     ///       Groups with multiple items on either side remain ambiguous and are not auto-linked.
     ///     </description>
     ///   </item>
@@ -154,13 +157,10 @@ public static class ItemMatcher
     /// <summary>
     /// Creates the normalized identity key used to match calendar events.
     /// </summary>
-    private static (string Title, bool IsAllDay, long Start) GetEventIdentityKey(CanonicalEvent item) =>
+    private static (string Title, long Start) GetEventIdentityKey(CanonicalEvent item) =>
         (
             NormalizeText(item.Title),
-            item.IsAllDay,
-            item.IsAllDay
-                ? DateOnly.FromDateTime(item.From.UtcDateTime).DayNumber
-                : item.From.ToUniversalTime().ToUnixTimeSeconds());
+            item.From.ToUniversalTime().ToUnixTimeSeconds());
 
     /// <summary>
     /// Determines whether two contacts share the same primary name identity.

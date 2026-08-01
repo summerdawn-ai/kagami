@@ -59,11 +59,6 @@ internal partial class KagamiJsonContext : JsonSerializerContext
                 RemoveProperty(typeInfo, "ContentHash");
             }
 
-            if (typeInfo.Type == typeof(ItemProvenance))
-            {
-                typeInfo.Properties.Clear();
-            }
-
             if (typeInfo.Type == typeof(CanonicalEvent))
             {
                 RemoveProperty(typeInfo, "Organizer");

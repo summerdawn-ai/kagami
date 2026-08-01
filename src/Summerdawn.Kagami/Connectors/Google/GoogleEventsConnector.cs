@@ -17,8 +17,9 @@ namespace Summerdawn.Kagami.Connectors;
 /// <remarks>
 /// Full reads begin one year before the current month and use Google Calendar's ordinary
 /// collection pagination. Persisted reads use the Calendar API sync token and preserve
-/// cancellation records so the sync engine can remove deleted events. Writes use the
-/// provider's import, patch, and delete operations without sending attendee notifications.
+/// cancellation records so the sync engine can remove deleted events. Writes use regular event
+/// creation, patch, and delete operations without sending attendee notifications. Regular
+/// creation avoids Google's import operation, which treats iCalendar UIDs as upsert keys.
 /// </remarks>
 public class GoogleEventsConnector(HttpClient httpClient, string endpointName, EndpointOptions endpoint, GoogleOAuthCredential credential, ILogger<GoogleEventsConnector> logger) : IConnector<CanonicalEvent>
 {
@@ -95,14 +96,14 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
     /// <inheritdoc/>
     public async Task<CanonicalEvent> CreateItemAsync(CanonicalEvent item, CancellationToken cancellationToken = default)
     {
-        string requestUri = $"{collectionPath}/import";
+        string requestUri = $"{collectionPath}?sendUpdates=none";
         using var request = await CreateRequestAsync(HttpMethod.Post, requestUri, cancellationToken);
         request.Content = CreateJsonContent(BuildWritableEvent(item));
         using var document = await SendForJsonAsync(request, cancellationToken);
         string id = ReadString(document.RootElement, "id")
-            ?? throw new InvalidOperationException("Google calendar import returned no event id.");
+            ?? throw new InvalidOperationException("Google calendar create returned no event id.");
         return await GetItemAsync(id, cancellationToken)
-            ?? throw new InvalidOperationException("Google calendar import succeeded but the created event could not be reloaded.");
+            ?? throw new InvalidOperationException("Google calendar create succeeded but the created event could not be reloaded.");
     }
 
     /// <inheritdoc/>
@@ -320,7 +321,9 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
     /// <remarks>
     /// Organizer and attendee fields are omitted so creates become private mailbox-owned copies
     /// and updates preserve participant data already held by the destination. Recurrence rules
-    /// are split into the repeated-string shape required by the API.
+    /// are split into the repeated-string shape required by the API. The provider-supplied
+    /// iCalendar UID is intentionally omitted: Google treats it as an import upsert key, and it
+    /// cannot be changed reliably after creation.
     /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "Calendar writable payload uses known JsonNode shapes.")]
@@ -339,11 +342,6 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         {
             body["start"] = CreateAllDayDateNode(item.From);
             body["end"] = CreateAllDayDateNode(item.To);
-        }
-
-        if (!string.IsNullOrWhiteSpace(item.ICalUid))
-        {
-            body["iCalUID"] = item.ICalUid;
         }
 
         if (!string.IsNullOrWhiteSpace(item.RecurrencePattern))

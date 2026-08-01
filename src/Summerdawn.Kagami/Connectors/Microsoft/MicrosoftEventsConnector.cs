@@ -262,6 +262,12 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
     /// <summary>
     /// Builds the Microsoft Graph writable event payload from a canonical event.
     /// </summary>
+    /// <remarks>
+    /// Organizer, attendee, and provider-supplied iCalendar UID fields are intentionally omitted.
+    /// Microsoft assigns the UID, treats it as immutable, and does not reliably honor a supplied
+    /// value; participant fields are preserved on the destination rather than written by this
+    /// connector.
+    /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     internal static JsonObject BuildWritableEvent(CanonicalEvent item)

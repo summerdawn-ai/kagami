@@ -202,7 +202,36 @@ public sealed class GoogleEventsConnectorTests
     }
 
     [Fact]
-    public void BuildWritableEvent_OmitsOrganizerAndAttendees()
+    public async Task CreateItemAsync_UsesInsertEndpoint()
+    {
+        var handler = new SequenceHttpHandler(
+          CreateJsonResponse(HttpStatusCode.OK, """{ "id": "created-1" }"""),
+          CreateJsonResponse(HttpStatusCode.OK, """
+            {
+              "id": "created-1",
+              "summary": "Standup",
+              "start": { "dateTime": "2026-05-01T08:00:00Z" },
+              "end": { "dateTime": "2026-05-01T08:15:00Z" },
+              "organizer": { "email": "user@contoso.com", "self": true }
+            }
+            """));
+        var connector = CreateConnector(handler);
+
+        _ = await connector.CreateItemAsync(new CanonicalEvent
+        {
+            Title = "Standup",
+            From = new DateTimeOffset(2026, 05, 01, 08, 00, 00, TimeSpan.Zero),
+            To = new DateTimeOffset(2026, 05, 01, 08, 15, 00, TimeSpan.Zero),
+            ICalUid = "provider-owned@example.invalid",
+        });
+
+        Assert.Equal(2, handler.RequestUris.Count);
+        Assert.Contains("/events?sendUpdates=none", handler.RequestUris[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("/import", handler.RequestUris[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildWritableEvent_OmitsProviderOwnedFields()
     {
         var item = new CanonicalEvent
         {
@@ -212,6 +241,7 @@ public sealed class GoogleEventsConnectorTests
             To = new DateTimeOffset(2026, 05, 01, 08, 15, 00, TimeSpan.Zero),
             Location = "Teams",
             RecurrencePattern = "RRULE:FREQ=DAILY",
+            ICalUid = "provider-owned@example.invalid",
             Organizer = new CalendarEventParticipant { Email = "organizer@contoso.com", Name = "Organizer" },
             Attendees =
             [
@@ -224,6 +254,7 @@ public sealed class GoogleEventsConnectorTests
         Assert.Contains("\"summary\":\"Standup\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain("\"organizer\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain("\"attendees\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"iCalUID\"", json, StringComparison.Ordinal);
         Assert.Contains("\"recurrence\"", json, StringComparison.Ordinal);
     }
 
