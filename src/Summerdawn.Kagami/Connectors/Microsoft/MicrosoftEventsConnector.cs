@@ -21,6 +21,8 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
 {
     private const string MicrosoftScope = "https://graph.microsoft.com/.default";
     private const string GraphBaseUri = "https://graph.microsoft.com/v1.0";
+    // Request immutable ids to avoid Graph returning a new id if an event is moved.
+    private const string ImmutableIdPreference = "IdType=\"ImmutableId\"";
     private const int PageSize = 100;
     private const string SelectFields = "id,subject,body,start,end,location,organizer,attendees,responseStatus,isOrganizer,recurrence,iCalUId,lastModifiedDateTime,changeKey";
     private readonly string collectionPath = GetCollectionPath(endpointName, endpoint);
@@ -686,6 +688,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         var token = await credential.TokenCredential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
         var request = new HttpRequestMessage(method, uri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+        request.Headers.TryAddWithoutValidation("Prefer", ImmutableIdPreference);
         return request;
     }
 

@@ -20,6 +20,8 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
 {
     private const string MicrosoftScope = "https://graph.microsoft.com/.default";
     private const string GraphBaseUri = "https://graph.microsoft.com/v1.0";
+    // Request immutable ids to avoid Graph returning a new id if a contact is moved.
+    private const string ImmutableIdPreference = "IdType=\"ImmutableId\"";
     private const string ContactSelectFields = "id,displayName,givenName,middleName,surname,emailAddresses,businessPhones,homePhones,mobilePhone,companyName,jobTitle,personalNotes,birthday,categories,homeAddress,businessAddress,otherAddress,lastModifiedDateTime";
     private const string DeltaSelectFields = "id,lastModifiedDateTime";
     // Delta returns only lightweight metadata, so we can ask Graph for larger pages before hydrating the contacts in batches.
@@ -374,6 +376,9 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
                 .Append('"')
                 .Append(EscapeJsonString(CreateBatchRelativeContactUrl(ids[i])))
                 .Append('"')
+                .Append(",\"headers\":{\"Prefer\":\"")
+                .Append(EscapeJsonString(ImmutableIdPreference))
+                .Append("\"}")
                 .Append('}');
         }
 
@@ -413,6 +418,7 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
         var token = await credential.TokenCredential.GetTokenAsync(new TokenRequestContext([MicrosoftScope]), cancellationToken);
         HttpRequestMessage request = new(method, requestUri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+        request.Headers.TryAddWithoutValidation("Prefer", ImmutableIdPreference);
         return request;
     }
 
