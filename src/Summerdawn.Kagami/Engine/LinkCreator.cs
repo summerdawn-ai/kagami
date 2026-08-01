@@ -144,7 +144,7 @@ public sealed class LinkCreator(ILogger<LinkCreator> logger)
             if (candidates.Length > 1)
             {
                 logger.LogWarning(
-                    "Item {SourceId} matches {MatchCount} contacts on destination side; auto-linking is ambiguous",
+                    "Item {SourceId} matches {MatchCount} items on destination side; auto-linking is ambiguous",
                     item.Provenance.ProviderId,
                     candidates.Length);
 

@@ -99,7 +99,7 @@ public sealed class CommandHandler<TItem>(
     }
 
     /// <summary>
-    /// Synchronizes contacts between two configured endpoints.
+    /// Synchronizes canonical items between two configured endpoints.
     /// </summary>
     public async Task<JobExecutionResult> SyncAsync(
         string fromEndpoint,

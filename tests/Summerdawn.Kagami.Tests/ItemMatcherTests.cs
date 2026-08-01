@@ -42,6 +42,47 @@ public sealed class ItemMatcherTests
         Assert.False(ItemMatcher.IsMatch(left, right));
     }
 
+    [Fact]
+    public void IsMatch_MatchesEventsByNormalizedTitleAndStartInstant()
+    {
+        var left = CreateEvent("a1", "  Design Review ", new DateTimeOffset(2026, 5, 14, 15, 30, 0, TimeSpan.Zero));
+        var right = CreateEvent("b1", "Design Review", new DateTimeOffset(2026, 5, 14, 17, 30, 0, TimeSpan.FromHours(2)));
+
+        Assert.True(ItemMatcher.IsMatch(left, right));
+    }
+
+    [Fact]
+    public void IsMatch_IgnoresSubsecondProviderDifferencesInEventStart()
+    {
+        var left = CreateEvent("a1", "Celebration", new DateTimeOffset(2026, 4, 18, 13, 0, 0, 555, TimeSpan.Zero));
+        var right = CreateEvent("b1", "Celebration", new DateTimeOffset(2026, 4, 18, 15, 0, 0, TimeSpan.FromHours(2)));
+
+        Assert.True(ItemMatcher.IsMatch(left, right));
+    }
+
+    [Fact]
+    public void BuildDuplicateCandidateMap_MatchesUniqueEventsByTitleAndStart()
+    {
+        var source = CreateEvent("a1", "Design Review", new DateTimeOffset(2026, 5, 14, 15, 30, 0, TimeSpan.Zero));
+        var target = CreateEvent("b1", " design review ", new DateTimeOffset(2026, 5, 14, 17, 30, 0, TimeSpan.FromHours(2)));
+
+        var candidates = ItemMatcher.BuildDuplicateCandidateMap([source], [target]);
+
+        Assert.Same(target, Assert.Single(candidates["a1"]));
+    }
+
+    [Fact]
+    public void BuildDuplicateCandidateMap_DoesNotAutoLinkAmbiguousEvents()
+    {
+        var source = CreateEvent("a1", "Design Review", new DateTimeOffset(2026, 5, 14, 15, 30, 0, TimeSpan.Zero));
+        var target1 = CreateEvent("b1", "Design Review", source.From);
+        var target2 = CreateEvent("b2", "Design Review", source.From);
+
+        var candidates = ItemMatcher.BuildDuplicateCandidateMap([source], [target1, target2]);
+
+        Assert.Empty(candidates["a1"]);
+    }
+
     // ── HasNameMatch ────────────────────────────────────────────────────
 
     [Fact]
@@ -136,4 +177,15 @@ public sealed class ItemMatcherTests
                 ProviderId = id,
             },
         };
+
+    private static CanonicalEvent CreateEvent(string id, string title, DateTimeOffset from) => new()
+    {
+        Title = title,
+        From = from,
+        To = from.AddHours(1),
+        Provenance =
+        {
+            ProviderId = id,
+        },
+    };
 }
