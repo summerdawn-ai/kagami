@@ -6,19 +6,29 @@ namespace Summerdawn.Kagami.Configuration;
 public sealed class EndpointOptions
 {
     /// <summary>
+    /// The connector type identifier for all supported Google resources.
+    /// </summary>
+    public const string Google = "Google";
+
+    /// <summary>
     /// The connector type identifier for Google contacts (People API).
     /// </summary>
     public const string GoogleContacts = "GoogleContacts";
 
     /// <summary>
-    /// The connector type identifier for Microsoft contacts (Exchange Online / Microsoft 365).
-    /// </summary>
-    public const string MicrosoftContacts = "MicrosoftContacts";
-
-    /// <summary>
     /// The connector type identifier for Google events.
     /// </summary>
     public const string GoogleEvents = "GoogleEvents";
+
+    /// <summary>
+    /// The connector type identifier for all supported Microsoft resources.
+    /// </summary>
+    public const string Microsoft = "Microsoft";
+
+    /// <summary>
+    /// The connector type identifier for Microsoft contacts (Exchange Online / Microsoft 365).
+    /// </summary>
+    public const string MicrosoftContacts = "MicrosoftContacts";
 
     /// <summary>
     /// The connector type identifier for Microsoft events (Exchange Online / Microsoft 365).
