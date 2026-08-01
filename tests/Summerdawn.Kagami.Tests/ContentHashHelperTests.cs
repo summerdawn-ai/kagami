@@ -31,6 +31,17 @@ public sealed class ContentHashHelperTests
         Assert.True(ContentHashHelper.HaveIdenticalContent(withoutParticipants, withParticipants));
     }
 
+    [Fact]
+    public void ComputeContentHash_DiffersForAllDayRepresentation()
+    {
+        var timed = CreateEvent("google-1", "Google");
+        var allDay = timed with { IsAllDay = true };
+
+        Assert.NotEqual(
+            ContentHashHelper.ComputeContentHash(timed),
+            ContentHashHelper.ComputeContentHash(allDay));
+    }
+
     private static CanonicalEvent CreateEvent(string providerId, string endpointName) => new()
     {
         Title = "Design Review",

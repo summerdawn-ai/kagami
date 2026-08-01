@@ -10,7 +10,8 @@ namespace Summerdawn.Kagami.Engine;
 /// <b>Contacts</b> use a two-step strategy: name identity followed by detail disambiguation.
 /// </para>
 /// <para>
-/// <b>Events</b> are matched by normalized title and exact start instant.
+/// <b>Events</b> are matched by normalized title, all-day state, and start value. All-day events
+/// use their calendar date, while timed events use their exact UTC start instant.
 /// </para>
 /// <para>
 /// <see cref="IsMatch"/> is a convenience wrapper that requires both steps to pass and is suitable
@@ -47,7 +48,8 @@ public static class ItemMatcher
     ///   <item>
     ///     <term>Calendar events</term>
     ///     <description>
-    ///       Events are candidates when their normalized titles and exact UTC start instants match.
+    ///       Events are candidates when their normalized titles, all-day states, and start values match.
+    ///       All-day events match by calendar date, while timed events match by exact UTC start instant.
     ///       Groups with multiple items on either side remain ambiguous and are not auto-linked.
     ///     </description>
     ///   </item>
@@ -149,8 +151,16 @@ public static class ItemMatcher
         return result;
     }
 
-    private static (string Title, long StartSeconds) GetEventIdentityKey(CanonicalEvent item) =>
-        (NormalizeText(item.Title), item.From.ToUniversalTime().ToUnixTimeSeconds());
+    /// <summary>
+    /// Creates the normalized identity key used to match calendar events.
+    /// </summary>
+    private static (string Title, bool IsAllDay, long Start) GetEventIdentityKey(CanonicalEvent item) =>
+        (
+            NormalizeText(item.Title),
+            item.IsAllDay,
+            item.IsAllDay
+                ? DateOnly.FromDateTime(item.From.UtcDateTime).DayNumber
+                : item.From.ToUniversalTime().ToUnixTimeSeconds());
 
     /// <summary>
     /// Determines whether two contacts share the same primary name identity.

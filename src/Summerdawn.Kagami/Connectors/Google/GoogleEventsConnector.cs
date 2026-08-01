@@ -264,6 +264,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             Description = ReadString(element, "description"),
             From = ReadEventDateTime(element, "start"),
             To = ReadEventDateTime(element, "end"),
+            IsAllDay = IsAllDayEvent(element, "start"),
             Location = ReadLocation(element),
             RecurrencePattern = ReadRecurrencePattern(element),
             Organizer = ReadParticipant(element, "organizer"),
@@ -310,7 +311,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             }
         }
 
-        return item;
+        return ContentHashHelper.WithComputedHash(item);
     }
 
     /// <summary>
@@ -333,6 +334,12 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             ["start"] = CreateEventDateTimeNode(item.From),
             ["end"] = CreateEventDateTimeNode(item.To),
         };
+
+        if (item.IsAllDay)
+        {
+            body["start"] = CreateAllDayDateNode(item.From);
+            body["end"] = CreateAllDayDateNode(item.To);
+        }
 
         if (!string.IsNullOrWhiteSpace(item.ICalUid))
         {
@@ -495,6 +502,21 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
             ["dateTime"] = value.ToUniversalTime().ToString("o"),
             ["timeZone"] = "UTC",
         };
+
+    /// <summary>
+    /// Creates the date-only object used in writable Google all-day event payloads.
+    /// </summary>
+    private static JsonObject CreateAllDayDateNode(DateTimeOffset value) =>
+        new()
+        {
+            ["date"] = value.UtcDateTime.ToString("yyyy-MM-dd"),
+        };
+
+    /// <summary>
+    /// Determines whether a Google event date value represents an all-day event.
+    /// </summary>
+    private static bool IsAllDayEvent(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var node) && node.TryGetProperty("date", out _);
 
     /// <summary>
     /// Creates an authenticated Google Calendar request.

@@ -161,6 +161,26 @@ public sealed class GoogleEventsConnectorTests
     }
 
     [Fact]
+    public void ConvertEvent_MapsAllDayDateValuesAndComputesHash()
+    {
+        using var document = JsonDocument.Parse("""
+          {
+          "id": "all-day",
+          "summary": "Blocker",
+          "start": { "date": "2026-08-01" },
+          "end": { "date": "2026-08-02" }
+          }
+          """);
+
+        var item = GoogleEventsConnector.ConvertEvent(document.RootElement, "GoogleEvents");
+
+        Assert.NotNull(item);
+        Assert.True(item!.IsAllDay);
+        Assert.Equal(new DateTimeOffset(2026, 08, 01, 00, 00, 00, TimeSpan.Zero), item.From);
+        Assert.NotNull(item.Provenance.ContentHash);
+    }
+
+    [Fact]
     public void BuildWritableEvent_OmitsOrganizerAndAttendees()
     {
         var item = new CanonicalEvent
@@ -184,6 +204,24 @@ public sealed class GoogleEventsConnectorTests
         Assert.DoesNotContain("\"organizer\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain("\"attendees\"", json, StringComparison.Ordinal);
         Assert.Contains("\"recurrence\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildWritableEvent_WritesAllDayDateValues()
+    {
+        var item = new CanonicalEvent
+        {
+            Title = "Blocker",
+            IsAllDay = true,
+            From = new DateTimeOffset(2026, 08, 01, 00, 00, 00, TimeSpan.Zero),
+            To = new DateTimeOffset(2026, 08, 02, 00, 00, 00, TimeSpan.Zero),
+        };
+
+        string json = GoogleEventsConnector.BuildWritableEvent(item).ToJsonString();
+
+        Assert.Contains("\"start\":{\"date\":\"2026-08-01\"}", json, StringComparison.Ordinal);
+        Assert.Contains("\"end\":{\"date\":\"2026-08-02\"}", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("dateTime", json, StringComparison.Ordinal);
     }
 
     private static GoogleEventsConnector CreateConnector(SequenceHttpHandler connectorHandler)

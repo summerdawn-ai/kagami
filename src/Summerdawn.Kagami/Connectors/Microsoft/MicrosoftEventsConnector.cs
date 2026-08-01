@@ -24,7 +24,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
     // Request immutable ids to avoid Graph returning a new id if an event is moved.
     private const string ImmutableIdPreference = "IdType=\"ImmutableId\"";
     private const int PageSize = 100;
-    private const string SelectFields = "id,subject,body,start,end,location,organizer,attendees,responseStatus,isOrganizer,recurrence,iCalUId,lastModifiedDateTime,changeKey";
+    private const string SelectFields = "id,subject,body,start,end,isAllDay,location,organizer,attendees,responseStatus,isOrganizer,recurrence,iCalUId,lastModifiedDateTime,changeKey";
     private readonly string collectionPath = GetCollectionPath(endpointName, endpoint);
 
     /// <inheritdoc/>
@@ -219,8 +219,9 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         {
             Title = ReadString(element, "subject") ?? string.Empty,
             Description = element.TryGetProperty("body", out var bodyNode) ? ReadString(bodyNode, "content") : null,
-            From = ReadDateTimeTimeZone(element, "start"),
-            To = ReadDateTimeTimeZone(element, "end"),
+            From = IsAllDayEvent(element) ? ReadAllDayDate(element, "start") : ReadDateTimeTimeZone(element, "start"),
+            To = IsAllDayEvent(element) ? ReadAllDayDate(element, "end") : ReadDateTimeTimeZone(element, "end"),
+            IsAllDay = IsAllDayEvent(element),
             Location = element.TryGetProperty("location", out var locationNode) ? ReadString(locationNode, "displayName") : null,
             Organizer = ReadOrganizer(element),
             Attendees = ReadAttendees(element),
@@ -255,7 +256,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             item.Metadata["microsoft.changeKey"] = changeKey;
         }
 
-        return item;
+        return ContentHashHelper.WithComputedHash(item);
     }
 
     /// <summary>
@@ -281,6 +282,11 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
                 ["displayName"] = item.Location,
             },
         };
+
+        if (item.IsAllDay)
+        {
+            body["isAllDay"] = true;
+        }
 
         if (item.RecurrencePattern is not null
             && SerializeRecurrence(item.RecurrencePattern, item.From) is JsonObject recurrenceNode)
@@ -585,6 +591,23 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
 
         return DateTimeOffset.MinValue;
     }
+
+    /// <summary>
+    /// Reads a Microsoft all-day event date without applying its time-zone value.
+    /// </summary>
+    private static DateTimeOffset ReadAllDayDate(JsonElement element, string propertyName)
+    {
+        string? dateTime = element.TryGetProperty(propertyName, out var node) ? ReadString(node, "dateTime") : null;
+        return DateTime.TryParse(dateTime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? new DateTimeOffset(DateOnly.FromDateTime(parsed).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+            : DateTimeOffset.MinValue;
+    }
+
+    /// <summary>
+    /// Determines whether a Microsoft event represents an all-day event.
+    /// </summary>
+    private static bool IsAllDayEvent(JsonElement element) =>
+        element.TryGetProperty("isAllDay", out var value) && value.ValueKind == JsonValueKind.True;
 
     /// <summary>
     /// Determines whether a Microsoft date-time string carries its own UTC or numeric offset.

@@ -21,6 +21,11 @@ public record CanonicalEvent : CanonicalItem
     public DateTimeOffset To { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether the event occupies whole calendar days.
+    /// </summary>
+    public bool IsAllDay { get; set; }
+
+    /// <summary>
     /// Gets or sets the event description/body content.
     /// </summary>
     public string? Description { get; set; }
