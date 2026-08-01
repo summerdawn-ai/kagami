@@ -16,6 +16,8 @@ namespace Summerdawn.Kagami.Models;
 /// </remarks>
 internal static class ContentHashHelper
 {
+    private const int MaximumCrossProviderEventDescriptionLength = 8_192;
+
     /// <summary>
     /// Computes a hex-encoded SHA-256 hash of <paramref name="item"/>'s canonical payload.
     /// </summary>
@@ -31,13 +33,29 @@ internal static class ContentHashHelper
         // Serialize with custom 'Hash' context which excludes provenance and other non-canonical data
         string json = item switch
         {
-            CanonicalEvent calendarEvent => JsonSerializer.Serialize(calendarEvent, KagamiJsonContext.HashJsonOptions),
+            CanonicalEvent calendarEvent => JsonSerializer.Serialize(NormalizeEventForHash(calendarEvent), KagamiJsonContext.HashJsonOptions),
             CanonicalContact contact => JsonSerializer.Serialize(contact, KagamiJsonContext.HashJsonOptions),
             _ => throw new InvalidOperationException($"Unsupported canonical payload type '{item.GetType().FullName}'."),
         };
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(json));
         return Convert.ToHexString(hash);
     }
+
+    /// <summary>
+    /// Normalizes event content to the precision and capacity shared by supported providers.
+    /// </summary>
+    /// <remarks>
+    /// Google Calendar truncates event descriptions after 8,192 characters. Retaining a longer
+    /// source description in the canonical item keeps import/export lossless, while hashing the
+    /// shared prefix avoids an update that Google cannot persist.
+    /// </remarks>
+    private static CanonicalEvent NormalizeEventForHash(CanonicalEvent item) =>
+        item with
+        {
+            Description = item.Description is { Length: > MaximumCrossProviderEventDescriptionLength }
+                ? item.Description[..MaximumCrossProviderEventDescriptionLength]
+                : item.Description,
+        };
 
     /// <summary>
     /// Ensures <see cref="ItemProvenance.ContentHash"/> is populated on <paramref name="item"/>,

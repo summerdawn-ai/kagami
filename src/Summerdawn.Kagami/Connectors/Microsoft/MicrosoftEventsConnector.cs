@@ -218,11 +218,11 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         var item = new CanonicalEvent
         {
             Title = ReadString(element, "subject") ?? string.Empty,
-            Description = element.TryGetProperty("body", out var bodyNode) ? ReadString(bodyNode, "content") : null,
+            Description = element.TryGetProperty("body", out var bodyNode) ? ReadStringOrNull(bodyNode, "content") : null,
             From = IsAllDayEvent(element) ? ReadAllDayDate(element, "start") : ReadDateTimeTimeZone(element, "start"),
             To = IsAllDayEvent(element) ? ReadAllDayDate(element, "end") : ReadDateTimeTimeZone(element, "end"),
             IsAllDay = IsAllDayEvent(element),
-            Location = element.TryGetProperty("location", out var locationNode) ? ReadString(locationNode, "displayName") : null,
+            Location = element.TryGetProperty("location", out var locationNode) ? ReadStringOrNull(locationNode, "displayName") : null,
             Organizer = ReadOrganizer(element),
             Attendees = ReadAttendees(element),
             RecurrencePattern = element.TryGetProperty("recurrence", out var recurrenceNode)
@@ -571,7 +571,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         if (HasExplicitUtcOrOffset(dateTime)
             && DateTimeOffset.TryParse(dateTime, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedOffset))
         {
-            return parsedOffset.ToUniversalTime();
+            return ToSecondPrecision(parsedOffset.ToUniversalTime());
         }
 
         if (DateTime.TryParse(dateTime, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDateTime))
@@ -582,15 +582,21 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             string? timeZoneId = ReadString(node, "timeZone");
             if (TryResolveTimeZone(timeZoneId, out var timeZone))
             {
-                return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(unspecifiedDateTime, timeZone), TimeSpan.Zero);
+                return ToSecondPrecision(new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(unspecifiedDateTime, timeZone), TimeSpan.Zero));
             }
 
             // Unknown zones are treated as UTC to keep the canonical model deterministic.
-            return new DateTimeOffset(DateTime.SpecifyKind(parsedDateTime, DateTimeKind.Utc));
+            return ToSecondPrecision(new DateTimeOffset(DateTime.SpecifyKind(parsedDateTime, DateTimeKind.Utc)));
         }
 
         return DateTimeOffset.MinValue;
     }
+
+    /// <summary>
+    /// Reduces a timestamp to the second precision supported by both calendar providers.
+    /// </summary>
+    private static DateTimeOffset ToSecondPrecision(DateTimeOffset value) =>
+        value.AddTicks(-(value.Ticks % TimeSpan.TicksPerSecond));
 
     /// <summary>
     /// Reads a Microsoft all-day event date without applying its time-zone value.
@@ -699,6 +705,12 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         element.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.GetString()
             : null;
+
+    /// <summary>
+    /// Reads a nullable string property and treats an empty value as absent.
+    /// </summary>
+    private static string? ReadStringOrNull(JsonElement element, string propertyName) =>
+        ReadString(element, propertyName) is { Length: > 0 } value ? value : null;
 
     private static DateTimeOffset? ReadDateTimeOffset(JsonElement element, string propertyName)
     {

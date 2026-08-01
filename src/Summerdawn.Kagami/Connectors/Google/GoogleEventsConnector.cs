@@ -261,7 +261,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         var item = new CanonicalEvent
         {
             Title = ReadString(element, "summary") ?? string.Empty,
-            Description = ReadString(element, "description"),
+            Description = ReadStringOrNull(element, "description"),
             From = ReadEventDateTime(element, "start"),
             To = ReadEventDateTime(element, "end"),
             IsAllDay = IsAllDayEvent(element, "start"),
@@ -481,7 +481,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         string? dateTime = ReadString(dateNode, "dateTime");
         if (DateTimeOffset.TryParse(dateTime, out var parsedDateTime))
         {
-            return parsedDateTime.ToUniversalTime();
+            return ToSecondPrecision(parsedDateTime.ToUniversalTime());
         }
 
         string? date = ReadString(dateNode, "date");
@@ -492,6 +492,12 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
 
         return DateTimeOffset.MinValue;
     }
+
+    /// <summary>
+    /// Reduces a timestamp to the second precision supported by both calendar providers.
+    /// </summary>
+    private static DateTimeOffset ToSecondPrecision(DateTimeOffset value) =>
+        value.AddTicks(-(value.Ticks % TimeSpan.TicksPerSecond));
 
     /// <summary>
     /// Creates the UTC date-time object used in writable Google event payloads.
@@ -567,6 +573,12 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         element.TryGetProperty(propertyName, out var property) && property.ValueKind != JsonValueKind.Null
             ? property.GetString()
             : null;
+
+    /// <summary>
+    /// Reads a nullable string property and treats an empty value as absent.
+    /// </summary>
+    private static string? ReadStringOrNull(JsonElement element, string propertyName) =>
+        ReadString(element, propertyName) is { Length: > 0 } value ? value : null;
 
     /// <summary>
     /// Calculates the start boundary for a full calendar read.

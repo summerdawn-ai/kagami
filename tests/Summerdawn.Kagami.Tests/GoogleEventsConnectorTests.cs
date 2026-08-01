@@ -161,6 +161,27 @@ public sealed class GoogleEventsConnectorTests
     }
 
     [Fact]
+    public void ConvertEvent_NormalizesEmptyDescriptionAndSubsecondTimes()
+    {
+        using var document = JsonDocument.Parse("""
+          {
+            "id": "event-3",
+            "summary": "Planning",
+            "description": "",
+            "start": { "dateTime": "2026-05-01T10:00:00.789Z" },
+            "end": { "dateTime": "2026-05-01T11:00:00.789Z" }
+          }
+          """);
+
+        var item = GoogleEventsConnector.ConvertEvent(document.RootElement, "google");
+
+        Assert.NotNull(item);
+        Assert.Null(item!.Description);
+        Assert.Equal(new DateTimeOffset(2026, 05, 01, 10, 00, 00, TimeSpan.Zero), item.From);
+        Assert.Equal(new DateTimeOffset(2026, 05, 01, 11, 00, 00, TimeSpan.Zero), item.To);
+    }
+
+    [Fact]
     public void ConvertEvent_MapsAllDayDateValuesAndComputesHash()
     {
         using var document = JsonDocument.Parse("""

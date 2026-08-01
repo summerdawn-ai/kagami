@@ -196,6 +196,29 @@ public sealed class MicrosoftEventsConnectorTests
     }
 
     [Fact]
+    public void ConvertEvent_NormalizesEmptyBodyAndLocationAndSubsecondTimes()
+    {
+        using var document = JsonDocument.Parse("""
+          {
+            "id": "event-3",
+            "subject": "Planning",
+            "body": { "content": "" },
+            "location": { "displayName": "" },
+            "start": { "dateTime": "2026-05-01T10:00:00.789", "timeZone": "UTC" },
+            "end": { "dateTime": "2026-05-01T11:00:00.789", "timeZone": "UTC" }
+          }
+          """);
+
+        var item = MicrosoftEventsConnector.ConvertEvent(document.RootElement, "microsoft");
+
+        Assert.NotNull(item);
+        Assert.Null(item!.Description);
+        Assert.Null(item.Location);
+        Assert.Equal(new DateTimeOffset(2026, 05, 01, 10, 00, 00, TimeSpan.Zero), item.From);
+        Assert.Equal(new DateTimeOffset(2026, 05, 01, 11, 00, 00, TimeSpan.Zero), item.To);
+    }
+
+    [Fact]
     public void ConvertEvent_MapsAllDayDatesAndComputesHash()
     {
         using var document = JsonDocument.Parse("""
