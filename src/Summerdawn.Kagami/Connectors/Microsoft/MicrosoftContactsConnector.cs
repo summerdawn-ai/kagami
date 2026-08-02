@@ -449,6 +449,14 @@ public sealed class MicrosoftContactsConnector(HttpClient httpClient, string end
             return;
         }
 
+        // DELETE is idempotent for an already-removed Microsoft resource. A 410 Gone therefore
+        // means the requested end state already holds, unlike a 410 from another operation.
+        if (response.RequestMessage?.Method == HttpMethod.Delete
+            && response.StatusCode == HttpStatusCode.Gone)
+        {
+            return;
+        }
+
         string detail = await response.Content.ReadAsStringAsync(cancellationToken);
         throw new InvalidOperationException($"Microsoft Graph request failed with {(int)response.StatusCode} {response.ReasonPhrase}: {detail}");
     }

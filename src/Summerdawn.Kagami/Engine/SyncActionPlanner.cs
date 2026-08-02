@@ -161,6 +161,14 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
         }
         else
         {
+            // A provider may omit a previously consumed tombstone on a later delta. Combine the
+            // current gone state with persisted terminal state before planning propagation.
+            if ((sourceIsGone || row.SourceDeleted)
+                && (destinationIsGone || row.DestinationDeleted))
+            {
+                return null;
+            }
+
             // --- Source gone ---
             if (sourceIsGone)
             {

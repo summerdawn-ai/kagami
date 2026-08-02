@@ -87,6 +87,18 @@ public sealed class GoogleEventsConnectorTests
     }
 
     [Fact]
+    public async Task DeleteItemAsync_GoneResponseIsTreatedAsAlreadyDeleted()
+    {
+        var handler = new SequenceHttpHandler(CreateJsonResponse(HttpStatusCode.Gone, """{"error":{"code":410}}"""));
+        var connector = CreateConnector(handler);
+
+        await connector.DeleteItemAsync("deleted-event");
+
+        Assert.Single(handler.RequestUris);
+        Assert.Contains("/events/deleted-event?sendUpdates=none", handler.RequestUris[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ConvertEvent_ReturnsNullForBirthdayEvents()
     {
         using var document = JsonDocument.Parse("""
@@ -324,6 +336,7 @@ public sealed class GoogleEventsConnectorTests
                 throw new InvalidOperationException($"Unexpected HTTP request to {request.RequestUri}");
             }
 
+            response.RequestMessage = request;
             return Task.FromResult(response);
         }
     }

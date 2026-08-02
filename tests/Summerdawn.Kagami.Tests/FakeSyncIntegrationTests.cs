@@ -18,8 +18,11 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     private readonly LeaseRepository leaseRepository;
     private readonly OperationLogRepository operationLogRepository;
     private readonly JobExecutor executor;
+    private readonly JobExecutor eventExecutor;
     private readonly FakeConnector sourceConnector = new();
     private readonly FakeConnector destinationConnector = new();
+    private readonly FakeEventConnector sourceEventConnector = new();
+    private readonly FakeEventConnector destinationEventConnector = new();
 
     public FakeSyncIntegrationTests()
     {
@@ -30,6 +33,14 @@ public sealed class FakeSyncIntegrationTests : IDisposable
         leaseRepository = new LeaseRepository(db);
         operationLogRepository = new OperationLogRepository(db);
         executor = new JobExecutor(
+            new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
+            linkStateRepository,
+            endpointCursorRepository,
+            leaseRepository,
+            new SyncActionExecutor(linkStateRepository, operationLogRepository, NullLogger<SyncActionExecutor>.Instance),
+            db,
+            NullLogger<JobExecutor>.Instance);
+        eventExecutor = new JobExecutor(
             new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance)),
             linkStateRepository,
             endpointCursorRepository,
@@ -92,6 +103,46 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task MirroredDeletion_DoesNotRepeatTargetDeleteAfterTombstoneIsConsumed()
+    {
+        sourceConnector.Seed(CreateContact("microsoft-1", "Meeting"));
+        await executor.ExecuteJobAsync(CreateJob("job-1"));
+
+        string googleId = Assert.Single(destinationConnector.Items).Provenance.ProviderId;
+        destinationConnector.MarkDeleted(googleId);
+
+        var deletionRun = await executor.ExecuteJobAsync(CreateJob("job-1"));
+        var linkAfterDeletion = Assert.Single(await linkStateRepository.GetByPartitionAsync("contacts:endpointA:endpointB"));
+        var rerun = await executor.ExecuteJobAsync(CreateJob("job-1"));
+
+        Assert.True(deletionRun.Succeeded);
+        Assert.True(linkAfterDeletion.SourceDeleted);
+        Assert.True(linkAfterDeletion.DestinationDeleted);
+        Assert.True(rerun.Succeeded);
+        Assert.Equal(0, rerun.ActionsPlanned);
+    }
+
+    [Fact]
+    public async Task MirroredEventDeletion_DoesNotRepeatTargetDeleteAfterTombstoneIsConsumed()
+    {
+        sourceEventConnector.Seed(CreateEvent("microsoft-event-1", "Meeting"));
+        await eventExecutor.ExecuteJobAsync(CreateEventJob("event-job-1"));
+
+        string googleId = Assert.Single(destinationEventConnector.Items).Provenance.ProviderId;
+        destinationEventConnector.MarkDeleted(googleId);
+
+        var deletionRun = await eventExecutor.ExecuteJobAsync(CreateEventJob("event-job-1"));
+        var linkAfterDeletion = Assert.Single(await linkStateRepository.GetByPartitionAsync("events:endpointA:endpointB"));
+        var rerun = await eventExecutor.ExecuteJobAsync(CreateEventJob("event-job-1"));
+
+        Assert.True(deletionRun.Succeeded);
+        Assert.True(linkAfterDeletion.SourceDeleted);
+        Assert.True(linkAfterDeletion.DestinationDeleted);
+        Assert.True(rerun.Succeeded);
+        Assert.Equal(0, rerun.ActionsPlanned);
+    }
+
+    [Fact]
     public async Task ForwardUpdate_RefreshesBothVersionBaselines()
     {
         sourceConnector.Seed(CreateContact("a1", "Meeting"));
@@ -124,6 +175,9 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     private Job<CanonicalContact> CreateJob(string jobKey, SyncMode mode = SyncMode.Bidirectional) =>
         new(jobKey, CreateJobOptions(mode), sourceConnector, destinationConnector);
 
+    private Job<CanonicalEvent> CreateEventJob(string jobKey, SyncMode mode = SyncMode.Bidirectional) =>
+        new(jobKey, CreateJobOptions(mode), sourceEventConnector, destinationEventConnector);
+
     private static JobOptions CreateJobOptions(SyncMode mode = SyncMode.Bidirectional) => new()
     {
         SourceEndpointName = "endpointA",
@@ -137,6 +191,19 @@ public sealed class FakeSyncIntegrationTests : IDisposable
     {
         DisplayName = displayName,
 
+        Provenance =
+        {
+            ProviderId = id,
+            Version = "v1",
+        }
+    };
+
+    private static CanonicalEvent CreateEvent(string id, string title) => new()
+    {
+        Title = title,
+        From = new DateTimeOffset(2026, 05, 01, 10, 00, 00, TimeSpan.Zero),
+        To = new DateTimeOffset(2026, 05, 01, 11, 00, 00, TimeSpan.Zero),
+        ICalUid = $"{id}@example.invalid",
         Provenance =
         {
             ProviderId = id,

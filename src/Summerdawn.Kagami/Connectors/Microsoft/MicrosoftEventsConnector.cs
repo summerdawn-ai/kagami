@@ -785,6 +785,14 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             return;
         }
 
+        // DELETE is idempotent for an already-removed Microsoft resource. A 410 Gone therefore
+        // means the requested end state already holds, unlike a 410 from another operation.
+        if (response.RequestMessage?.Method == HttpMethod.Delete
+            && response.StatusCode == HttpStatusCode.Gone)
+        {
+            return;
+        }
+
         string body = await response.Content.ReadAsStringAsync(cancellationToken);
         throw new InvalidOperationException($"Microsoft Graph calendar request failed ({(int)response.StatusCode} {response.StatusCode}): {body}");
     }
