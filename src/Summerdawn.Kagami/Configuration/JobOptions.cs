@@ -37,8 +37,12 @@ public sealed class JobOptions
     public bool Full { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether to unconditionally write all in-scope items, bypassing change-detection and content-sameness checks.
+    /// Gets or sets a value indicating whether to ignore saved cursors and treat matched items as
+    /// changed, bypassing change-detection and content-sameness checks.
     /// </summary>
+    /// <remarks>
+    /// Sync mode and conflict policy still select the write direction, or skip a conflict.
+    /// </remarks>
     public bool Force { get; set; }
 
     /// <summary>

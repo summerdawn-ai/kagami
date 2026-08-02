@@ -103,7 +103,7 @@ public static class Program
 
         var forceOption = new Option<bool>("--force")
         {
-            Description = "Ignore cursors, bypass change and content-sameness checks, and write all in-scope contacts unconditionally (clobbers destination drift)",
+            Description = "Ignore cursors and equality checks; treat matched contacts as changed while respecting sync mode and --on-conflict",
             Arity = ArgumentArity.Zero,
         };
 
@@ -487,7 +487,7 @@ public static class Program
 
         var forceOption = new Option<bool>("--force")
         {
-            Description = "Ignore cursors, bypass change and content-sameness checks, and write all in-scope events unconditionally (clobbers destination drift)",
+            Description = "Ignore cursors and equality checks; treat matched events as changed while respecting sync mode and --on-conflict",
             Arity = ArgumentArity.Zero,
         };
 
