@@ -78,7 +78,13 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
     /// </summary>
     public string ToDisplayString()
     {
-        string action = Kind.ToString();
+        string itemType = typeof(TItem) switch
+        {
+            var type when type == typeof(CanonicalContact) => "contact",
+            var type when type == typeof(CanonicalEvent) => "event",
+            _ => "item",
+        };
+        string action = $"{Kind} {itemType}";
 
         string item = ResolveDisplayItem()?.ToDisplayString()
             ?? ResolvePersistedDisplayIdentifier()
@@ -86,7 +92,7 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
         string targetEndpoint = ResolveTargetEndpointName() ?? "unknown";
         string reason = ResolveDisplayReason();
 
-        return $"{action} '{item}' on endpoint {targetEndpoint} (reason: {reason})";
+        return $"{action} {item} on endpoint '{targetEndpoint}' (reason: {reason})";
     }
 
     /// <summary>
@@ -134,14 +140,19 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
 
     private string ResolveDisplayReason()
     {
-        string itemType = typeof(TItem) == typeof(CanonicalContact) ? "Contact" : "Item";
+        string itemType = typeof(TItem) switch
+        {
+            var type when type == typeof(CanonicalContact) => "Contact",
+            var type when type == typeof(CanonicalEvent) => "Event",
+            _ => "Item",
+        };
         string originEndpoint = ResolveOriginEndpointName() ?? "unknown";
 
         return Kind switch
         {
-            Create => $"New {itemType.ToLowerInvariant()} on endpoint {originEndpoint}",
-            Update => $"{itemType} updated on endpoint {originEndpoint}",
-            Delete => $"{itemType} deleted on endpoint {originEndpoint}",
+            Create => $"New {itemType.ToLowerInvariant()} on endpoint '{originEndpoint}'",
+            Update => $"{itemType} updated on endpoint '{originEndpoint}'",
+            Delete => $"{itemType} deleted on endpoint '{originEndpoint}'",
             Skip or None => Reason ?? $"{itemType} skipped",
             _ => Reason ?? $"{itemType} changed",
         };

@@ -53,7 +53,8 @@ public sealed class JobExecutorTests : IDisposable
             DestinationHash = "old-b",
         });
 
-        var executor = CreateExecutor();
+        InMemoryLogger<SyncActionExecutor> syncLogger = new();
+        var executor = CreateExecutor(syncLogger: syncLogger);
 
         var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
         var updatedTarget = await destinationConnector.GetItemAsync("b1");
@@ -92,7 +93,7 @@ public sealed class JobExecutorTests : IDisposable
 
         await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
-        Assert.Contains(syncLogger.Entries, entry => entry.Contains("What-If: Create 'Alice Logging' on endpoint endpointB", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("What-If: Create contact Alice Logging on endpoint 'endpointB'", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -107,7 +108,7 @@ public sealed class JobExecutorTests : IDisposable
 
         await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
-        Assert.Contains(syncLogger.Entries, entry => entry.Contains("What-If: Create 'Contoso Ltd' on endpoint endpointB", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("What-If: Create contact Contoso Ltd on endpoint 'endpointB'", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -124,8 +125,8 @@ public sealed class JobExecutorTests : IDisposable
         await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, conflictPolicy: ConflictPolicy.SourceWins),
             true);
 
-        Assert.Contains(syncLogger.Entries, entry => entry.Contains("What-If: Update 'Ada Langenfeld' on endpoint endpointB", StringComparison.Ordinal));
-        Assert.DoesNotContain(syncLogger.Entries, entry => entry.Contains("What-If: Update 'Ada Langenfeld' on endpoint endpointA", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("What-If: Update contact Ada Langenfeld on endpoint 'endpointB'", StringComparison.Ordinal));
+        Assert.DoesNotContain(syncLogger.Entries, entry => entry.Contains("What-If: Update contact Ada Langenfeld on endpoint 'endpointA'", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -142,9 +143,9 @@ public sealed class JobExecutorTests : IDisposable
         await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector), whatIf: true);
 
         int aliceIndex = syncLogger.Entries.FindIndex(entry =>
-            entry.Contains("What-If: Create 'Alice' on endpoint endpointB", StringComparison.Ordinal));
+            entry.Contains("What-If: Create contact Alice on endpoint 'endpointB'", StringComparison.Ordinal));
         int bobIndex = syncLogger.Entries.FindIndex(entry =>
-            entry.Contains("What-If: Create 'Bob' on endpoint endpointB", StringComparison.Ordinal));
+            entry.Contains("What-If: Create contact Bob on endpoint 'endpointB'", StringComparison.Ordinal));
 
         Assert.NotEqual(-1, aliceIndex);
         Assert.NotEqual(-1, bobIndex);
@@ -163,8 +164,8 @@ public sealed class JobExecutorTests : IDisposable
 
         await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
 
-        Assert.Contains(syncLogger.Entries, entry => entry.Contains("Executing: Create 'Alice Executed' on endpoint endpointB", StringComparison.Ordinal));
-        Assert.Contains(syncLogger.Entries, entry => entry.Contains("Done: Create 'Alice Executed' on endpoint endpointB", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("Executing: Create contact Alice Executed on endpoint 'endpointB'", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry => entry.Contains("Done: Create contact Alice Executed on endpoint 'endpointB'", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -298,7 +299,8 @@ public sealed class JobExecutorTests : IDisposable
         // Use "-1" so FakeConnector parses it as generation -1 and returns all gen-0 seeded items.
         await endpointCursorRepository.SetCursorAsync("job-1", "endpointA", string.Empty, "-1", CancellationToken.None);
 
-        var executor = CreateExecutor();
+        InMemoryLogger<SyncActionExecutor> syncLogger = new();
+        var executor = CreateExecutor(syncLogger: syncLogger);
 
         var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector));
 
@@ -309,6 +311,9 @@ public sealed class JobExecutorTests : IDisposable
         // Cursor must NOT have been written (faulted run must not advance cursors)
         var cursor = await endpointCursorRepository.GetCursorAsync("job-1", "endpointA", CancellationToken.None);
         Assert.Equal("-1", cursor?.Cursor);
+        Assert.Contains(syncLogger.Entries, e =>
+            e.Contains("on endpoint 'endpointB'", StringComparison.Ordinal) &&
+            !e.Contains("on side SourceToDestination", StringComparison.Ordinal));
     }
 
     [Fact]

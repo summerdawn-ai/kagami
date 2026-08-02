@@ -309,7 +309,16 @@ public sealed class SyncActionExecutor(
                 _ => action.Kind.ToString().ToLowerInvariant()
             };
 
-            return await HandleActionExceptionAsync(ex, job.Key, itemCategory, operation, itemId, direction, job.Options.NoPersistence, cancellationToken);
+            return await HandleActionExceptionAsync(
+                ex,
+                job.Key,
+                itemCategory,
+                operation,
+                itemId,
+                direction,
+                targetConnector.EndpointName,
+                job.Options.NoPersistence,
+                cancellationToken);
         }
     }
 
@@ -329,6 +338,7 @@ public sealed class SyncActionExecutor(
         string operation,
         string itemId,
         SyncDirection direction,
+        string endpointName,
         bool noPersistence,
         CancellationToken cancellationToken)
     {
@@ -340,39 +350,39 @@ public sealed class SyncActionExecutor(
         if (IsTransientFailure(ex))
         {
             logger.LogError(
-                "Job {JobKey}: transient failure applying {Operation} for item {ItemId} on side {Side}; aborting run. Error: {ErrorMessage}",
+                "Job {JobKey}: transient failure applying {Operation} for item {ItemId} on endpoint '{Endpoint}'; aborting run. Error: {ErrorMessage}",
                 jobKey,
                 operation,
                 itemId,
-                direction,
+                endpointName,
                 ex.Message);
             logger.LogDebug(
                 ex,
-                "Job {JobKey}: transient exception details for {Operation} on item {ItemId} ({Side})",
+                "Job {JobKey}: transient exception details for {Operation} on item {ItemId} at endpoint '{Endpoint}'",
                 jobKey,
                 operation,
                 itemId,
-                direction);
+                endpointName);
 
             throw new OperationFaultedException(
-                $"Transient failure applying {operation} for item '{itemId}' on side {direction}.",
+                $"Transient failure applying {operation} for item {itemId} on endpoint '{endpointName}'.",
                 ex);
         }
 
         logger.LogError(
-            "Job {JobKey}: failed to apply {Operation} for item {ItemId} on side {Side}; continuing. Error: {ErrorMessage}",
+            "Job {JobKey}: failed to apply {Operation} for item {ItemId} on endpoint '{Endpoint}'; continuing. Error: {ErrorMessage}",
             jobKey,
             operation,
             itemId,
-            direction,
+            endpointName,
             ex.Message);
         logger.LogDebug(
             ex,
-            "Job {JobKey}: exception details for failed {Operation} on item {ItemId} ({Side})",
+            "Job {JobKey}: exception details for failed {Operation} on item {ItemId} at endpoint '{Endpoint}'",
             jobKey,
             operation,
             itemId,
-            direction);
+            endpointName);
 
         return false;
     }

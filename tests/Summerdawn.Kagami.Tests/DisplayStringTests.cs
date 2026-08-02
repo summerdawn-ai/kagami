@@ -35,6 +35,19 @@ public sealed class DisplayStringTests
     }
 
     [Fact]
+    public void CanonicalEvent_ToDisplayString_IncludesTitleAndDates()
+    {
+        var calendarEvent = new CanonicalEvent
+        {
+            Title = "Design Review",
+            From = new DateTimeOffset(2026, 05, 14, 15, 30, 00, TimeSpan.Zero),
+            To = new DateTimeOffset(2026, 05, 14, 16, 00, 00, TimeSpan.Zero),
+        };
+
+        Assert.Equal("'Design Review' (2026-05-14 15:30 - 2026-05-14 16:00)", calendarEvent.ToDisplayString());
+    }
+
+    [Fact]
     public void SyncAction_ToDisplayString_FormatsCreateUpdateDeleteAndSkip()
     {
         var sourceContact = CreateContact("a1", "John Doe", "Google");
@@ -49,16 +62,16 @@ public sealed class DisplayStringTests
         var skipAction = CreateAction(Skip, SourceToDestination, sourceContact, targetContact, "Conflict: skipped per policy");
 
         Assert.Equal(
-            "Create 'John Doe' on endpoint Microsoft (reason: New contact on endpoint Google)",
+            "Create contact John Doe on endpoint 'Microsoft' (reason: New contact on endpoint 'Google')",
             createAction.ToDisplayString());
         Assert.Equal(
-            "Update 'John Doe' on endpoint Microsoft (reason: Contact updated on endpoint Google)",
+            "Update contact John Doe on endpoint 'Microsoft' (reason: Contact updated on endpoint 'Google')",
             updateAction.ToDisplayString());
         Assert.Equal(
-            "Delete 'John Doe' on endpoint Microsoft (reason: Contact deleted on endpoint Google)",
+            "Delete contact John Doe on endpoint 'Microsoft' (reason: Contact deleted on endpoint 'Google')",
             deleteAction.ToDisplayString());
         Assert.Equal(
-            "Skip 'John Doe' on endpoint Microsoft (reason: Conflict: skipped per policy)",
+            "Skip contact John Doe on endpoint 'Microsoft' (reason: Conflict: skipped per policy)",
             skipAction.ToDisplayString());
     }
 
@@ -80,7 +93,7 @@ public sealed class DisplayStringTests
         action.DestinationEndpointName = "Microsoft";
 
         Assert.Equal(
-            "Delete 'b1' on endpoint Microsoft (reason: Contact deleted on endpoint Google)",
+            "Delete contact b1 on endpoint 'Microsoft' (reason: Contact deleted on endpoint 'Google')",
             action.ToDisplayString());
     }
 
