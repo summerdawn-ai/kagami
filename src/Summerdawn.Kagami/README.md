@@ -4,53 +4,32 @@ Kagami is a contact and calendar event synchronization CLI tool with internal SQ
 
 ## Overview
 
-Kagami can be used as a library or as a command-line tool. It synchronizes items between configured endpoints, stores cursors and link state in SQLite, and can run once or continuously at a user-specified interval.
-
-### Features
-
-- Google People API contacts
-- Google Calendar events
-- Microsoft Graph / Exchange Online contacts
-- Microsoft Graph / Exchange Online calendar events
-- Contact categories / labels
-  - Graph `categories`
-  - Google contact-group memberships / labels
-- Interactive CLI commands to list, export, import, and sync contacts and events
-- OData-style in-memory event filters for list, export, import, and sync operations
-- OData-style in-memory contact filters for list, export, import, and sync operations
-- `--force` mode to unconditionally rewrite all in-scope contacts, bypassing version and content checks — for edge cases only, not normal runs
-- `--what-if` mode that logs planned create / update / delete operations without writing changes
-- `--interval` mode on `contacts sync` and `events sync` to repeat the sync in-process with a fixed delay between runs
-- Cached Google OAuth tokens for repeat runs after the initial interactive sign-in
+Kagami supports listing, importing, exporting, and synchronizing contacts and calendar events from Microsoft Graph and Google accounts. It can be used as a .NET CLI tool or registered as a library in another application.
 
 ## Getting Started
 
-The fastest way to get started is to install Kagami as a .NET tool, create a settings file, and run one of the CLI commands:
+1. Create and authorize Microsoft and Google applications as described in [Authorization](#authorization).
+2. Add the application credentials and endpoints to [Configuration](#configuration).
+3. Install Kagami and run a command:
 
-```bash
-dotnet tool install --global Summerdawn.Kagami
-kagami --help
-kagami contacts --help
-kagami events --help
-```
+   ```bash
+   dotnet tool install --global Summerdawn.Kagami
+   kagami --help
+   kagami contacts sync --from Microsoft --to Google
+   kagami events sync --from WorkCalendar --to ArchiveCalendar
+   ```
 
-If you are developing from source instead, run:
-
-```bash
-dotnet run --project src/Summerdawn.Kagami -- --help
-dotnet run --project src/Summerdawn.Kagami -- contacts --help
-dotnet run --project src/Summerdawn.Kagami -- events --help
-```
+See [Usage](#usage) for the command groups and [Configuration](#configuration) for the complete settings reference.
 
 ## Installation
 
-### As a .NET tool
+### As a .NET Tool
 
 ```bash
 dotnet tool install --global Summerdawn.Kagami
 ```
 
-### As a library
+### As a Library
 
 ```bash
 dotnet add package Summerdawn.Kagami
@@ -58,7 +37,7 @@ dotnet add package Summerdawn.Kagami
 
 ## Usage
 
-### Library registration
+### Library
 
 Register Kagami services against the `Kagami` configuration section:
 
@@ -71,355 +50,201 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddKagami(builder.Configuration.GetSection("Kagami"));
 ```
 
-This registers the sync engine, persistence services, and a named `HttpClient` plus keyed `IConnector` singleton for each configured endpoint. Connectors are resolved by endpoint name via `Func<string, IConnector<TItem>>`.
+This registers the synchronization engine, persistence services, and a connector for each configured endpoint. Connectors are resolved by endpoint name.
 
-### CLI commands
+### CLI
 
-Kagami exposes four top-level command groups:
+When used as a CLI tool, Kagami provides commands for listing, importing, exporting, and synchronizing contacts and calendar events, as well as inspecting jobs and managing endpoint authentication.
 
-```text
-# Contact operations
-kagami contacts list   --from=<endpoint> [--filter=<expr>] [--all]
-kagami contacts export --from=<endpoint> --to=<dir> [--filter=<expr>] [--prune]
-kagami contacts import --from=<dir> --to=<endpoint> [--prune] [--filter=<expr>] [--what-if|--confirm]
-kagami contacts sync   --from=<endpoint> --to=<endpoint> [--bidirectional|--reverse]
-                       [--prune] [--on-conflict=last-write-wins|source-wins|destination-wins|skip]
-                       [--what-if|--confirm] [--filter=<expr>] [--force] [--interval=<ISO8601>]
+Kagami provides four command groups:
 
-# Calendar event operations
-kagami events list     --from=<endpoint> [--filter=<expr>] [--all]
-kagami events export   --from=<endpoint> --to=<dir> [--filter=<expr>] [--prune]
-kagami events import   --from=<dir> --to=<endpoint> [--prune] [--filter=<expr>] [--force] [--what-if|--confirm]
-kagami events sync     --from=<endpoint> --to=<endpoint> [--bidirectional|--reverse]
-                       [--prune] [--on-conflict=last-write-wins|source-wins|destination-wins|skip]
-                       [--full] [--what-if|--confirm] [--filter=<expr>] [--force] [--interval=<ISO8601>]
+#### Contacts
 
-# Job admin / housekeeping
-kagami jobs list
-kagami jobs reset  --key <jobKey>
-kagami jobs reset  --all
-kagami jobs unlock --key <jobKey>
-kagami jobs unlock --all
-
-# Endpoint authentication and status
-kagami endpoints list
-kagami endpoints login  --endpoint <endpoint>
-kagami endpoints logout --endpoint <endpoint>
-```
-
-All CLI commands accept `--settings`, `--no-default-settings`, and `--verbose`. Run a command with `--help` for its operation-specific options.
-
-#### `kagami endpoints` commands
-
-The `endpoints` command group reports configured endpoint and credential status and manages interactive Google OAuth credentials. `endpoints list` reports whether a Google token is cached; Microsoft client credentials are reported as `Not applicable` because they do not require interactive login.
-
-```bash
-kagami endpoints list --settings appsettings.json
-kagami endpoints login --endpoint Google --settings appsettings.json
-kagami endpoints logout --endpoint Google --settings appsettings.json
-```
-
-Google login reuses a valid cached credential, refreshes an expired one, or opens the browser for interactive authorization. Google logout removes the endpoint-scoped token cache. Microsoft client credentials do not support either operation.
-
-#### `kagami contacts list`
-
-Fetch and display contacts from a configured endpoint. By default, `kagami contacts list` displays up to 100 matching contacts; use `--all` to display everything.
+Use `contacts` to list, export, import, and synchronize contacts.
 
 ```bash
 kagami contacts list --from Microsoft
-kagami contacts list --from Microsoft --all
-kagami contacts list --from Microsoft --filter "startswith(name,'A')"
-kagami contacts list --from Microsoft --filter "contains(categories,'Recruiter')"
-```
-
-#### `kagami contacts export`
-
-Export contacts as one JSON file per contact into a local directory. Existing export files are preserved by default; when `--prune` is specified, stale `*.json` files and previously exported photo files that are no longer present in the source set are removed.
-
-```bash
-kagami contacts export --from Microsoft --to ./export --settings appsettings.json
-kagami contacts export --from Microsoft --to ./export --prune --settings appsettings.json
-```
-
-#### `kagami contacts import`
-
-Import contacts from local JSON files in a directory into a configured endpoint.
-
-```bash
-# Import all contacts from a local directory
-kagami contacts import --from ./export --to Google
-
-# Import with prune: remove destination contacts not present in the import set
-kagami contacts import --from ./export --to Google --prune
-
-# Dry run
-kagami contacts import --from ./export --to Google --what-if
-```
-
-When `--prune` is specified, Kagami deletes destination contacts that did not appear in the import set.
-
-#### `kagami contacts sync`
-
-Synchronize contacts between two configured endpoints.
-
-```bash
-# Forward sync (default: source to destination)
+kagami contacts export --from Microsoft --to ./contacts
+kagami contacts import --from ./contacts --to Google
 kagami contacts sync --from Microsoft --to Google
-
-# Bidirectional sync
-kagami contacts sync --from Microsoft --to Google --bidirectional
-
-# Reverse sync
-kagami contacts sync --from Microsoft --to Google --reverse
-
-# One-directional with prune (mirror mode)
-kagami contacts sync --from Microsoft --to Google --prune
-
-# Dry run: log planned actions without writing anything
-kagami contacts sync --from Microsoft --to Google --what-if
-
-# Force: re-evaluate all in-scope contacts even if unchanged
-kagami contacts sync --from Microsoft --to Google --force
-
-# Filter: only synchronize contacts whose effective name starts with 'A'
-kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A')"
-
-# Filter: only synchronize contacts in the Recruiter category
-kagami contacts sync --from Microsoft --to Google --filter "contains(categories,'Recruiter')"
-
-# Filter: require both a name prefix and category
-kagami contacts sync --from Microsoft --to Google --filter "startswith(name,'A') and contains(categories,'Recruiter')"
 ```
 
-- `--bidirectional`: sync in both directions; otherwise changes flow from `--from` to `--to`
-- `--reverse`: sync from `--to` back to `--from`
-- `--prune`: delete destination contacts that no longer exist on the source (or vice versa)
-- `--on-conflict`: `last-write-wins` (default), `source-wins`, `destination-wins`, or `skip`
-- `--full`: ignore saved cursors and fetch all rows from both sides, but still skip contacts whose payload and photo are already identical on both sides
-- `--force`: fetch all rows, bypass all change and sameness checks for every in-scope contact, and write unconditionally — use only when normal change detection via version/hash is known to be unreliable (e.g. destination data drifted outside the canonical model). Do not use for normal runs.
-- `--filter`: apply an OData-style filter in memory before planning or writing changes
-- `--interval`: ISO 8601 duration (e.g. `PT15M`, `PT2H`). When specified, the sync repeats indefinitely with the given delay between runs; without it the command runs once and exits. If a run fails, the process exits nonzero immediately (works well with Docker/container restart policies).
+Use `kagami contacts --help` for operation-specific options such as `--filter`, `--prune`, `--what-if`, `--full`, and `--force`.
 
-#### `kagami events list`
+#### Events
 
-Fetch and display calendar events from a configured endpoint. By default, `kagami events list` displays up to 100 matching events; use `--all` to display everything.
+Use `events` to list, export, import, and synchronize calendar events.
 
 ```bash
-kagami events list --from WorkCalendar --settings appsettings.json
-kagami events list --from WorkCalendar --all --settings appsettings.json
-kagami events list --from WorkCalendar --filter "startswith(title,'Team')" --settings appsettings.json
-kagami events list --from WorkCalendar --filter "start gt '2026-01-01T00:00:00Z' and end lt '2026-02-01T00:00:00Z'" --settings appsettings.json
+kagami events list --from WorkCalendar
+kagami events export --from WorkCalendar --to ./events
+kagami events import --from ./events --to ArchiveCalendar
+kagami events sync --from WorkCalendar --to ArchiveCalendar
 ```
 
-#### `kagami events export`
+Use `kagami events --help` for operation-specific options.
 
-Export events as one JSON file per event into a local directory. Filenames are derived from a sanitized, truncated event title plus start date/time. Existing export files are preserved by default; when `--prune` is specified, stale event JSON files are removed.
+#### Jobs
 
-```bash
-kagami events export --from WorkCalendar --to ./event-export --settings appsettings.json
-kagami events export --from WorkCalendar --to ./event-export --prune --settings appsettings.json
-```
-
-#### `kagami events import`
-
-Import events from local JSON files in a directory into a configured endpoint.
-
-```bash
-# Import all events from a local directory
-kagami events import --from ./event-export --to ArchiveCalendar --settings appsettings.json
-
-# Import with prune: remove destination events not present in the import set
-kagami events import --from ./event-export --to ArchiveCalendar --prune --settings appsettings.json
-
-# Dry run
-kagami events import --from ./event-export --to ArchiveCalendar --what-if --settings appsettings.json
-```
-
-When `--prune` is specified, Kagami deletes destination events that did not appear in the import set.
-
-#### `kagami events sync`
-
-Synchronize calendar events between two configured endpoints.
-
-```bash
-# Forward sync (default: source to destination)
-kagami events sync --from WorkCalendar --to ArchiveCalendar --settings appsettings.json
-
-# Bidirectional sync
-kagami events sync --from WorkCalendar --to ArchiveCalendar --bidirectional --settings appsettings.json
-
-# Reverse sync
-kagami events sync --from WorkCalendar --to ArchiveCalendar --reverse --settings appsettings.json
-
-# One-directional with prune (mirror mode)
-kagami events sync --from WorkCalendar --to ArchiveCalendar --prune --settings appsettings.json
-
-# Dry run: log planned actions without writing anything
-kagami events sync --from WorkCalendar --to ArchiveCalendar --what-if --settings appsettings.json
-
-# Force: re-evaluate all in-scope events even if unchanged
-kagami events sync --from WorkCalendar --to ArchiveCalendar --force --settings appsettings.json
-
-# Filter: only synchronize events whose title starts with 'Team'
-kagami events sync --from WorkCalendar --to ArchiveCalendar --filter "startswith(title,'Team')" --settings appsettings.json
-
-# Filter: require both a title and date range
-kagami events sync --from WorkCalendar --to ArchiveCalendar --filter "contains(title,'Team') and start gt '2026-01-01T00:00:00Z' and end lt '2026-02-01T00:00:00Z'" --settings appsettings.json
-```
-
-- `--bidirectional`: sync in both directions; otherwise changes flow from `--from` to `--to`
-- `--reverse`: sync from `--to` back to `--from`
-- `--prune`: delete destination events that no longer exist on the source (or vice versa)
-- `--on-conflict`: `last-write-wins` (default), `source-wins`, `destination-wins`, or `skip`
-- `--full`: ignore saved cursors and fetch all rows from both sides, but still skip events whose content is already identical on both sides
-- `--force`: fetch all rows, bypass all change and sameness checks for every in-scope event, and write unconditionally — use only when normal change detection via version/hash is known to be unreliable. Do not use for normal runs.
-- `--filter`: apply an OData-style filter in memory before planning or writing changes
-- `--interval`: ISO 8601 duration (e.g. `PT15M`, `PT2H`). When specified, the sync repeats indefinitely with the given delay between runs; without it the command runs once and exits. If a run fails, the process exits nonzero immediately (works well with Docker/container restart policies).
-
-### `kagami jobs` commands
-
-The `jobs` command group provides operational/admin access to persisted job state. Sync job keys use the canonical format `{category}:{from}:{to}` (for example `contacts:Microsoft:Google` or `events:WorkCalendar:ArchiveCalendar`). Import and export runs also create job keys in the format `{category}:{operation}:{left}:{right}`.
-
-#### `kagami jobs list`
-
-List all known jobs and their current lock state. A job becomes known after its first sync run.
+Use `jobs` to inspect and reset persisted synchronization state:
 
 ```bash
 kagami jobs list
-```
-
-Output columns: `Key`, `Type`, `From`, `To`, `Locked`.
-
-#### `kagami jobs reset`
-
-Reset stored sync state (link-state rows, cursors, and locks) for a specific job or for all jobs. Use this after deleting the database or when you need to force a full re-sync.
-
-```bash
-# Reset state for a specific job
 kagami jobs reset --key contacts:Microsoft:Google
-
-# Reset all jobs
 kagami jobs reset --all
+kagami jobs unlock --key contacts:Microsoft:Google
 ```
 
-#### `kagami jobs unlock`
+#### Endpoints
 
-Force-release job locks after an interrupted run to clear stuck locks. This only clears the lock; it does not touch link state or cursors.
+Use `endpoints` to inspect configured endpoints and manage cached Google OAuth credentials:
 
 ```bash
-# Unlock a specific job
-kagami jobs unlock --key contacts:Microsoft:Google
-
-# Unlock all jobs
-kagami jobs unlock --all
+kagami endpoints list
+kagami endpoints login --endpoint Google
+kagami endpoints logout --endpoint Google
 ```
 
-### Sync flags: `--full` and `--force`
+Microsoft client credentials do not use interactive login. Run any command with `--help` to see its complete option set.
 
-#### `--full` — full enumeration, normal sameness checks
+#### Common Flags
 
-`--full` tells the engine to ignore saved API cursors and enumerate every contact from both sides. Change detection and cross-side content comparison still apply: contacts whose canonical payload **and** photo are already identical on both sides are skipped without a write, but a link record is still created or updated in the database.
+Common flags for some or all commands include:
 
-Use `--full` when you know some contacts changed but your cursor state is stale (e.g. you deleted the database, or a previous run failed mid-way).
+- `--settings`: The path to any additional configuration JSON file to load; can be specified multiple times.
+- `--what-if` plans and logs create, update, and delete operations during sync or import without writing changes or advancing synchronization cursors.
+- `--verbose` enables more detailed application and HTTP client logging for the current run. See [Verbose Logging](#verbose-logging) for the logging configuration it applies.
 
-#### `--force` — unconditional writes
+## Synchronization
 
-`--force` includes everything `--full` does, and additionally bypasses both the `HasChanged` short-circuit and the cross-side content-sameness check for **all** in-scope contacts — including newly inferred pairs. Every in-scope contact is written to the destination regardless of whether it looks identical. Conflict policies still apply.
+Kagami is a synchronization engine with change detection, persisted cursors, link state, conflict policies, scoped pruning, and optional continuous execution. It normalizes provider data into canonical contacts and events before comparing the current item sets with previously synchronized state.
 
-**Use `--force` only in edge cases where normal change detection is unreliable.** For example:
+On a normal incremental run, Kagami reuses provider delta or sync tokens when available and reads only changes since the previous successful synchronization. When a cursor cannot be reused, such as on the first run, after cursor expiry, or after a scope change, Kagami performs a full load for the current scope and establishes a new baseline. Persisted links outside the current loaded scope are ignored.
 
-- Destination data has been modified directly outside Kagami in ways Kagami cannot detect via its version or content-hash comparison (e.g. fields that Kagami manages were edited by another application).
-- Contact photos were updated on the source but were not reflected in any detectable version change.
-- You suspect a version or hash drift that is preventing changes from being picked up.
+Synchronization is source-to-destination by default. Use `--bidirectional` to synchronize both directions or `--reverse` to synchronize from `--to` back to `--from`. Conflict behavior is controlled with `--on-conflict`:
 
-**Do not use `--force` for normal runs.** A regular sync already compares content via version number and content hash; there is no benefit to forcing a rewrite when nothing has actually changed, and it produces unnecessary writes on the destination side.
+- `last-write-wins` (default)
+- `source-wins`
+- `destination-wins`
+- `skip`
 
-| Flag | Ignores cursors | Skips identical contacts | Respects conflict policy |
-|---|---|---|---|
-| _(neither)_ | No | Yes | Yes |
-| `--full` | Yes | Yes | Yes |
-| `--force` | Yes | No — writes unconditionally | Yes |
+### Pruning
 
-| Combination | Behavior |
-|---|---|
-| `--force` (forward) | Re-pushes all in-scope source items to destination. Items on destination not matched by source are unchanged (no deletions unless `--prune` is also set). |
-| `--force --prune` (forward) | Mirrors the source completely: items missing from source are deleted on destination, same as a first forward+prune run on empty state. |
-| `--bidirectional --force --prune` | Produces **no deletions**. Because `--force` is equivalent to a first run, and a first bidirectional run with `--prune` produces no deletions (there is no prior change log to compare against), the result is the same here. |
+`--prune` enables delete mirroring within the current synchronization scope. Without it, items absent from the source are left on the destination. Filtering limits pruning to the current comparison scope; items outside that scope are not deleted.
 
-#### Filter scope and deletions
+### Full Loads
 
-When a filter is active (e.g. `--filter "name eq 'Alice'"`) and an item on one side changes such that it no longer satisfies the filter (e.g. the contact is renamed), Kagami treats that item as **deleted within the scope of this sync job**. The same logic applies to items deleted externally that do not appear in a full scan.
+`--full` ignores saved provider cursors and enumerates all items in the current scope. Normal version and canonical-content comparisons still prevent unnecessary writes. Use it when cursor state is stale or after correcting data or configuration.
 
-| Scenario | Result |
-|---|---|
-| Source item moves out of filter scope; `--prune` set (forward) | Corresponding destination item is deleted. |
-| Source item moves out of filter scope; `--prune` not set | No-op is recorded; the item is left untouched on destination. |
-| Destination item moves out of filter scope; `--prune` set (bidirectional or reverse) | Corresponding source item is deleted. |
-| Source item deleted externally; `--force --prune` (forward) | Destination item is deleted (mirrors a fresh run). |
-| Source item deleted externally; `--force` without `--prune` | No deletion; a subsequent normal run will resolve the state once the filter or remote state is clear. |
+For event full reads without an applicable delta cursor, Kagami uses a rolling one-year lookback by default. Incremental event runs continue from their saved provider cursors.
 
-### Sync behavior: cursors, full loads, scope, matching, and pruning
+### Forced Writes
 
-Kagami combines **persisted link state**, **provider cursors / delta tokens**, and the **current in-scope contact snapshots** returned by each provider. On a normal incremental run, it reuses the saved cursor on each side and reads only the provider-reported changes since the previous successful sync. In that mode, contacts that are not returned by the provider are treated as **implicitly unchanged**, not deleted. This keeps incremental sync efficient and avoids treating ordinary delta omissions as removals.
+`--force` includes a full enumeration and bypasses change and content-sameness checks for every in-scope item. It writes unconditionally, while still applying the selected conflict policy. Use it only when normal version or content-hash detection is known to be unreliable; it is not intended for normal runs.
 
-When Kagami cannot safely continue from an existing cursor — for example on the first run, after cursor expiry, or when the effective query scope changes — it performs a **full load on both sides** and replaces **both cursors together**. A full load establishes a new baseline for the current scope. Kagami does not compare the current snapshots against every historical link row in the database. Persisted link rows participate in planning only when their source ID appears in the currently loaded source set or their destination ID appears in the currently loaded destination set. If neither side of a persisted link is present in the current loaded sets, that link row is ignored for the run and cannot trigger updates or deletions.
+| Mode | Ignores cursors | Skips identical items | Writes all in-scope items |
+|---|---:|---:|---:|
+| Default | No | Yes | No |
+| `--full` | Yes | Yes | No |
+| `--force` | Yes | No | Yes |
 
-This is what makes scoped full loads safe for pruning. If both providers are queried with the same scope — for example, `--filter "contains(categories,'Recruiter')"` on both sides — then contacts outside that scope on **both** sides are not part of the comparison universe for that run. Even if older link-state rows still exist in the database, they are ignored unless one of their IDs appears in one of the currently loaded sets. Kagami therefore does **not** delete contacts merely because they are outside the current scope.
+### Continuous Sync
 
-#### Matching and pruning rules
+`--interval` repeats synchronization indefinitely using an ISO 8601 duration such as `PT15M` or `PT2H`; without it, the command runs once and exits. If a repeated run fails, the process exits with a nonzero status.
 
-Kagami first builds links from the currently loaded contacts and the relevant persisted link rows. Existing persisted links are honored when one side is present in the current sets. Remaining unlinked contacts are then matched by the normal contact-matching rules to infer new links where that is safe. Pruning only applies within the current comparison set and only when delete mirroring is enabled, such as with `--prune`.
+### State
 
-If a contact is absent from the current run on **both** sides, it is out of scope for that run and is ignored. If a contact is present on one side but not the other, then it is in scope for comparison and Kagami may create, update, or delete the counterpart according to sync direction, conflict policy, and delete policy.
+Kagami stores synchronization state in SQLite at `<DataDirectory>/sync.db`. The sync database does not store event or contact details, credentials, or other provider payloads. For each synchronized item, it stores only synchronization metadata:
 
-#### Examples
+- provider identifiers for the source and destination items
+- provider version values and canonical-content hashes
+- last-seen and last-synchronized timestamps
+- deletion, origin, conflict, and synchronization-result status
+- the job and endpoint identifiers needed to partition state
 
-**Example 1: old contact outside the current scope on both sides**
+The database also stores opaque provider cursors or delta tokens, job locks, and operation-log entries containing operation metadata. This state lets later runs detect changes, avoid duplicate writes, and resume incrementally after successful or interrupted runs.
 
-A previous sync linked a contact that did not have the `Recruiter` category. A later full sync is run with `--filter "contains(categories,'Recruiter')"` on both providers. That older contact is returned by neither provider, so neither its source ID nor destination ID appears in the current loaded sets. Its persisted link row is ignored for this run, and Kagami will not delete anything because of it.
+Deleting the database resets synchronization history. The next run performs a new baseline synchronization for the current scope.
 
-**Example 2: scope reset with new cursors**
+### Scope and Matching
 
-Suppose a saved cursor can no longer be reused because the effective filter changed. Kagami performs a full load on both sides for the new scope and replaces both cursors together. This creates a fresh baseline for that scope. Because links whose IDs are absent from both loaded sets are ignored, contacts outside the new scope do not participate in prune decisions.
+Kagami builds links from the current loaded items and relevant persisted link records, then matches remaining unlinked items using provider-independent canonical fields. An item present on only one side is in scope for comparison and may be created, updated, or deleted according to direction, conflict, and prune settings. An item absent from both sides is outside the current run and cannot trigger an action.
 
-**Example 3: contact present on one side only**
+This scope rule makes filtered full loads safe: a contact or event that does not match the active filter on either side does not participate in pruning merely because an older link record exists in the database.
 
-A contact still matches `contains(categories,'Recruiter')` on the destination side but has been deleted from the source side, or no longer matches the source-side filter while still appearing on the destination side. In that case, the persisted link is relevant because one side is still present in the loaded sets. Kagami can then treat that as an in-scope delete or out-of-scope transition and mirror the deletion if pruning is enabled.
+When an item moves out of the active filter scope, Kagami treats it as deleted within that synchronization scope. With `--prune`, the corresponding item on the other side is deleted; without `--prune`, it is left untouched. The same rules apply when an item is externally deleted and is absent from a full scan.
 
-#### Safety invariant
+> Kagami only plans actions from the current loaded item sets and persisted links touched by those sets. Link records for items outside the current scope on both sides are inert for that run.
 
-> Kagami only plans actions from the current loaded item sets plus persisted links that are touched by those sets.
+## Filtering
 
-This means link-state rows for contacts that are outside the current scope on both sides are inert for that run. When both sides are reloaded with the same scope and both cursors are replaced together, pruning remains bounded to the current scope rather than historical data outside it.
+Filters are evaluated in memory before planning or writing changes. Contact and event filters support a flat, case-insensitive list of expressions joined with `and`.
 
-### Filter expressions
+### Contact Filters
 
 | Expression | Meaning |
 |---|---|
-| `startswith(name,'A')` | Effective contact name starts with `A` (case-insensitive) |
-| `endswith(name,'son')` | Effective contact name ends with `son` (case-insensitive) |
-| `contains(name,'Smith')` | Effective contact name contains `Smith` (case-insensitive) |
-| `contains(categories,'Recruiter')` | Contact has a category exactly equal to `Recruiter` (case-insensitive) |
-| `name eq 'Alice'` | Effective contact name is exactly `Alice` (case-insensitive) |
+| `startswith(name,'A')` | Effective contact name starts with `A` |
+| `endswith(name,'son')` | Effective contact name ends with `son` |
+| `contains(name,'Smith')` | Effective contact name contains `Smith` |
+| `contains(categories,'Recruiter')` | Contact has an exact `Recruiter` category |
+| `name eq 'Alice'` | Effective contact name is exactly `Alice` |
 
-`name` maps to the effective contact name: `DisplayName` when present, otherwise `Organization`. `categories` matches exact entries in `CanonicalContact.Categories`, not substrings.
+`name` uses `DisplayName` when present and otherwise `Organization`. Category matching is exact and case-insensitive.
 
-Multiple expressions can be combined with `and`; every expression must match. Only one flat level is supported: `or` and grouped expressions are not supported. For example:
+### Event Filters
 
-```text
-startswith(name,'A') and contains(categories,'Recruiter')
+| Expression | Meaning |
+|---|---|
+| `startswith(title,'Tea')` | Event title starts with `Tea` |
+| `endswith(title,'Sync')` | Event title ends with `Sync` |
+| `contains(title,'Team')` | Event title contains `Team` |
+| `title eq 'Planning'` | Event title is exactly `Planning` |
+| `start gt '2026-01-01T00:00:00Z'` | Event starts after the timestamp |
+| `end lt '2026-02-01T00:00:00Z'` | Event ends before the timestamp |
+
+Date comparisons are strict and use ISO 8601 timestamps. For example:
+
+```bash
+kagami events sync --from WorkCalendar --to ArchiveCalendar --filter "contains(title,'Team') and start gt '2026-01-01T00:00:00Z' and end lt '2026-02-01T00:00:00Z'"
 ```
+
+## Authorization
+
+Kagami uses provider-specific application credentials. Microsoft uses non-delegated application permissions; Google uses an OAuth 2.0 authorization-code flow with a local callback and cached tokens. Kagami does not provide delegated Microsoft login.
+
+### Microsoft Graph
+
+Create a single-tenant application registration in [Microsoft Entra](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app), add administrator consent for these **Application** permissions, and create either a client secret or certificate:
+
+- `Contacts.ReadWrite`
+- `Calendars.ReadWrite`
+
+Configure the tenant id, client id, and client secret or certificate in the Microsoft credential. Kagami accesses the mailbox identified by the endpoint `userId`.
+
+See the [Microsoft Graph permissions reference](https://learn.microsoft.com/en-us/graph/permissions-reference) for permission details.
+
+### Google
+
+Create a project in [Google Cloud](https://console.cloud.google.com/), enable the [People API](https://console.cloud.google.com/apis/library/people.googleapis.com) for contacts and the [Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com) for events. Create an OAuth 2.0 client for a desktop or installed application and provide its client id and client secret.
+
+Kagami uses these scopes:
+
+- Contacts: `https://www.googleapis.com/auth/contacts`
+- Calendar events: `https://www.googleapis.com/auth/calendar`
+
+The first Google command opens a browser and uses the loopback callback `http://localhost:4189/`. Access and refresh tokens are cached in the `tokens` directory under `DataDirectory` for subsequent runs. See Google's [OAuth 2.0 for installed applications](https://developers.google.com/identity/protocols/oauth2/native-app) documentation.
 
 ## Configuration
 
-Kagami reads configuration from the `Kagami` section of a settings JSON file.
+Kagami binds the `Kagami` section to `KagamiOptions`:
 
-```json
+```jsonc
 {
   "Kagami": {
     "DataDirectory": "C:\\Users\\Alice\\AppData\\Local\\Summerdawn.ai\\Kagami",
     "Endpoints": {
-      "google": {
+      "Google": {
         "Type": "Google",
         "Credential": {
           "Type": "GoogleOAuthCredential",
@@ -427,11 +252,11 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
           "ClientSecret": "replace-me"
         },
         "Properties": {
-          "userId": "person@gmail.com",
+          "userId": "alice@example.com",
           "calendarId": "primary"
         }
       },
-      "microsoft": {
+      "Microsoft": {
         "Type": "Microsoft",
         "Credential": {
           "Type": "MicrosoftClientCredential",
@@ -440,7 +265,7 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
           "ClientSecret": "replace-me"
         },
         "Properties": {
-          "userId": "person@summerdawn.ai",
+          "userId": "alice@example.com",
           "calendarId": "calendar-id"
         }
       }
@@ -451,7 +276,7 @@ Kagami reads configuration from the `Kagami` section of a settings JSON file.
 
 ### Configuration Precedence
 
-Kagami uses [.NET Configuration providers](https://learn.microsoft.com/en-us/dotnet/core/extensions/configuration) to load settings from multiple sources in a specific order, with later sources overriding earlier ones:
+When used as a CLI tool, Kagami uses [.NET Configuration providers](https://learn.microsoft.com/en-us/dotnet/core/extensions/configuration) to load settings from multiple sources in a specific order, with later sources overriding earlier ones. Library users provide the `IConfiguration` section when registering Kagami and control its configuration sources in their host application.
 
 1. **Embedded default settings** - Built-in defaults embedded in the application, unless skipped with `--no-default-settings`
 2. **Content-directory settings files** - `appsettings.json` in the current working directory, if present
@@ -460,279 +285,176 @@ Kagami uses [.NET Configuration providers](https://learn.microsoft.com/en-us/dot
 5. **Explicit settings files** - Additional settings files specified with the `--settings` option, in argument order
 6. **Verbose logging settings** - Embedded logging settings, when `--verbose` is specified
 
-Use `--settings` to run with a configuration file outside the standard locations. Set `Kagami:DataDirectory` to store `sync.db` in a nonstandard directory; it does not change where `appsettings.json` is loaded from.
+Setting `Kagami:DataDirectory` to a nonstandard directory does not change where the standard application settings files are loaded from.
 
-### `Endpoints`
+### Default Settings
 
-Named endpoint definitions. Each endpoint includes its credential inline.
+The CLI applies these embedded default settings to every run unless default settings are disabled. They establish the normal logging levels and suppress noisy HTTP client and Polly logs:
 
-#### `Google`
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "System.Net.Http.HttpClient": "Warning",
+      "Polly": "Warning"
+    }
+  }
+}
+```
 
-Supports both Google contacts and calendar events. Use this type when the same OAuth
-credential should be able to access both resources. Kagami requests both the Google
-contacts and calendar scopes for this endpoint.
+### Configuration Reference
 
-Credential fields (`Type = "GoogleOAuthCredential"`):
+#### Root
 
-- `ClientId`: Google OAuth client ID
-- `ClientSecret`: Google OAuth client secret
+| Name | Type | Description | Example |
+|---|---|---|---|
+| `DataDirectory` | `string` | Directory for `sync.db` and cached Google tokens | `C:\Users\Alice\AppData\Local\Summerdawn.ai\Kagami` |
+| `Endpoints` | `object` | Named endpoint definitions | `{ "Google": { ... } }` |
 
-Endpoint properties:
+#### Endpoints
 
-- `userId`: required; the Google account email that must match the authenticated OAuth account
-- `calendarId`: optional; defaults to `primary` when syncing events
+Each endpoint has a `Type`, an inline `Credential`, and provider-specific `Properties`. Use `GoogleContacts`, `GoogleEvents`, `MicrosoftContacts`, or `MicrosoftEvents` when an endpoint should expose only one resource; use `Google` or `Microsoft` to expose both.
 
-Use `Type = "GoogleContacts"` or `Type = "GoogleEvents"` instead when the OAuth
-credential must be limited to only one resource.
+| Name | Type | Description |
+|---|---|---|
+| `Type` | `string` | `Google`, `GoogleContacts`, `GoogleEvents`, `Microsoft`, `MicrosoftContacts`, or `MicrosoftEvents` |
+| `Credential` | `object` | Provider credential configuration |
+| `Properties` | `object` | Provider-specific values such as `userId`, `calendarId`, and `folderId` |
 
-#### `GoogleContacts`
+#### Google Credentials and Properties
 
-Notes:
+Google credentials use `Type: "GoogleOAuthCredential"`:
 
-- On first use, Kagami opens the browser for OAuth consent and listens on `http://localhost:4189/` for the callback
-- Access and refresh tokens are cached in the `tokens` subdirectory of `Kagami:DataDirectory`
-- The cached token file can be copied from the login machine to the same `tokens` directory on a headless server
-- Kagami requests the Google contacts scope `https://www.googleapis.com/auth/contacts`
-- The built-in Google contacts connector currently uses end-user OAuth; service-account and domain-wide-delegation auth are not supported
+| Name | Type | Description |
+|---|---|---|
+| `ClientId` | `string` | OAuth client id |
+| `ClientSecret` | `string` | OAuth client secret |
 
-#### `GoogleEvents`
+Google endpoint properties:
 
-Credential fields (`Type = "GoogleOAuthCredential"`):
+| Name | Type | Description |
+|---|---|---|
+| `userId` | `string` | Google account email; must match the authenticated account |
+| `calendarId` | `string` | Calendar id used when synchronizing calendar events; defaults to `primary` |
 
-- `ClientId`: Google OAuth client ID
-- `ClientSecret`: Google OAuth client secret
+#### Microsoft Credentials and Properties
 
-Endpoint properties:
+Microsoft credentials use `Type: "MicrosoftClientCredential"`:
 
-- `userId`: required; the Google account email that must match the authenticated OAuth account
-- `calendarId`: optional; defaults to `primary`
-- The cached token file can be copied from the login machine to the same `tokens` directory on a headless server
+| Name | Type | Description |
+|---|---|---|
+| `TenantId` | `string` | Entra tenant id |
+| `ClientId` | `string` | Application client id |
+| `ClientSecret` | `string` | Client secret, as an alternative to a certificate |
+| `CertificatePath` | `string` | PFX/PKCS#12 certificate path, as an alternative to a client secret |
+| `CertificatePassword` | `string` | Certificate password when required |
 
-Notes:
+Microsoft endpoint properties:
 
-- On first use, Kagami opens the browser for OAuth consent and listens on `http://localhost:4189/` for the callback
-- Access and refresh tokens are cached in the `tokens` subdirectory of `Kagami:DataDirectory`
-- Kagami requests the Google Calendar scope `https://www.googleapis.com/auth/calendar`
-- Birthday and other non-default special event types are filtered out; only regular calendar events are synchronized
+| Name | Type | Description |
+|---|---|---|
+| `userId` | `string` | Mailbox owner to access |
+| `folderId` | `string` | Contact folder id used when synchronizing contacts; defaults to the mailbox contacts collection |
+| `calendarId` | `string` | Calendar id used when synchronizing calendar events; defaults to the mailbox calendar collection |
 
-#### `Microsoft`
+## Canonical Mapping
 
-Supports both Microsoft contacts and calendar events. Use this type when the same
-Microsoft client credential should be used for both resources.
+Kagami maps provider resources to canonical contacts and events before synchronization. Canonical models allow matching, change detection, filtering, and conflict handling to work consistently across Microsoft Graph, Google, and local import/export endpoints.
 
-Credential fields (`Type = "MicrosoftClientCredential"`):
+### Contacts
 
-- `TenantId`: Entra tenant ID
-- `ClientId`: app registration client ID
-- `ClientSecret`: client secret for MVP setups
-- `CertificatePath`: optional PFX/PKCS#12 certificate path for long-term unattended use
-- `CertificatePassword`: optional certificate password
-
-Use either `ClientSecret` or `CertificatePath` (+ `CertificatePassword` if needed).
-
-Endpoint properties:
-
-- `userId`: required; the mailbox owner to access, typically a user principal name or user ID
-- `folderId`: optional contact folder ID; if omitted, Kagami uses the default contacts collection
-- `calendarId`: optional calendar ID; if omitted, Kagami uses the default calendar collection
-
-Use `Type = "MicrosoftContacts"` or `Type = "MicrosoftEvents"` instead when
-configuring an endpoint for only one resource.
-
-#### `MicrosoftContacts`
-
-Credential fields (`Type = "MicrosoftClientCredential"`):
-
-- `TenantId`: Entra tenant ID
-- `ClientId`: app registration client ID
-- `ClientSecret`: client secret for MVP setups
-- `CertificatePath`: optional PFX/PKCS#12 certificate path for long-term unattended use
-- `CertificatePassword`: optional certificate password
-
-Use either `ClientSecret` or `CertificatePath` (+ `CertificatePassword` if needed).
-
-Endpoint properties:
-
-- `userId`: required; the mailbox owner to access, typically a user principal name or user ID
-- `folderId`: optional contact folder ID; if omitted, Kagami uses the default contacts collection
-
-Behavior:
-
-- reads and writes Microsoft Graph contacts
-- maps Outlook categories to canonical contact categories / labels
-
-#### `MicrosoftEvents`
-
-Credential fields (`Type = "MicrosoftClientCredential"`):
-
-- `TenantId`: Entra tenant ID
-- `ClientId`: app registration client ID
-- `ClientSecret`: client secret for MVP setups
-- `CertificatePath`: optional PFX/PKCS#12 certificate path for long-term unattended use
-- `CertificatePassword`: optional certificate password
-
-Use either `ClientSecret` or `CertificatePath` (+ `CertificatePassword` if needed).
-
-Endpoint properties:
-
-- `userId`: required; the mailbox owner to access, typically a user principal name or user ID
-- `calendarId`: optional calendar ID; if omitted, Kagami uses the default calendar collection
-
-Behavior:
-
-- reads and writes Microsoft Graph events
-- uses the Microsoft Graph v1.0 `/events/delta` endpoint for incremental polling
-
-## State Database
-
-Kagami stores its SQLite state database as `sync.db` in `Kagami:DataDirectory`. The directory is created automatically on first run.
-
-## Authentication Setup
-
-### Microsoft Graph / Exchange Online
-
-Minimal unattended setup:
-
-1. Create a single-tenant app registration in your Entra tenant
-2. Grant the required application permissions
-3. Grant admin consent
-4. Configure Kagami with either a client secret or, preferably, a certificate
-
-Required Graph permission for write sync:
-
-- `Contacts.ReadWrite` (Application)
-- `Calendars.ReadWrite` (Application) for calendar event sync
-
-Kagami uses app-only access against:
-
-- `/users/{userId}/contacts`
-- `/users/{userId}/contactFolders/{folderId}/contacts`
-- `/users/{userId}/events`
-- `/users/{userId}/calendars/{calendarId}/events`
-
-### Google Workspace / People API and Google Calendar API
-
-Minimal setup:
-
-1. Create a Google Cloud project
-2. Enable the People API
-3. Enable the Google Calendar API when syncing events
-4. Create an OAuth 2.0 client for a desktop or installed application
-5. Configure the loopback callback `http://localhost:4189/`
-6. Configure Kagami with `clientId` and `clientSecret`
-7. Run a Google-backed Kagami command once and complete the browser sign-in flow
-
-Kagami uses:
-
-- Google OAuth 2.0 authorization-code flow with a local loopback callback
-- cached access and refresh tokens for subsequent runs
-- the People API contacts scope for contact endpoints
-- the Google Calendar scope for calendar endpoints
-- `people.connections.list` sync tokens for incremental polling
-- Google Calendar `events.list` sync tokens for incremental polling on calendar endpoints
-
-## Contact Mapping Notes
-
-Canonical contact fields currently include:
+Canonical contacts currently include:
 
 - names
-- emails
-- phones
-- addresses
+- email addresses
+- phone numbers
+- postal addresses
 - organization
 - job title
 - notes
 - birthday
-- categories / labels
+- categories and labels
+- contact photos
 
-Label/category mapping:
+Microsoft Graph categories and Google contact-group memberships are mapped to canonical categories. The effective contact name used by filters and matching is `DisplayName` when present and `Organization` otherwise.
 
-- **Microsoft Graph**: `CanonicalContact.Categories` ⇄ `contact.categories`
-- **Google**: `CanonicalContact.Categories` ⇄ contact-group memberships / labels
+### Events
 
-## Calendar Event Mapping Notes
-
-Canonical event fields currently include:
+Canonical events currently include:
 
 - title
 - description
-- start / end date-time
+- start and end date-time
 - location
 - organizer
 - attendees
 - recurrence
 - iCal UID
 
-Notes:
+Synced events are created as attendee-free, mailbox-owned copies. Attendees are ignored during synchronization updates to avoid sending stale invitations and provider-specific mailbox mismatches, while event exports retain organizer and attendee data.
 
-- Synced events are created as attendee-free, mailbox-owned copies, and attendees are ignored during updates. This avoids problems with sending out stale invitations (**Microsoft Graph**) and mismatches between the attendee list and the mailbox id (**Google Calendar**). Event exports retain all organizer and attendee data.
-- **Google Calendar** event creates use the regular `events.insert` operation rather than `events.import`. Google treats `iCalUID` as an import upsert key, while Kagami treats it as provider-owned metadata that is not written or used for cross-provider matching.
-- **Google Calendar** syncs regular calendar events only (`eventTypes=default`) and skips special event types such as birthdays
-- **Microsoft Graph** maps event timestamps through the API's `dateTimeTimeZone` payloads and uses Graph event delta tokens for incremental polling
+Google Calendar creates regular events with `events.insert` and synchronizes regular calendar events only; special event types such as birthdays are skipped. Microsoft Graph maps timestamps through `dateTimeTimeZone` payloads and uses event delta tokens for incremental polling.
 
-## Event Filter Expressions
+## Logging
 
-| Expression | Meaning |
-|---|---|
-| `startswith(title,'Tea')` | Event title starts with `Tea` (case-insensitive) |
-| `endswith(title,'Sync')` | Event title ends with `Sync` (case-insensitive) |
-| `contains(title,'Team')` | Event title contains `Team` (case-insensitive) |
-| `title eq 'Planning'` | Event title is exactly `Planning` (case-insensitive) |
-| `start gt '2026-01-01T00:00:00Z'` | Event starts after the specified timestamp |
-| `start lt '2026-02-01T00:00:00Z'` | Event starts before the specified timestamp |
-| `end gt '2026-01-01T00:00:00Z'` | Event ends after the specified timestamp |
-| `end lt '2026-02-01T00:00:00Z'` | Event ends before the specified timestamp |
+Kagami logs the major phases and outcomes of each operation: configuration and endpoint selection, provider reads and writes, synchronization planning, creates, updates, deletes, skipped unchanged items, cursor changes, and failures. Synchronization actions are also recorded in the SQLite operation log so that completed and failed item actions can be diagnosed after a run.
 
-Date values use ISO 8601 timestamps. Date comparisons are strict, and multiple expressions can be combined with `and`; every expression must match. Only one flat level is supported: `or` and grouped expressions are not supported.
+Normal logging uses the .NET logging configuration embedded in the application. The default settings keep application messages at `Information` and suppress noisy HTTP client and Polly messages.
+
+### Verbose Logging
+
+Use `--verbose` to load more detailed logging for a run:
+
+```bash
+kagami contacts sync --from Microsoft --to Google --verbose
+```
+
+The verbose settings are equivalent to:
+
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Summerdawn.Kagami": "Debug",
+      "System.Net.Http.HttpClient": "Information"
+    }
+  }
+}
+```
 
 ## Error Handling
 
-### Fault policy for sync runs
+Each synchronization pass uses a conservative fault policy designed to avoid silent gaps in synchronization coverage.
 
-Each sync pass applies a conservative fault policy designed to ensure **no silent gaps** in sync coverage.
+### Transient Provider Failures
 
-#### Transient failures (HTTP 429 and 5xx)
+When a connector returns a rate-limit response (HTTP 429) or a server error (5xx), Kagami aborts the entire run immediately:
 
-When a connector returns a rate-limit (HTTP 429) or any server error (5xx), Kagami treats this as a **transient provider failure** and aborts the entire run immediately:
+- no further items are processed
+- the operation is marked faulted
+- cursors are not advanced
 
-- No further items are processed.
-- The operation is marked faulted.
-- **Cursors are not advanced.**
+The next run retries from the same cursor position. Items already written before the failure are recognized from link state and matching version hashes, so replay does not normally produce duplicate writes.
 
-On the next scheduled run, Kagami retries from the same cursor position. Because already-synced items are stored with a version hash in the link-state database, they are recognised as unchanged on replay and skipped cheaply — the replay cost is primarily scanning, not duplicate writes.
+### Permanent Per-Item Failures
 
-#### Permanent per-item failures (other non-HTTP and 4xx exceptions)
+For failures other than HTTP 429 and 5xx, Kagami logs the affected item, records an `error` entry in the operation log, and continues processing the remaining items. The pass emits a summary warning and advances its cursors, so the bad item is not retried on every subsequent run.
 
-For non-transient failures (any exception that is not a 429 or 5xx), Kagami:
+After correcting the underlying data or configuration, use `--full` to reprocess all items.
 
-- Logs an error for the affected item and writes an `"error"` entry to the operation log.
-- Continues processing remaining items in the batch.
-- Emits a final warning after the pass summarising that one or more actions failed.
-- **Cursors are advanced**, so the bad item is not retried on every subsequent run.
-
-To recover: either fix the bad source data (and wait for the item to appear in the next delta) or run a `--full` sync to reprocess all items.
-
-#### Cursor advancement
+### Cursor Advancement
 
 | Run outcome | Cursor advanced? |
 |---|---|
-| All items succeeded | ✅ Yes |
-| Transient provider failure (429 / 5xx) | ❌ No — run aborted immediately |
-| One or more permanent per-item failures | ✅ Yes — pass completes; a summary warning is logged |
-| What-if run | ❌ No — no writes performed |
+| All items succeeded | Yes |
+| Transient provider failure (429 / 5xx) | No; the run aborts |
+| Permanent per-item failure | Yes; the pass completes with a warning |
+| `--what-if` run | No; no writes are performed |
 
-#### Partial writes
+Link-state updates written before a transient failure are not rolled back. On replay, items with a matching version hash are skipped automatically.
 
-Link-state updates written before a transient fault are left in place and are not rolled back. On replay, items already present in the link-state table with a matching version hash are skipped automatically.
+## License
 
-## Current Limitations
-
-- Built-in concrete provider connectors support contacts (Google People, Microsoft Exchange) and calendar events (Google Calendar, Microsoft Calendar)
-- What-if mode logs planned operations but intentionally does not update cursors or link state
-
-## Development
-
-```bash
-dotnet build
-dotnet test
-```
+This project is licensed under the MIT License.
