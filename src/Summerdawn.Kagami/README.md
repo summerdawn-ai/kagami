@@ -4,7 +4,7 @@ Kagami is a contact and calendar event synchronization CLI tool with internal SQ
 
 ## Overview
 
-Kagami supports listing, importing, exporting, and synchronizing contacts and calendar events from Microsoft Graph and Google accounts. It can be used as a .NET CLI tool or registered as a library in another application.
+Kagami supports listing, importing, exporting, and synchronizing contacts and calendar events from Microsoft Graph and Google accounts.
 
 ## Getting Started
 
@@ -29,32 +29,34 @@ See [Usage](#usage) for the command groups and [Configuration](#configuration) f
 dotnet tool install --global Summerdawn.Kagami
 ```
 
-### As a Library
+Or install it locally in a project:
 
 ```bash
-dotnet add package Summerdawn.Kagami
+dotnet tool install Summerdawn.Kagami
 ```
+
+The .NET tool requires the .NET 10 runtime or later.
+
+### As a Standalone Binary
+
+Download a platform-specific, self-contained AOT binary from Kagami's [GitHub Releases](https://github.com/summerdawn-ai/kagami/releases). Supported platforms are Windows (x64 and ARM64), Linux (x64 and ARM64), and macOS (x64 and ARM64). Standalone binaries do not require a separate .NET runtime installation.
+
+### Running from the Package with dnx
+
+With the .NET 10 SDK or later, run Kagami directly from its package without installing it globally or locally:
+
+```bash
+dotnet tool exec Summerdawn.Kagami --yes -- sync --settings mydir/appsettings.json
+
+# Or simply
+dnx Summerdawn.Kagami --yes -- sync --settings mydir/appsettings.json
+```
+
+See the [dotnet tool exec documentation](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-tool-exec) for more information.
 
 ## Usage
 
-### Library
-
-Register Kagami services against the `Kagami` configuration section:
-
-```csharp
-using Microsoft.Extensions.Hosting;
-using Summerdawn.Kagami.DependencyInjection;
-
-var builder = Host.CreateApplicationBuilder(args);
-
-builder.Services.AddKagami(builder.Configuration.GetSection("Kagami"));
-```
-
-This registers the synchronization engine, persistence services, and a connector for each configured endpoint. Connectors are resolved by endpoint name.
-
-### CLI
-
-When used as a CLI tool, Kagami provides commands for listing, importing, exporting, and synchronizing contacts and calendar events, as well as inspecting jobs and managing endpoint authentication.
+Kagami provides commands for listing, importing, exporting, and synchronizing contacts and calendar events, as well as inspecting jobs and managing endpoint authentication.
 
 Kagami provides four command groups:
 
@@ -276,7 +278,7 @@ Kagami binds the `Kagami` section to `KagamiOptions`:
 
 ### Configuration Precedence
 
-When used as a CLI tool, Kagami uses [.NET Configuration providers](https://learn.microsoft.com/en-us/dotnet/core/extensions/configuration) to load settings from multiple sources in a specific order, with later sources overriding earlier ones. Library users provide the `IConfiguration` section when registering Kagami and control its configuration sources in their host application.
+Kagami uses [.NET Configuration providers](https://learn.microsoft.com/en-us/dotnet/core/extensions/configuration) to load settings from multiple sources in a specific order, with later sources overriding earlier ones.
 
 1. **Embedded default settings** - Built-in defaults embedded in the application, unless skipped with `--no-default-settings`
 2. **Content-directory settings files** - `appsettings.json` in the current working directory, if present

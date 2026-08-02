@@ -4,11 +4,11 @@ Kagami supports listing, importing, exporting, and synchronizing contacts and ca
 
 ## Overview
 
-Kagami can be used as a .NET CLI tool or registered as a library in another application. It synchronizes items between configured endpoints and stores synchronization state in SQLite.
+Kagami is a .NET CLI tool that synchronizes items between configured endpoints and stores synchronization state in SQLite.
 
 ## Documentation
 
-Detailed installation, CLI usage, library registration, configuration structure, and provider setup are documented in the [Summerdawn.Kagami project README](src/Summerdawn.Kagami/README.md).
+Detailed installation, command usage, configuration structure, and provider setup are documented in the [Summerdawn.Kagami project README](src/Summerdawn.Kagami/README.md).
 
 ## Architecture
 
@@ -23,7 +23,7 @@ Kagami separates provider connectors from the synchronization engine. Connectors
 ## Repository Structure
 
 - [.github](.github/) — GitHub Actions workflows and repository instructions
-- [src/Summerdawn.Kagami](src/Summerdawn.Kagami/) — library and CLI project, built-in connectors, planner, executor, and SQLite persistence
+- [src/Summerdawn.Kagami](src/Summerdawn.Kagami/) — CLI tool, built-in connectors, planner, executor, and SQLite persistence
 - [tests/Summerdawn.Kagami.Tests](tests/Summerdawn.Kagami.Tests/) — unit and integration-style tests
 
 ## Development
@@ -56,7 +56,16 @@ dotnet build
 dotnet test
 ```
 
-For installation, configuration, and CLI usage, see the [Summerdawn.Kagami project README](src/Summerdawn.Kagami/README.md).
+For installation, configuration, and command usage, see the [Summerdawn.Kagami project README](src/Summerdawn.Kagami/README.md).
+
+## Versioning and Releases
+
+Kagami uses [Semantic Versioning](https://semver.org/). The initial public release is `0.9.0`.
+
+Releases are created with [the `release.yml` workflow](.github/workflows/release.yml). The workflow builds and publishes the `Summerdawn.Kagami` .NET tool package, and attaches standalone, AOT-compiled binaries for Windows, Linux, and macOS to the GitHub release.
+
+- [GitHub Releases](https://github.com/summerdawn-ai/kagami/releases)
+- [Summerdawn.Kagami on NuGet](https://www.nuget.org/packages/Summerdawn.Kagami)
 
 ## Contributing
 
