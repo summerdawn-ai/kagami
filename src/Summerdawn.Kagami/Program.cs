@@ -97,7 +97,7 @@ public static class Program
 
         var filterOption = new Option<string?>("--filter")
         {
-            Description = "OData-style filter expression, e.g. startswith(name,'A')",
+            Description = "OData-style filter expression, e.g. \"startswith(name,'A')\" or \"startswith(name,'A') and contains(categories,'Recruiter')\"",
             Required = false,
         };
 
@@ -481,7 +481,7 @@ public static class Program
 
         var filterOption = new Option<string?>("--filter")
         {
-            Description = "OData-style filter expression, e.g. startswith(title,'A')",
+            Description = "OData-style filter expression, e.g. \"startswith(title,'A')\" or \"start gt '2026-01-01T00:00:00Z' and end lt '2026-02-01T00:00:00Z'\"",
             Required = false,
         };
 
