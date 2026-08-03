@@ -30,6 +30,25 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
     public string? Reason { get; set; }
 
     /// <summary>
+    /// Gets or sets the structured rationale used to render the action reason.
+    /// </summary>
+    public SyncActionReasonKind ReasonKind { get; set; }
+
+    /// <summary>
+    /// Gets or sets the direction from the conflict-winning item to the item it would replace.
+    /// </summary>
+    /// <remarks>
+    /// This is distinct from <see cref="Direction"/> for a skipped action, whose direction
+    /// identifies the write the requested sync mode permits rather than the conflict winner.
+    /// </remarks>
+    public SyncDirection? WinningDirection { get; set; }
+
+    /// <summary>
+    /// Gets or sets the policy that selected or prevented the conflict winner.
+    /// </summary>
+    public string? ConflictPolicyName { get; set; }
+
+    /// <summary>
     /// Gets or sets the runtime-only source endpoint name for this action.
     /// </summary>
     public string? SourceEndpointName { get; set; }
@@ -92,7 +111,7 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
         string targetEndpoint = ResolveTargetEndpointName() ?? "unknown";
         string reason = ResolveDisplayReason();
 
-        return $"{action} {item} on endpoint '{targetEndpoint}' (reason: {reason})";
+        return $"{action} {item} on endpoint '{targetEndpoint}' ({reason})";
     }
 
     /// <summary>
@@ -148,15 +167,68 @@ public sealed class SyncAction<TItem> where TItem : CanonicalItem
         };
         string originEndpoint = ResolveOriginEndpointName() ?? "unknown";
 
-        return Kind switch
+        return ReasonKind switch
         {
-            Create => $"New {itemType.ToLowerInvariant()} on endpoint '{originEndpoint}'",
-            Update => $"{itemType} updated on endpoint '{originEndpoint}'",
-            Delete => $"{itemType} deleted on endpoint '{originEndpoint}'",
-            Skip or None => Reason ?? $"{itemType} skipped",
-            _ => Reason ?? $"{itemType} changed",
+            SyncActionReasonKind.Newer => $"Reason: {itemType} on endpoint '{originEndpoint}' newer",
+            SyncActionReasonKind.Forced => $"Reason: {itemType} on endpoint '{originEndpoint}' forced despite identical content",
+            SyncActionReasonKind.ConflictWinner => RenderConflictWinner(itemType),
+            SyncActionReasonKind.ConflictNewerCannotUpdate => RenderConflictNewerCannotUpdate(itemType),
+            SyncActionReasonKind.ConflictWinnerCannotUpdate => RenderConflictWinnerCannotUpdate(itemType),
+            SyncActionReasonKind.ConflictSkipped => RenderSkippedConflict(itemType),
+            _ => RenderDefaultReason(itemType, originEndpoint),
         };
     }
+
+    private string RenderDefaultReason(string itemType, string originEndpoint) =>
+        Kind switch
+        {
+            Create => $"Reason: {itemType} on endpoint '{originEndpoint}' created",
+            Update => $"Reason: {itemType} on endpoint '{originEndpoint}' updated",
+            Delete => $"Reason: {itemType} on endpoint '{originEndpoint}' deleted",
+            _ when Reason?.StartsWith("Conflict:", StringComparison.Ordinal) == true => Reason,
+            _ => $"Reason: {Reason ?? $"{itemType} skipped"}",
+        };
+
+    private string RenderConflictWinner(string itemType)
+    {
+        string winnerEndpoint = ResolveEndpointName(WinningDirection ?? Direction) ?? "unknown";
+        string policy = ConflictPolicyName ?? "configured";
+        string detail = policy == "last-write-wins"
+            ? "newer, wins"
+            : "wins";
+
+        return $"Reason: {itemType} on endpoint '{winnerEndpoint}' {detail} per {policy} policy";
+    }
+
+    private string RenderConflictNewerCannotUpdate(string itemType)
+    {
+        string winnerEndpoint = ResolveEndpointName(WinningDirection ?? Direction) ?? "unknown";
+        string policy = ConflictPolicyName ?? "last-write-wins";
+
+        return $"Conflict: {itemType} on endpoint '{winnerEndpoint}' newer, cannot update per {policy} policy";
+    }
+
+    private string RenderConflictWinnerCannotUpdate(string itemType)
+    {
+        string winnerEndpoint = ResolveEndpointName(WinningDirection ?? Direction) ?? "unknown";
+        string policy = ConflictPolicyName ?? "configured";
+
+        return $"Conflict: {itemType} on endpoint '{winnerEndpoint}' wins per {policy} policy, but sync mode cannot update it";
+    }
+
+    private string RenderSkippedConflict(string itemType)
+    {
+        string sourceEndpoint = SourceEndpointName ?? Link.SourceItem?.Provenance.EndpointName ?? "unknown";
+        string destinationEndpoint = DestinationEndpointName ?? Link.DestinationItem?.Provenance.EndpointName ?? "unknown";
+        string policy = ConflictPolicyName ?? "skip";
+
+        return $"Conflict: {itemType}s on endpoints '{sourceEndpoint}' and '{destinationEndpoint}' both changed, skip per {policy} policy";
+    }
+
+    private string? ResolveEndpointName(SyncDirection direction) =>
+        direction == SyncDirection.SourceToDestination
+            ? Link.SourceItem?.Provenance.EndpointName ?? SourceEndpointName
+            : Link.DestinationItem?.Provenance.EndpointName ?? DestinationEndpointName;
 
     private string? ResolveOriginEndpointName() =>
         Direction == SyncDirection.SourceToDestination

@@ -260,13 +260,16 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             }
         }
 
-        // Both items are present (or force is active and both present).
+        // Both items are present (or force is active and both present). Keep the content
+        // comparison even under --force so diagnostics can distinguish a real difference from
+        // an otherwise redundant write that force explicitly requested.
+        bool contentIdentical = examined.SourceItem is not null
+            && examined.DestinationItem is not null
+            && ContentHashHelper.HaveIdenticalContent(examined.SourceItem, examined.DestinationItem);
         bool sourceChanged = force || examined.SourceActivity == Modified;
         bool destinationChanged = force || examined.DestinationActivity == Modified;
 
-        if (!force && (sourceChanged || destinationChanged)
-            && examined.SourceItem is not null && examined.DestinationItem is not null
-            && ContentHashHelper.HaveIdenticalContent(examined.SourceItem, examined.DestinationItem))
+        if (!force && (sourceChanged || destinationChanged) && contentIdentical)
         {
             var skipDirection = jobOptions.SyncMode == Reverse ? DestinationToSource : SourceToDestination;
             return new SyncAction<TItem>
@@ -278,7 +281,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             };
         }
 
-        return jobOptions.SyncMode switch
+        var action = jobOptions.SyncMode switch
         {
             Forward when !sourceChanged => null,
             Forward when destinationChanged => ResolveConflict(examined, SourceToDestination, jobOptions),
@@ -287,7 +290,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 Kind = Update,
                 Direction = SourceToDestination,
                 Link = examined,
-                Reason = "Item changed on source side",
+                ReasonKind = GetUpdateReason(jobOptions, contentIdentical),
             },
 
             Reverse when !destinationChanged => null,
@@ -297,7 +300,7 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 Kind = Update,
                 Direction = DestinationToSource,
                 Link = examined,
-                Reason = "Item changed on destination side",
+                ReasonKind = GetUpdateReason(jobOptions, contentIdentical),
             },
 
             // Bidirectional
@@ -307,17 +310,25 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 Kind = Update,
                 Direction = SourceToDestination,
                 Link = examined,
-                Reason = "Item changed on source side",
+                ReasonKind = GetUpdateReason(jobOptions, contentIdentical),
             },
             _ when !sourceChanged => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = DestinationToSource,
                 Link = examined,
-                Reason = "Item changed on destination side",
+                ReasonKind = GetUpdateReason(jobOptions, contentIdentical),
             },
             _ => ResolveBidirectionalConflict(examined, jobOptions),
         };
+
+        return ApplyForceReason(
+            action,
+            force,
+            contentIdentical,
+            examined.SourceItem?.Provenance.LastModified == examined.DestinationItem?.Provenance.LastModified,
+            examined.SourceActivity == Modified,
+            examined.DestinationActivity == Modified);
     }
 
     // -----------------------------------------------------------------------
@@ -361,12 +372,20 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
             // With no stored baseline, force treats a matched pair as changed on both sides.
             // Apply the same conflict policy as persisted pairs rather than privileging the
             // source merely because the link was inferred during this run.
-            return jobOptions.SyncMode switch
+            var action = jobOptions.SyncMode switch
             {
                 Reverse => ResolveConflict(examined, DestinationToSource, jobOptions),
                 Bidirectional => ResolveBidirectionalConflict(examined, jobOptions),
                 _ => ResolveConflict(examined, SourceToDestination, jobOptions),
             };
+
+            return ApplyForceReason(
+                action,
+                force: true,
+                contentIdentical: ContentHashHelper.HaveIdenticalContent(source, dest),
+                modificationTimestampsEqual: source.Provenance.LastModified == dest.Provenance.LastModified,
+                sourceModified: false,
+                destinationModified: false);
         }
 
         return jobOptions.SyncMode == Reverse
@@ -534,35 +553,44 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 Kind = Update,
                 Direction = SourceToDestination,
                 Link = examined,
-                Reason = "Conflict: source wins per policy",
+                ReasonKind = SyncActionReasonKind.ConflictWinner,
+                WinningDirection = SourceToDestination,
+                ConflictPolicyName = "source-wins",
             },
             SourceWins => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
                 Direction = DestinationToSource,
                 Link = examined,
-                Reason = "Conflict: source wins per policy",
+                ReasonKind = SyncActionReasonKind.ConflictWinnerCannotUpdate,
+                WinningDirection = SourceToDestination,
+                ConflictPolicyName = "source-wins",
             },
             DestinationWins when direction == DestinationToSource => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = DestinationToSource,
                 Link = examined,
-                Reason = "Conflict: destination wins per policy",
+                ReasonKind = SyncActionReasonKind.ConflictWinner,
+                WinningDirection = DestinationToSource,
+                ConflictPolicyName = "destination-wins",
             },
             DestinationWins => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
                 Direction = SourceToDestination,
                 Link = examined,
-                Reason = "Conflict: destination wins per policy",
+                ReasonKind = SyncActionReasonKind.ConflictWinnerCannotUpdate,
+                WinningDirection = DestinationToSource,
+                ConflictPolicyName = "destination-wins",
             },
             ConflictPolicy.Skip => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
                 Direction = direction,
                 Link = examined,
-                Reason = "Conflict: skipped per policy",
+                ReasonKind = SyncActionReasonKind.ConflictSkipped,
+                ConflictPolicyName = "skip",
             },
             _ => ResolveLastWriteWinsConflict(examined, direction),
         };
@@ -584,28 +612,36 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
                 Kind = Update,
                 Direction = SourceToDestination,
                 Link = examined,
-                Reason = "Conflict: last write wins per policy",
+                ReasonKind = SyncActionReasonKind.ConflictWinner,
+                WinningDirection = SourceToDestination,
+                ConflictPolicyName = "last-write-wins",
             },
             true => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
                 Direction = DestinationToSource,
                 Link = examined,
-                Reason = "Conflict: source wins per last-write-wins policy",
+                ReasonKind = SyncActionReasonKind.ConflictNewerCannotUpdate,
+                WinningDirection = SourceToDestination,
+                ConflictPolicyName = "last-write-wins",
             },
             false when direction == SourceToDestination => new SyncAction<TItem>
             {
                 Kind = SyncActionKind.Skip,
                 Direction = SourceToDestination,
                 Link = examined,
-                Reason = "Conflict: destination wins but sync mode does not permit reverse write",
+                ReasonKind = SyncActionReasonKind.ConflictNewerCannotUpdate,
+                WinningDirection = DestinationToSource,
+                ConflictPolicyName = "last-write-wins",
             },
             false => new SyncAction<TItem>
             {
                 Kind = Update,
                 Direction = DestinationToSource,
                 Link = examined,
-                Reason = "Conflict: last write wins per policy",
+                ReasonKind = SyncActionReasonKind.ConflictWinner,
+                WinningDirection = DestinationToSource,
+                ConflictPolicyName = "last-write-wins",
             }
         };
     }
@@ -627,5 +663,60 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
         return sourceLastModified > destinationLastModified
                || (sourceLastModified == destinationLastModified && tieBreakDirection == SourceToDestination)
                || (sourceLastModified is not null && destinationLastModified is null);
+    }
+
+    /// <summary>
+    /// Classifies an ordinary update without changing the planned operation.
+    /// </summary>
+    /// <remarks>
+    /// Full scans have no delta interval to describe as an update, and force should be visible
+    /// only when it overrides the otherwise-identical-content no-op. A force run with different
+    /// content still reports the genuine difference as newer.
+    /// </remarks>
+    private static SyncActionReasonKind GetUpdateReason(JobOptions jobOptions, bool contentIdentical) =>
+        jobOptions.Force && contentIdentical
+            ? SyncActionReasonKind.Forced
+            : jobOptions.Full || jobOptions.Force
+                ? SyncActionReasonKind.Newer
+                : SyncActionReasonKind.Default;
+
+    /// <summary>
+    /// Classifies a successful force-mode write without changing the policy-selected action.
+    /// </summary>
+    /// <remarks>
+    /// Force treats both sides as changed for planning, which can synthesize a conflict around an
+    /// item that was already known to be newer on only one side. Preserve that action decision,
+    /// but report the actual newer side rather than a policy conflict when it is the selected
+    /// writer. Identical content is described as forced only when timestamps also agree; a
+    /// timestamp difference remains meaningful to last-write-wins conflict resolution.
+    /// </remarks>
+    private static SyncAction<TItem>? ApplyForceReason<TItem>(
+        SyncAction<TItem>? action,
+        bool force,
+        bool contentIdentical,
+        bool modificationTimestampsEqual,
+        bool sourceModified,
+        bool destinationModified) where TItem : CanonicalItem
+    {
+        if (!force || action is not { Kind: Update })
+        {
+            return action;
+        }
+
+        if (contentIdentical && modificationTimestampsEqual)
+        {
+            action.ReasonKind = SyncActionReasonKind.Forced;
+            return action;
+        }
+
+        bool originWasModified = action.Direction == SourceToDestination
+            ? sourceModified && !destinationModified
+            : destinationModified && !sourceModified;
+        if (originWasModified)
+        {
+            action.ReasonKind = SyncActionReasonKind.Newer;
+        }
+
+        return action;
     }
 }
