@@ -142,13 +142,25 @@ For event full reads without an applicable delta cursor, Kagami uses a rolling o
 
 ### Forced Writes
 
-`--force` includes a full enumeration and bypasses change and content-sameness checks for every in-scope item. It writes unconditionally, while still applying the selected conflict policy. Use it only when normal version or content-hash detection is known to be unreliable; it is not intended for normal runs.
+`--force` includes a full enumeration and bypasses change and content-sameness checks for every in-scope item. It treats matched pairs as changed on both sides and applies the selected conflict policy; it does not make `--from` authoritative in bidirectional mode. Use it only when normal version or content-hash detection is known to be unreliable; it is not intended for normal runs.
 
-| Mode | Ignores cursors | Skips identical items | Writes all in-scope items |
+To make `--to` match `--from`, use the default forward direction with `--on-conflict source-wins`:
+
+```shell
+kagami events sync --from Microsoft --to Google --force --on-conflict source-wins
+```
+
+To reconcile both sides when the stored baselines are unreliable, use bidirectional force with an explicit conflict policy:
+
+```shell
+kagami events sync --from Microsoft --to Google --bidirectional --force --on-conflict last-write-wins
+```
+
+| Mode | Ignores cursors | Skips identical items | Writes matched pairs |
 |---|---:|---:|---:|
-| Default | No | Yes | No |
-| `--full` | Yes | Yes | No |
-| `--force` | Yes | No | Yes |
+| Default | No | Yes | When changed |
+| `--full` | Yes | Yes | When changed |
+| `--force` | Yes | No | Per direction and conflict policy |
 
 ### Continuous Sync
 

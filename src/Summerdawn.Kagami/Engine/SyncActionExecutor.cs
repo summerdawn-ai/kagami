@@ -270,14 +270,11 @@ public sealed class SyncActionExecutor(
 
                             if (persistedLink is not null)
                             {
-                                if (direction == SourceToDestination)
-                                {
-                                    persistedLink.DestinationDeleted = true;
-                                }
-                                else
-                                {
-                                    persistedLink.SourceDeleted = true;
-                                }
+                                // A mirrored deletion makes both linked provider records terminal.
+                                // Recording the observed origin deletion prevents a later delta
+                                // (which may omit its consumed tombstone) from deleting it again.
+                                persistedLink.SourceDeleted = true;
+                                persistedLink.DestinationDeleted = true;
 
                                 persistedLink.LastSyncedAt = DateTimeOffset.UtcNow;
                                 persistedLink.LastSyncResult = "deleted";

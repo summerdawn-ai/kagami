@@ -343,6 +343,14 @@ public sealed class GoogleContactsConnector(HttpClient httpClient, string endpoi
             return;
         }
 
+        // DELETE is idempotent for an already-removed Google resource. A 410 Gone therefore
+        // means the requested end state already holds, unlike a 410 from another operation.
+        if (response.RequestMessage?.Method == HttpMethod.Delete
+            && response.StatusCode == HttpStatusCode.Gone)
+        {
+            return;
+        }
+
         string detail = await response.Content.ReadAsStringAsync(cancellationToken);
         throw new InvalidOperationException($"Google People API request failed with {(int)response.StatusCode} {response.ReasonPhrase}: {detail}");
     }

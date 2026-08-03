@@ -318,6 +318,14 @@ public sealed class GoogleContactsConnectorTests
         Assert.Contains("expired", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task DeleteItemAsync_GoneResponseIsTreatedAsAlreadyDeleted()
+    {
+        var connector = CreateConnector(CreateJsonResponse(HttpStatusCode.Gone, """{"error":{"code":410}}"""));
+
+        await connector.DeleteItemAsync("people/deleted-contact");
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────
 
     private static GoogleContactsConnector CreateConnector(params HttpResponseMessage[] responses)
@@ -379,6 +387,7 @@ public sealed class GoogleContactsConnectorTests
                 throw new InvalidOperationException($"Unexpected HTTP request to {request.RequestUri}");
             }
 
+            response.RequestMessage = request;
             return Task.FromResult(response);
         }
     }

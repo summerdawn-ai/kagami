@@ -62,16 +62,16 @@ public sealed class DisplayStringTests
         var skipAction = CreateAction(Skip, SourceToDestination, sourceContact, targetContact, "Conflict: skipped per policy");
 
         Assert.Equal(
-            "Create contact John Doe on endpoint 'Microsoft' (reason: New contact on endpoint 'Google')",
+            "Create contact John Doe on endpoint 'Microsoft' (Reason: Contact on endpoint 'Google' created)",
             createAction.ToDisplayString());
         Assert.Equal(
-            "Update contact John Doe on endpoint 'Microsoft' (reason: Contact updated on endpoint 'Google')",
+            "Update contact John Doe on endpoint 'Microsoft' (Reason: Contact on endpoint 'Google' updated)",
             updateAction.ToDisplayString());
         Assert.Equal(
-            "Delete contact John Doe on endpoint 'Microsoft' (reason: Contact deleted on endpoint 'Google')",
+            "Delete contact John Doe on endpoint 'Microsoft' (Reason: Contact on endpoint 'Google' deleted)",
             deleteAction.ToDisplayString());
         Assert.Equal(
-            "Skip contact John Doe on endpoint 'Microsoft' (reason: Conflict: skipped per policy)",
+            "Skip contact John Doe on endpoint 'Microsoft' (Conflict: skipped per policy)",
             skipAction.ToDisplayString());
     }
 
@@ -93,8 +93,52 @@ public sealed class DisplayStringTests
         action.DestinationEndpointName = "Microsoft";
 
         Assert.Equal(
-            "Delete contact b1 on endpoint 'Microsoft' (reason: Contact deleted on endpoint 'Google')",
+            "Delete contact b1 on endpoint 'Microsoft' (Reason: Contact on endpoint 'Google' deleted)",
             action.ToDisplayString());
+    }
+
+    [Fact]
+    public void SyncAction_ToDisplayString_DescribesFullAndForcedUpdates()
+    {
+        var sourceContact = CreateContact("a1", "John Doe", "Google");
+        var targetContact = CreateContact("b1", "John Doe", "Microsoft");
+
+        var newerAction = CreateAction(Update, SourceToDestination, sourceContact, targetContact);
+        newerAction.ReasonKind = SyncActionReasonKind.Newer;
+
+        var forcedAction = CreateAction(Update, SourceToDestination, sourceContact, targetContact);
+        forcedAction.ReasonKind = SyncActionReasonKind.Forced;
+
+        Assert.Equal(
+            "Update contact John Doe on endpoint 'Microsoft' (Reason: Contact on endpoint 'Google' newer)",
+            newerAction.ToDisplayString());
+        Assert.Equal(
+            "Update contact John Doe on endpoint 'Microsoft' (Reason: Contact on endpoint 'Google' forced despite identical content)",
+            forcedAction.ToDisplayString());
+    }
+
+    [Fact]
+    public void SyncAction_ToDisplayString_DescribesConflictWinnersAndBlockedWrites()
+    {
+        var sourceContact = CreateContact("a1", "John Doe", "Microsoft");
+        var targetContact = CreateContact("b1", "John Doe", "Google");
+
+        var winnerAction = CreateAction(Update, DestinationToSource, sourceContact, targetContact);
+        winnerAction.ReasonKind = SyncActionReasonKind.ConflictWinner;
+        winnerAction.WinningDirection = DestinationToSource;
+        winnerAction.ConflictPolicyName = "destination-wins";
+
+        var blockedAction = CreateAction(Skip, DestinationToSource, sourceContact, targetContact);
+        blockedAction.ReasonKind = SyncActionReasonKind.ConflictNewerCannotUpdate;
+        blockedAction.WinningDirection = SourceToDestination;
+        blockedAction.ConflictPolicyName = "last-write-wins";
+
+        Assert.Equal(
+            "Update contact John Doe on endpoint 'Microsoft' (Reason: Contact on endpoint 'Google' wins per destination-wins policy)",
+            winnerAction.ToDisplayString());
+        Assert.Equal(
+            "Skip contact John Doe on endpoint 'Microsoft' (Conflict: Contact on endpoint 'Microsoft' newer, cannot update per last-write-wins policy)",
+            blockedAction.ToDisplayString());
     }
 
     private static SyncAction<CanonicalContact> CreateAction(

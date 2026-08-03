@@ -117,6 +117,20 @@ public sealed class SyncActionPlannerTests
     }
 
     [Fact]
+    public void PlanActions_FullRunReturnsNoAction_WhenLinkedPairIsUnchanged()
+    {
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
+
+        var actions = planner.PlanActions(
+            CreateJob(full: true),
+            [CreateItem("a1", "v1", displayName: "Same", email: "same@example.com")],
+            [CreateItem("b1", "v1", displayName: "Same", email: "same@example.com")],
+            [link]);
+
+        Assert.Empty(actions);
+    }
+
+    [Fact]
     public void PlanActions_UpdatesDestination_WhenOnlySourceChanged()
     {
         var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
@@ -213,6 +227,8 @@ public sealed class SyncActionPlannerTests
         Assert.Single(actions);
         Assert.Equal(Skip, actions[0].Kind);
         Assert.Equal(DestinationToSource, actions[0].Direction);
+        Assert.Equal(SyncActionReasonKind.ConflictNewerCannotUpdate, actions[0].ReasonKind);
+        Assert.Equal(SourceToDestination, actions[0].WinningDirection);
     }
 
     [Fact]
@@ -251,6 +267,8 @@ public sealed class SyncActionPlannerTests
         Assert.Single(actions);
         Assert.Equal(Skip, actions[0].Kind);
         Assert.Equal(SourceToDestination, actions[0].Direction);
+        Assert.Equal(SyncActionReasonKind.ConflictNewerCannotUpdate, actions[0].ReasonKind);
+        Assert.Equal(DestinationToSource, actions[0].WinningDirection);
     }
 
     [Fact]
@@ -462,6 +480,207 @@ public sealed class SyncActionPlannerTests
         Assert.Equal(Create, actions[0].Kind);
         Assert.Equal(SourceToDestination, actions[0].Direction);
         Assert.Equal("a1", actions[0].Link.SourceId);
+    }
+
+    [Theory]
+    [InlineData(true, ConflictPolicy.LastWriteWins, Update, SourceToDestination)]
+    [InlineData(true, ConflictPolicy.SourceWins, Update, SourceToDestination)]
+    [InlineData(true, ConflictPolicy.DestinationWins, Update, DestinationToSource)]
+    [InlineData(true, ConflictPolicy.Skip, Skip, SourceToDestination)]
+    [InlineData(false, ConflictPolicy.LastWriteWins, Update, SourceToDestination)]
+    [InlineData(false, ConflictPolicy.SourceWins, Update, SourceToDestination)]
+    [InlineData(false, ConflictPolicy.DestinationWins, Update, DestinationToSource)]
+    [InlineData(false, ConflictPolicy.Skip, Skip, SourceToDestination)]
+    public void PlanActions_ForceBidirectionalAppliesConflictPolicyForPersistedAndInferredLinks(
+        bool hasPersistedLink,
+        ConflictPolicy conflictPolicy,
+        SyncActionKind expectedKind,
+        SyncDirection expectedDirection)
+    {
+        var source = CreateItem(
+            "a1",
+            "v1",
+            displayName: "Same",
+            email: "same@example.com",
+            lastModified: DateTimeOffset.Parse("2026-01-02T00:00:00Z")) with
+        { Notes = "source" };
+        var destination = CreateItem(
+            "b1",
+            "v1",
+            displayName: "Same",
+            email: "same@example.com",
+            lastModified: DateTimeOffset.Parse("2026-01-01T00:00:00Z")) with
+        { Notes = "destination" };
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Bidirectional, conflictPolicy: conflictPolicy, force: true),
+            sourceItems: [source],
+            destinationItems: [destination],
+            existingLinks: hasPersistedLink ? [CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1")] : []);
+
+        Assert.Single(actions);
+        Assert.Equal(expectedKind, actions[0].Kind);
+        Assert.Equal(expectedDirection, actions[0].Direction);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PlanActions_ForceBidirectionalLastWriteWins_UpdatesSourceWhenDestinationIsNewer(bool hasPersistedLink)
+    {
+        var source = CreateItem(
+            "a1",
+            "v1",
+            displayName: "Same",
+            email: "same@example.com",
+            lastModified: DateTimeOffset.Parse("2026-01-01T00:00:00Z")) with
+        { Notes = "source" };
+        var destination = CreateItem(
+            "b1",
+            "v1",
+            displayName: "Same",
+            email: "same@example.com",
+            lastModified: DateTimeOffset.Parse("2026-01-02T00:00:00Z")) with
+        { Notes = "destination" };
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Bidirectional, conflictPolicy: ConflictPolicy.LastWriteWins, force: true),
+            [source],
+            [destination],
+            hasPersistedLink ? [CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1")] : []);
+
+        Assert.Single(actions);
+        Assert.Equal(Update, actions[0].Kind);
+        Assert.Equal(DestinationToSource, actions[0].Direction);
+    }
+
+    [Theory]
+    [InlineData(SyncMode.Forward, ConflictPolicy.SourceWins, Update, SourceToDestination)]
+    [InlineData(SyncMode.Forward, ConflictPolicy.DestinationWins, Skip, SourceToDestination)]
+    [InlineData(SyncMode.Reverse, ConflictPolicy.SourceWins, Skip, DestinationToSource)]
+    [InlineData(SyncMode.Reverse, ConflictPolicy.DestinationWins, Update, DestinationToSource)]
+    public void PlanActions_ForceRespectsDirectionWhenApplyingConflictPolicy(
+        SyncMode mode,
+        ConflictPolicy conflictPolicy,
+        SyncActionKind expectedKind,
+        SyncDirection expectedDirection)
+    {
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
+
+        var actions = planner.PlanActions(
+            CreateJob(mode, conflictPolicy: conflictPolicy, force: true),
+            [CreateItem("a1", "v1", displayName: "Same", email: "same@example.com") with { Notes = "source" }],
+            [CreateItem("b1", "v1", displayName: "Same", email: "same@example.com") with { Notes = "destination" }],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(expectedKind, actions[0].Kind);
+        Assert.Equal(expectedDirection, actions[0].Direction);
+    }
+
+    [Fact]
+    public void PlanActions_InferredLinkUsesMatchedReasonWithoutFreshnessComparison()
+    {
+        var source = CreateItem(
+            "a1",
+            displayName: "Same",
+            email: "same@example.com",
+            lastModified: DateTimeOffset.Parse("2026-01-01T00:00:00Z")) with
+        { Notes = "source" };
+        var destination = CreateItem(
+            "b1",
+            displayName: "Same",
+            email: "same@example.com",
+            lastModified: DateTimeOffset.Parse("2026-01-02T00:00:00Z")) with
+        { Notes = "destination" };
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Forward),
+            [source],
+            [destination],
+            []);
+
+        Assert.Single(actions);
+        Assert.Equal(Update, actions[0].Kind);
+        Assert.Equal(SourceToDestination, actions[0].Direction);
+        Assert.Equal(SyncActionReasonKind.Default, actions[0].ReasonKind);
+        Assert.Equal("Matched existing item on target side", actions[0].Reason);
+    }
+
+    [Fact]
+    public void PlanActions_UsesForcedReasonOnlyWhenForceOverridesIdenticalContent()
+    {
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
+        var timestamp = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+        var source = CreateItem("a1", "v1", displayName: "Same", email: "same@example.com", lastModified: timestamp);
+        var destination = CreateItem("b1", "v1", displayName: "Same", email: "same@example.com", lastModified: timestamp);
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Forward, force: true),
+            [source],
+            [destination],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(Update, actions[0].Kind);
+        Assert.Equal(SyncActionReasonKind.Forced, actions[0].ReasonKind);
+    }
+
+    [Fact]
+    public void PlanActions_UsesLastWriteWinsReasonWhenForcedIdenticalContentHasDifferentTimestamps()
+    {
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
+        var source = CreateItem(
+            "a1",
+            "v1",
+            displayName: "Same",
+            email: "same@example.com",
+            lastModified: DateTimeOffset.Parse("2026-01-02T00:00:00Z"));
+        var destination = CreateItem(
+            "b1",
+            "v1",
+            displayName: "Same",
+            email: "same@example.com",
+            lastModified: DateTimeOffset.Parse("2026-01-01T00:00:00Z"));
+
+        var actions = planner.PlanActions(
+            CreateJob(SyncMode.Forward, force: true),
+            [source],
+            [destination],
+            [link]);
+
+        Assert.Single(actions);
+        Assert.Equal(Update, actions[0].Kind);
+        Assert.Equal(SourceToDestination, actions[0].Direction);
+        Assert.Equal(SyncActionReasonKind.ConflictWinner, actions[0].ReasonKind);
+        Assert.Equal(SourceToDestination, actions[0].WinningDirection);
+        Assert.Equal("last-write-wins", actions[0].ConflictPolicyName);
+    }
+
+    [Fact]
+    public void PlanActions_UsesNewerReasonForFullRunAndForcedDifferentContent()
+    {
+        var link = CreateLink("a1", "b1", sourceVersion: "v1", destinationVersion: "v1");
+        var source = CreateItem("a1", "v2", displayName: "Alice", email: "alice@example.com") with { Notes = "source" };
+        var destination = CreateItem("b1", "v1", displayName: "Alice", email: "alice@example.com") with { Notes = "destination" };
+
+        var fullActions = planner.PlanActions(
+            CreateJob(SyncMode.Forward, full: true),
+            [source],
+            [destination],
+            [link]);
+        var forceActions = planner.PlanActions(
+            CreateJob(SyncMode.Forward, force: true),
+            [source],
+            [destination],
+            [link]);
+
+        Assert.Single(fullActions);
+        Assert.Equal(Update, fullActions[0].Kind);
+        Assert.Equal(SyncActionReasonKind.Newer, fullActions[0].ReasonKind);
+        Assert.Single(forceActions);
+        Assert.Equal(Update, forceActions[0].Kind);
+        Assert.Equal(SyncActionReasonKind.Newer, forceActions[0].ReasonKind);
     }
 
     [Fact]
