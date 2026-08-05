@@ -325,7 +325,6 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
     /// iCalendar UID is intentionally omitted: Google treats it as an import upsert key, and it
     /// cannot be changed reliably after creation.
     /// </remarks>
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     internal static JsonObject BuildWritableEvent(CanonicalEvent item)
     {

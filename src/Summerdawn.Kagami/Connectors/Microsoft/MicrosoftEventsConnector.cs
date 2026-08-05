@@ -268,7 +268,6 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
     /// value; participant fields are preserved on the destination rather than written by this
     /// connector.
     /// </remarks>
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     [UnconditionalSuppressMessage("Trimming", "IL3050", Justification = "Calendar writable payload uses known JsonNode shapes.")]
     internal static JsonObject BuildWritableEvent(CanonicalEvent item)
     {
