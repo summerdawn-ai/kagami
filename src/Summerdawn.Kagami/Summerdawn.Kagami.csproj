@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="NoWarn">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -19,6 +19,9 @@
     <IsAotCompatible>true</IsAotCompatible>
     <!-- Enable trimming-compatible configuration binding -->
     <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+    <!-- Suppress IL2104 because external packages emit only package-internal trim diagnostics (currently unused suppressions); no Kagami call site is identified. -->
+    <!-- Treat NoWarn as local so this suppression is retained alongside command-line warning switches. -->
+    <NoWarn>$(NoWarn);IL2104</NoWarn>
   </PropertyGroup>
 
   <!-- NuGet properties -->

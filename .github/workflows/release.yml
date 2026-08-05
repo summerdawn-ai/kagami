@@ -93,7 +93,7 @@ jobs:
           - rid: linux-x64
             os: ubuntu-latest
           - rid: linux-arm64
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm # not ubuntu-lates, that is x64 only!
           - rid: osx-x64
             os: macos-latest
           - rid: osx-arm64
@@ -107,9 +107,10 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      # Restore the target RID so Native AOT runtime packs resolve before ILCompiler runs.
+      # Restore the target RID explicitly and with AOT enabled so the assets file contains
+      # the native AOT/ILCompiler graph required by the following publish command.
       - name: Restore Native AOT dependencies for ${{ matrix.rid }}
-        run: dotnet restore src/Summerdawn.Kagami/Summerdawn.Kagami.csproj -r ${{ matrix.rid }}
+        run: dotnet restore src/Summerdawn.Kagami/Summerdawn.Kagami.csproj -r ${{ matrix.rid }} -p:PublishAot=true
 
       - name: Build Binaries for ${{ matrix.rid }}
         run: dotnet publish src/Summerdawn.Kagami/Summerdawn.Kagami.csproj -c Release -r ${{ matrix.rid }} --self-contained --no-restore -p:PublishAot=true -p:DebugSymbols=false -p:GenerateDocumentationFile=false -p:NoWarn=IDE0005 -p:IncludeNativeLibrariesForSelfExtract=true -p:StaticWebAssetsEnabled=false -p:IsTransformWebConfigDisabled=true -p:Version=${{ github.event.inputs.version }} -o ./publish/${{ matrix.rid }}
@@ -118,19 +119,19 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           cd ./publish/${{ matrix.rid }}
-          Compress-Archive -Path * -DestinationPath ../../Kagami-${{ github.event.inputs.version }}-${{ matrix.rid }}.zip -CompressionLevel Optimal
+          Compress-Archive -Path * -DestinationPath ../../kagami-${{ github.event.inputs.version }}-${{ matrix.rid }}.zip -CompressionLevel Optimal
 
       - name: Package Binaries for ${{ matrix.rid }} (Unix)
         if: runner.os != 'Windows'
         run: |
           cd ./publish/${{ matrix.rid }}
-          zip -r ../../Kagami-${{ github.event.inputs.version }}-${{ matrix.rid }}.zip .
+          zip -r ../../kagami-${{ github.event.inputs.version }}-${{ matrix.rid }}.zip .
       
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.rid }}
-          path: Kagami-${{ github.event.inputs.version }}-${{ matrix.rid }}.zip
+          path: kagami-${{ github.event.inputs.version }}-${{ matrix.rid }}.zip
           retention-days: 1
   
   create-release:
