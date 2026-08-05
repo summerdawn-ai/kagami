@@ -53,10 +53,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       
@@ -71,7 +71,7 @@ jobs:
           dotnet pack src/Summerdawn.Kagami/Summerdawn.Kagami.csproj -c Release --no-build -p:Version=${{ github.event.inputs.version }} -o ./nupkgs
       
       - name: Upload NuGet packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nupkgs
           path: ./nupkgs/*.nupkg
@@ -93,22 +93,26 @@ jobs:
           - rid: linux-x64
             os: ubuntu-latest
           - rid: linux-arm64
-            os: ubuntu-24.04-arm
+            os: ubuntu-latest
           - rid: osx-x64
             os: macos-latest
           - rid: osx-arm64
             os: macos-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      # Restore the target RID so Native AOT runtime packs resolve before ILCompiler runs.
+      - name: Restore Native AOT dependencies for ${{ matrix.rid }}
+        run: dotnet restore src/Summerdawn.Kagami/Summerdawn.Kagami.csproj -r ${{ matrix.rid }}
+
       - name: Build Binaries for ${{ matrix.rid }}
-        run: dotnet publish src/Summerdawn.Kagami/Summerdawn.Kagami.csproj -c Release -r ${{ matrix.rid }} --self-contained -p:PublishAot=true -p:DebugSymbols=false -p:GenerateDocumentationFile=false -p:NoWarn=IDE0005 -p:IncludeNativeLibrariesForSelfExtract=true -p:StaticWebAssetsEnabled=false -p:IsTransformWebConfigDisabled=true -p:Version=${{ github.event.inputs.version }} -o ./publish/${{ matrix.rid }}
+        run: dotnet publish src/Summerdawn.Kagami/Summerdawn.Kagami.csproj -c Release -r ${{ matrix.rid }} --self-contained --no-restore -p:PublishAot=true -p:DebugSymbols=false -p:GenerateDocumentationFile=false -p:NoWarn=IDE0005 -p:IncludeNativeLibrariesForSelfExtract=true -p:StaticWebAssetsEnabled=false -p:IsTransformWebConfigDisabled=true -p:Version=${{ github.event.inputs.version }} -o ./publish/${{ matrix.rid }}
 
       - name: Package Binaries for ${{ matrix.rid }} (Windows)
         if: runner.os == 'Windows'
@@ -123,7 +127,7 @@ jobs:
           zip -r ../../Kagami-${{ github.event.inputs.version }}-${{ matrix.rid }}.zip .
       
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.rid }}
           path: Kagami-${{ github.event.inputs.version }}-${{ matrix.rid }}.zip
@@ -137,9 +141,9 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ github.event.inputs.version }}
           target_commitish: ${{ github.sha }}
@@ -158,12 +162,12 @@ jobs:
       contents: write
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: ./artifacts
       
       - name: Publish binaries to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ github.event.inputs.version }}
           files: artifacts/binaries-*/*.zip
@@ -178,7 +182,7 @@ jobs:
       contents: read
     steps:
       - name: Download NuGet packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nupkgs
           path: ./nupkgs
