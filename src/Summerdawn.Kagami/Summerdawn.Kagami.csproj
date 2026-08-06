@@ -27,7 +27,7 @@
   <!-- NuGet properties -->
   <PropertyGroup>
     <PackageId>Summerdawn.Kagami</PackageId>
-    <Description>Kagami is a CLI tool and daemon to import, export and synchronize contacts.</Description>
+    <Description>Command-line tool for Kagami - a synchronization engine for contacts and calendar events between Microsoft Exchange mailboxes and/or Google accounts</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>

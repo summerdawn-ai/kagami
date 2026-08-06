@@ -1,10 +1,24 @@
 # Summerdawn.Kagami
 
-Kagami is a contact and calendar event synchronization CLI tool with internal SQLite state.
+Command-line tool for Kagami - a synchronization engine for contacts and calendar events between Microsoft Exchange mailboxes and/or Google accounts.
 
 ## Overview
 
-Kagami supports listing, importing, exporting, and synchronizing contacts and calendar events from Microsoft Graph and Google accounts.
+Kagami separates provider connectors from a synchronization engine: connectors normalize Exchange and Google contacts and events into canonical models, and the engine plans and executes changes and persists sync state in SQLite. It supports delta updates, filtering, and multiple synchronization modes.
+
+This package provides the stand-alone command-line tool.
+
+### Scenarios
+
+Kagami is mainly built to make contacts and calendars available to assistants and tools that support only one provider:
+
+- Make contacts and calendar events from your Microsoft Exchange account available to Google Gemini on Android and Google Home.
+- See contacts from your Microsoft Exchange address book in Google Maps.
+- Synchronize contacts created by WhatsApp on Android to your Microsoft Exchange address book.
+
+In general, Kagami makes Microsoft Exchange contacts and calendar events available to assistants or tools that integrate only with Google Accounts, or vice versa.
+
+This is different from linking or synchronizing email accounts. Tools such as Google Gemini, especially on Google Home, use data in the Google account and do not use contacts or calendar events merely because an Exchange email account is linked. Synchronizing the contacts and calendar items puts that data in the provider account the tool actually supports.
 
 ## Getting Started
 
@@ -468,6 +482,18 @@ After correcting the underlying data or configuration, use `--full` to reprocess
 | `--what-if` run | No; no writes are performed |
 
 Link-state updates written before a transient failure are not rolled back. On replay, items with a matching version hash are skipped automatically.
+
+## Resources
+
+### Kagami
+
+- [Kagami GitHub repository](https://github.com/summerdawn-ai/kagami)
+- [Kagami releases and changelog](https://github.com/summerdawn-ai/kagami/releases)
+
+### .NET
+
+- [dotnet CLI documentation](https://learn.microsoft.com/en-us/dotnet/core/tools/)
+- [.NET Configuration documentation](https://learn.microsoft.com/en-us/dotnet/core/extensions/configuration)
 
 ## License
 
