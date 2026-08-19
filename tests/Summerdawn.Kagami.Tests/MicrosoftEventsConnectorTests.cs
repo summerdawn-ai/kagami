@@ -15,7 +15,7 @@ namespace Summerdawn.Kagami.Tests;
 public sealed class MicrosoftEventsConnectorTests
 {
     [Fact]
-    public async Task GetCursorItemsAsync_UsesV1EventsDeltaEndpointWithStartDateTimeAndFiltersNotRespondedInvites()
+    public async Task GetCursorItemsAsync_UsesV1EventsDeltaEndpointWithStartDateTimeAndFiltersNotRespondedRsvpInvites()
     {
         var handler = new SequenceHttpHandler(
             CreateJsonResponse("""
@@ -27,6 +27,7 @@ public sealed class MicrosoftEventsConnectorTests
                       "start": { "dateTime": "2026-05-01T10:00:00", "timeZone": "UTC" },
                       "end": { "dateTime": "2026-05-01T11:00:00", "timeZone": "UTC" },
                       "responseStatus": { "response": "accepted" },
+                      "responseRequested": true,
                       "isOrganizer": false
                     },
                     {
@@ -35,6 +36,7 @@ public sealed class MicrosoftEventsConnectorTests
                       "start": { "dateTime": "2026-05-01T12:00:00", "timeZone": "UTC" },
                       "end": { "dateTime": "2026-05-01T13:00:00", "timeZone": "UTC" },
                       "responseStatus": { "response": "notResponded" },
+                      "responseRequested": true,
                       "isOrganizer": false
                     },
                     {
@@ -63,6 +65,35 @@ public sealed class MicrosoftEventsConnectorTests
         Assert.Contains("startDateTime=", handler.RequestUris[0], StringComparison.Ordinal);
         Assert.DoesNotContain("$top=", handler.RequestUris[0], StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("calendarView", handler.RequestUris[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetCursorItemsAsync_IncludesNonRsvpAppointmentWithNotRespondedStatus()
+    {
+        var connector = CreateConnector("""
+            {
+              "value": [
+                {
+                  "id": "imported-appointment",
+                  "subject": "Imported appointment",
+                  "start": { "dateTime": "2026-08-20T07:30:00", "timeZone": "UTC" },
+                  "end": { "dateTime": "2026-08-20T07:45:00", "timeZone": "UTC" },
+                  "organizer": { "emailAddress": { "address": "noreply@example.test" } },
+                  "attendees": [],
+                  "responseStatus": { "response": "notResponded" },
+                  "responseRequested": false,
+                  "isOrganizer": false
+                }
+              ],
+              "@odata.deltaLink": "https://graph.microsoft.com/v1.0/users/user@contoso.com/events/delta?$deltatoken=final"
+            }
+            """);
+
+        var result = await connector.GetCursorItemsAsync(null, CancellationToken.None);
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal("Imported appointment", item.Title);
+        Assert.Equal("False", item.Metadata["microsoft.responseRequested"]);
     }
 
     [Fact]

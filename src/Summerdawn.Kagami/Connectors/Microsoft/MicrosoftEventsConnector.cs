@@ -24,7 +24,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
     // Request immutable ids to avoid Graph returning a new id if an event is moved.
     private const string ImmutableIdPreference = "IdType=\"ImmutableId\"";
     private const int PageSize = 100;
-    private const string SelectFields = "id,subject,body,start,end,isAllDay,location,organizer,attendees,responseStatus,isOrganizer,recurrence,iCalUId,lastModifiedDateTime,changeKey";
+    private const string SelectFields = "id,subject,body,start,end,isAllDay,location,organizer,attendees,responseStatus,responseRequested,isOrganizer,recurrence,iCalUId,lastModifiedDateTime,changeKey";
     private readonly string collectionPath = GetCollectionPath(endpointName, endpoint);
 
     /// <inheritdoc/>
@@ -196,6 +196,15 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             return true;
         }
 
+        // An imported appointment can have no attendee and no RSVP workflow. Graph represents that
+        // explicitly with responseRequested=false, even though responseStatus remains notResponded.
+        if (item.Metadata.TryGetValue("microsoft.responseRequested", out string? responseRequestedRaw)
+            && bool.TryParse(responseRequestedRaw, out bool responseRequested)
+            && !responseRequested)
+        {
+            return true;
+        }
+
         // For invitations, keep only accepted or tentative responses and organizer records.
         string? response = item.Metadata.GetValueOrDefault("microsoft.responseStatus");
         return response is "organizer" or "accepted" or "tentativelyAccepted";
@@ -248,6 +257,12 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         if (!string.IsNullOrWhiteSpace(response))
         {
             item.Metadata["microsoft.responseStatus"] = response;
+        }
+
+        if (element.TryGetProperty("responseRequested", out var responseRequestedNode)
+            && responseRequestedNode.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            item.Metadata["microsoft.responseRequested"] = responseRequestedNode.GetBoolean().ToString();
         }
 
         string? changeKey = ReadString(element, "changeKey");
