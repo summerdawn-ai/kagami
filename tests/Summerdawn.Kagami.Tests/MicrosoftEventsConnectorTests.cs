@@ -63,6 +63,7 @@ public sealed class MicrosoftEventsConnectorTests
         Assert.Single(handler.RequestUris);
         Assert.Contains("/v1.0/users/user%40contoso.com/events/delta", handler.RequestUris[0], StringComparison.Ordinal);
         Assert.Contains("startDateTime=", handler.RequestUris[0], StringComparison.Ordinal);
+        Assert.Contains("responseRequested", handler.RequestUris[0], StringComparison.Ordinal);
         Assert.DoesNotContain("$top=", handler.RequestUris[0], StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("calendarView", handler.RequestUris[0], StringComparison.OrdinalIgnoreCase);
     }

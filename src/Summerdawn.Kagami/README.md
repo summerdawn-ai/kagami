@@ -423,6 +423,8 @@ Canonical events currently include:
 
 Synced events are created as attendee-free, mailbox-owned copies. Attendees are ignored during synchronization updates to avoid sending stale invitations and provider-specific mailbox mismatches, while event exports retain organizer and attendee data.
 
+Microsoft Graph events marked `responseRequested=false` are treated as non-RSVP appointments and included even when their response status is `notResponded`; unanswered invitations that request an RSVP remain excluded.
+
 Google Calendar creates regular events with `events.insert` and synchronizes regular calendar events only; special event types such as birthdays are skipped. Microsoft Graph maps timestamps through `dateTimeTimeZone` payloads and uses event delta tokens for incremental polling.
 
 ## Logging
