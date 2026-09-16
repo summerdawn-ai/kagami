@@ -1118,6 +1118,10 @@ public static class Program
     {
         var configBuilder = new ConfigurationBuilder();
 
+        // Kagami starts with a fresh ConfigurationBuilder, so add default sources.
+        configBuilder.AddJsonFile(Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json"), optional: true);
+        configBuilder.AddEnvironmentVariables();
+
         configBuilder.AddKagamiSettings(noDefaultSettings, noApplicationDataSettings: false, settingsFiles, verboseSettings);
         var config = configBuilder.Build();
 

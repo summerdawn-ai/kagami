@@ -308,9 +308,9 @@ Kagami uses [.NET Configuration providers](https://learn.microsoft.com/en-us/dot
 
 1. **Embedded default settings** - Built-in defaults embedded in the application, unless skipped with `--no-default-settings`
 2. **Content-directory settings files** - `appsettings.json` in the current working directory, if present
-3. **Application-data settings file** - `%LOCALAPPDATA%\Summerdawn.ai\Kagami\appsettings.json`, if present
-4. **Environment variables** - System or process environment variables
-5. **Explicit settings files** - Additional settings files specified with the `--settings` option, in argument order
+3. **Application-data settings file** - `%LOCALAPPDATA%\Summerdawn.ai\Kagami\appsettings.json`, if present and no explicit settings files are supplied
+4. **Explicit settings files** - Additional settings files specified with the `--settings` option, in argument order
+5. **Environment variables** - System or process environment variables
 6. **Verbose logging settings** - Embedded logging settings, when `--verbose` is specified
 
 Setting `Kagami:DataDirectory` to a nonstandard directory does not change where the standard application settings files are loaded from.
