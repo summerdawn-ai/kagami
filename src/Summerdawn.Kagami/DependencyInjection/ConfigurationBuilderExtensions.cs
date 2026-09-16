@@ -15,52 +15,60 @@ internal static class ConfigurationBuilderExtensions
     private const string ResourceNamespace = "Summerdawn.Kagami";
 
     /// <summary>
-    /// Adds Kagami settings from embedded defaults, local files, environment variables, and specified settings files to the configuration.
+    /// Adds Kagami settings from embedded defaults, application data, and specified settings files.
     /// </summary>
-    public static void AddKagamiSettings(this IConfigurationBuilder configurationBuilder, bool noDefaultSettings, bool noApplicationDataSettings, string[] settingsFileNames, bool verboseSettings)
+    public static IConfigurationBuilder AddKagamiSettings(this IConfigurationBuilder configurationBuilder, bool noDefaultSettings, bool noApplicationDataSettings, string[] settingsFileNames, bool verboseSettings)
     {
-        // Load embedded appsettings.json as the first configuration source unless disabled.
+        // Always skip application-data settings if explicit settings files are specified.
+        noApplicationDataSettings = noApplicationDataSettings || settingsFileNames.Length > 0;
+
         if (!noDefaultSettings)
         {
-            configurationBuilder.AddJsonResource("appsettings.json");
+            configurationBuilder.AddJsonResource("appsettings.Default.json", position: 0);
         }
 
-        configurationBuilder.AddJsonFile(Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json"), optional: true);
         if (!noApplicationDataSettings)
         {
-            configurationBuilder.AddJsonFile(Path.Combine(KagamiOptions.DefaultDataDirectory, "appsettings.json"), optional: true);
+            // Host builders already add environment variables; keep settings files below that source.
+            int? environmentVariablesPosition = configurationBuilder.GetEnvironmentVariablesPosition();
+            configurationBuilder.AddJsonFile(Path.Combine(KagamiOptions.DefaultDataDirectory, "appsettings.json"), optional: true, environmentVariablesPosition);
         }
-        configurationBuilder.AddEnvironmentVariables();
-        configurationBuilder.AddJsonFiles(settingsFileNames);
+
+        if (settingsFileNames.Length > 0)
+        {
+            // Host builders already add environment variables; keep settings files below that source.
+            int? environmentVariablesPosition = configurationBuilder.GetEnvironmentVariablesPosition();
+            configurationBuilder.AddJsonFiles(settingsFileNames, environmentVariablesPosition);
+        }
 
         if (verboseSettings)
         {
             configurationBuilder.AddJsonResource("appsettings.Verbose.json");
         }
+
+        return configurationBuilder;
     }
 
     /// <summary>
-    /// Adds an embedded JSON resource as a configuration source.
+    /// Adds an embedded JSON resource to the configuration pipeline.
     /// </summary>
     public static IConfigurationBuilder AddJsonResource(this IConfigurationBuilder configurationBuilder, string resourceName, int? position = null)
     {
         var assembly = Assembly.GetExecutingAssembly();
 
-        using var resourceStream = assembly.GetManifestResourceStream($"{ResourceNamespace}.{resourceName}") ??
-                                   throw new ArgumentException($"Resource {resourceName} not found in assembly.");
+        using var resourceStream = assembly.GetManifestResourceStream($"{ResourceNamespace}.{resourceName}")
+            ?? throw new ArgumentException($"Resource '{resourceName}' not found in assembly.");
 
         // Copy to MemoryStream for configuration system use.
-        // NOTE: The MemoryStream is intentionally NOT disposed here. The JsonStreamConfigurationProvider
-        // takes ownership of the stream and will dispose it when the provider itself is disposed as part
-        // of the configuration system's lifecycle.
-        // This is the standard pattern for stream-based configuration sources.
-        var memoryStream = new MemoryStream();
+        // NOTE: ConfigurationManager may dispose and then reload inserted stream sources.
+        // Use NeverClosingMemoryStream so the embedded JSON source survives later source insertion.
+        var memoryStream = new NeverClosingMemoryStream();
         resourceStream.CopyTo(memoryStream);
         memoryStream.Position = 0;
 
         var source = new JsonStreamConfigurationSource
         {
-            Stream = memoryStream
+            Stream = memoryStream,
         };
 
         if (position.HasValue)
@@ -76,7 +84,7 @@ internal static class ConfigurationBuilderExtensions
     }
 
     /// <summary>
-    /// Adds the specified JSON settings files to the configuration.
+    /// Adds a JSON file to the configuration pipeline.
     /// </summary>
     public static IConfigurationBuilder AddJsonFile(this IConfigurationBuilder configurationBuilder, string path, bool optional = false, int? position = null)
     {
@@ -102,15 +110,48 @@ internal static class ConfigurationBuilderExtensions
     }
 
     /// <summary>
-    /// Adds the specified JSON settings files to the configuration.
+    /// Adds JSON files to the configuration pipeline.
     /// </summary>
-    public static IConfigurationBuilder AddJsonFiles(this IConfigurationBuilder configurationBuilder, IEnumerable<string> paths)
+    public static IConfigurationBuilder AddJsonFiles(this IConfigurationBuilder configurationBuilder, IEnumerable<string> paths, int? position = null)
     {
-        foreach (string settingsFile in paths)
+        int? currentPosition = position;
+
+        foreach (string path in paths)
         {
-            configurationBuilder.AddJsonFile(settingsFile, optional: false);
+            configurationBuilder.AddJsonFile(path, optional: false, currentPosition);
+
+            if (currentPosition.HasValue)
+            {
+                currentPosition++;
+            }
         }
 
         return configurationBuilder;
+    }
+
+    /// <summary>
+    /// Gets the position of the environment variables configuration source.
+    /// </summary>
+    private static int? GetEnvironmentVariablesPosition(this IConfigurationBuilder configurationBuilder)
+    {
+        int position = configurationBuilder.Sources
+            .ToList()
+            .FindIndex(source => source.GetType().Name == "EnvironmentVariablesConfigurationSource");
+
+        return position < 0 ? null : position;
+    }
+
+    private sealed class NeverClosingMemoryStream : MemoryStream
+    {
+        protected override void Dispose(bool disposing)
+        {
+            Seek(0, SeekOrigin.Begin);
+        }
+
+        public override ValueTask DisposeAsync()
+        {
+            Seek(0, SeekOrigin.Begin);
+            return default;
+        }
     }
 }
