@@ -172,6 +172,8 @@ When an item moves out of the active filter scope, Kagami treats it as deleted w
 
 Kagami tracks each linked item's provider version and canonical-content hash separately for each endpoint. Normal change detection first compares the current version with that endpoint's saved baseline: matching versions mean the item is unchanged. When versions are unavailable, Kagami compares content hashes instead. If neither comparison is possible, the item is conservatively treated as changed. Before writing an update, Kagami also compares the source and destination content hashes to avoid writing content already present on the target.
 
+> For events, a matching content hash against the same endpoint's saved baseline also means unchanged even when the version differs. This prevents unnecessary synchronization when Microsoft advances an event's version after creation without changing its synchronized content. Contacts retain version-based detection when versions are available because their content hashes exclude photos.
+
 ### Pruning
 
 `--prune` enables delete mirroring within the current synchronization scope. Without it, items absent from the source are left on the destination. Filtering limits pruning to the current comparison scope; items outside that scope are not deleted.
