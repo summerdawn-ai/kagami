@@ -427,6 +427,8 @@ Canonical events currently include:
 - recurrence
 - iCal UID
 
+Event descriptions may contain HTML, which Kagami carries over unchanged. Google stores the description as a plain string, while Microsoft always returns an HTML document, so Kagami writes descriptions without HTML to Microsoft as text and removes the wrapper and layout newlines Microsoft adds when reading them back. This keeps descriptions from gaining whitespace as they round-trip. A description saved from an Outlook client is stored as HTML by Microsoft and is synchronized to Google as HTML.
+
 Synced events are created as attendee-free, mailbox-owned copies. Attendees are ignored during synchronization updates to avoid sending stale invitations and provider-specific mailbox mismatches, while event exports retain organizer and attendee data.
 
 Microsoft Graph events marked `responseRequested=false` are treated as non-RSVP appointments and included even when their response status is `notResponded`; unanswered invitations that request an RSVP remain excluded.

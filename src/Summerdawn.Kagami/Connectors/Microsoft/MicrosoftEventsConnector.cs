@@ -227,7 +227,7 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
         var item = new CanonicalEvent
         {
             Title = ReadString(element, "subject") ?? string.Empty,
-            Description = element.TryGetProperty("body", out var bodyNode) ? ReadStringOrNull(bodyNode, "content") : null,
+            Description = element.TryGetProperty("body", out var bodyNode) ? EventBodyHelper.FromMicrosoftBody(ReadString(bodyNode, "content")) : null,
             From = IsAllDayEvent(element) ? ReadAllDayDate(element, "start") : ReadDateTimeTimeZone(element, "start"),
             To = IsAllDayEvent(element) ? ReadAllDayDate(element, "end") : ReadDateTimeTimeZone(element, "end"),
             IsAllDay = IsAllDayEvent(element),
@@ -287,13 +287,14 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
     internal static JsonObject BuildWritableEvent(CanonicalEvent item)
     {
         // Graph requires nested body, start, end, and location objects even when some values are empty.
+        var (contentType, content) = EventBodyHelper.ToMicrosoftBody(item.Description);
         JsonObject body = new()
         {
             ["subject"] = item.Title,
             ["body"] = new JsonObject
             {
-                ["contentType"] = "html",
-                ["content"] = item.Description ?? string.Empty,
+                ["contentType"] = contentType,
+                ["content"] = content,
             },
             ["start"] = CreateDateTimeTimeZoneNode(item.From),
             ["end"] = CreateDateTimeTimeZoneNode(item.To),
