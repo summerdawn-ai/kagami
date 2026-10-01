@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Summerdawn.Kagami.Configuration;
 using Summerdawn.Kagami.Engine;
 using Summerdawn.Kagami.Models;
@@ -7,6 +9,87 @@ namespace Summerdawn.Kagami.Tests;
 
 public sealed class LinkExaminerTests
 {
+    [Theory]
+    [InlineData("v1", "v1", "different", "saved", SideActivity.Unchanged)]
+    [InlineData("v2", "v1", "saved", "saved", SideActivity.Unchanged)]
+    [InlineData("v2", "v1", "different", "saved", SideActivity.Modified)]
+    [InlineData("v2", "v1", null, "saved", SideActivity.Modified)]
+    [InlineData("v2", "v1", "saved", null, SideActivity.Modified)]
+    [InlineData(null, "v1", "saved", "saved", SideActivity.Unchanged)]
+    [InlineData("v2", null, "saved", "saved", SideActivity.Unchanged)]
+    [InlineData(null, null, "different", "saved", SideActivity.Modified)]
+    [InlineData(null, null, null, null, SideActivity.Modified)]
+    public void Examine_Events_ChecksVersionBeforeContentHashOnBothSides(
+        string? version, string? savedVersion, string? hash, string? savedHash, SideActivity expected)
+    {
+        var link = new Link<CanonicalEvent>
+        {
+            Kind = LinkKind.Persisted,
+            SourceItem = new CanonicalEvent { Provenance = { ProviderId = "google", Version = version, ContentHash = hash } },
+            DestinationItem = new CanonicalEvent { Provenance = { ProviderId = "microsoft", Version = version, ContentHash = hash } },
+            PersistedState = new LinkStateRow
+            {
+                SourceId = "google",
+                DestinationId = "microsoft",
+                SourceVersion = savedVersion,
+                DestinationVersion = savedVersion,
+                SourceHash = savedHash,
+                DestinationHash = savedHash,
+            },
+        };
+
+        var result = LinkExaminer.Examine(link, DeltaJobOptions);
+
+        Assert.Equal(expected, result.SourceActivity);
+        Assert.Equal(expected, result.DestinationActivity);
+    }
+
+    [Fact]
+    public void Examine_ContactVersionChange_IsNotSuppressedByMatchingContentHash()
+    {
+        var link = PersistedLink(Item("a1", "v2"), Item("b1", "v2"), "v1", "v1");
+        link.SourceItem!.Provenance.ContentHash = "saved";
+        link.DestinationItem!.Provenance.ContentHash = "saved";
+        link.PersistedState!.SourceHash = "saved";
+        link.PersistedState.DestinationHash = "saved";
+
+        var result = LinkExaminer.Examine(link, DeltaJobOptions);
+
+        Assert.Equal(SideActivity.Modified, result.SourceActivity);
+        Assert.Equal(SideActivity.Modified, result.DestinationActivity);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PlanActions_EventVersionOnlyChange_DoesNotEchoDifferentProviderContent(bool sourceChanged)
+    {
+        var source = new CanonicalEvent { Description = "Foo", Provenance = { ProviderId = "google", Version = sourceChanged ? "v2" : "v1" } };
+        var destination = new CanonicalEvent { Description = "<html><body>Foo</body></html>", Provenance = { ProviderId = "microsoft", Version = sourceChanged ? "v1" : "v2" } };
+        ContentHashHelper.WithComputedHash(source);
+        ContentHashHelper.WithComputedHash(destination);
+        var baseline = new LinkStateRow
+        {
+            SourceId = "google",
+            DestinationId = "microsoft",
+            SourceVersion = "v1",
+            DestinationVersion = "v1",
+            SourceHash = source.Provenance.ContentHash,
+            DestinationHash = destination.Provenance.ContentHash,
+        };
+        var options = new JobOptions { SyncMode = SyncMode.Bidirectional };
+        var planner = new SyncActionPlanner(new LinkCreator(NullLogger<LinkCreator>.Instance));
+
+        Assert.Empty(planner.PlanActions(options, [source], [destination], [baseline]));
+
+        var edited = sourceChanged ? source : destination;
+        edited.Description = "Edited";
+        edited.Provenance.ContentHash = ContentHashHelper.ComputeContentHash(edited);
+        var action = Assert.Single(planner.PlanActions(options, [source], [destination], [baseline]));
+        Assert.Equal(SyncActionKind.Update, action.Kind);
+        Assert.Equal(sourceChanged ? SyncDirection.SourceToDestination : SyncDirection.DestinationToSource, action.Direction);
+    }
+
     // -------------------------------------------------------------------------
     // Persisted links – source-side activity
     // -------------------------------------------------------------------------

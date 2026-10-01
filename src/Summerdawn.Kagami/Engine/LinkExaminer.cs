@@ -150,12 +150,27 @@ public static class LinkExaminer
     /// Determines whether <paramref name="item"/> has changed relative to the given persisted version or hash.
     /// </summary>
     /// <remarks>
-    /// Version is checked first; content hash is used as a fallback when version is unavailable.
+    /// Matching versions short-circuit immediately. For events, a matching content hash also
+    /// suppresses provider-only version changes. Contacts retain version-based detection because
+    /// their content hashes exclude lazily loaded photos.
+    /// Content hash is used as a fallback when version is unavailable.
     /// When neither is present on either side, the method conservatively returns <c>true</c>
     /// (assume changed) to avoid silently dropping updates.
     /// </remarks>
     private static bool HasChanged(CanonicalItem item, string? persistedVersion, string? persistedHash)
     {
+        if (item.Provenance.Version != null && item.Provenance.Version == persistedVersion)
+        {
+            return false;
+        }
+
+        if (item is CanonicalEvent
+            && item.Provenance.ContentHash != null
+            && item.Provenance.ContentHash == persistedHash)
+        {
+            return false;
+        }
+
         if (item.Provenance.Version != null && persistedVersion != null)
         {
             return item.Provenance.Version != persistedVersion;
