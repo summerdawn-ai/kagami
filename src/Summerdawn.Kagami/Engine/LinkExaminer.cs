@@ -27,7 +27,8 @@ public static class LinkExaminer
     /// current scan but does not pass the filter:
     /// <list type="bullet">
     ///   <item>If a persisted link row exists → activity is <see cref="SideActivity.MovedOutOfScope"/>.</item>
-    ///   <item>If no persisted link row exists, or both sides have moved out of scope → the examined link's
+    ///   <item>If neither side passes the filter and no persisted link row exists, or both sides
+    ///   have moved out of scope → the examined link's
     ///   <see cref="ExaminedLink{TItem}.IsRelevantToCurrentScope"/> is set to <c>false</c> so the
     ///   planner silently ignores it.</item>
     /// </list>

@@ -634,6 +634,7 @@ public sealed class JobExecutorTests : IDisposable
         {
             Assert.Equal("v1", link.SourceVersion);
             Assert.Equal("v1", link.DestinationVersion);
+            Assert.Null(link.LastSyncedAt);
         });
     }
 
