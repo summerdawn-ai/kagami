@@ -298,16 +298,12 @@ public class MicrosoftEventsConnector(HttpClient httpClient, string endpointName
             },
             ["start"] = CreateDateTimeTimeZoneNode(item.From),
             ["end"] = CreateDateTimeTimeZoneNode(item.To),
+            ["isAllDay"] = item.IsAllDay,
             ["location"] = new JsonObject
             {
                 ["displayName"] = item.Location,
             },
         };
-
-        if (item.IsAllDay)
-        {
-            body["isAllDay"] = true;
-        }
 
         if (item.RecurrencePattern is not null
             && SerializeRecurrence(item.RecurrencePattern, item.From) is JsonObject recurrenceNode)
