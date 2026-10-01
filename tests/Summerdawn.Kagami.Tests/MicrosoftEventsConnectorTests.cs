@@ -316,6 +316,23 @@ public sealed class MicrosoftEventsConnectorTests
     }
 
     [Fact]
+    public void BuildWritableEvent_ClearsAllDayFlagForTimedEvents()
+    {
+        var item = new CanonicalEvent
+        {
+            From = new DateTimeOffset(2026, 08, 01, 14, 00, 00, TimeSpan.Zero),
+            To = new DateTimeOffset(2026, 08, 01, 15, 00, 00, TimeSpan.Zero),
+        };
+
+        string json = MicrosoftEventsConnector.BuildWritableEvent(item).ToJsonString();
+        using var document = JsonDocument.Parse(json);
+        var start = document.RootElement.GetProperty("start");
+
+        Assert.False(document.RootElement.GetProperty("isAllDay").GetBoolean());
+        Assert.Equal("2026-08-01T14:00:00", start.GetProperty("dateTime").GetString());
+    }
+
+    [Fact]
     public void BuildWritableEvent_OmitsUnsupportedRecurrence()
     {
         var item = new CanonicalEvent
