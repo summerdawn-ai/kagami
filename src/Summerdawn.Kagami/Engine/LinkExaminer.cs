@@ -27,7 +27,7 @@ public static class LinkExaminer
     /// current scan but does not pass the filter:
     /// <list type="bullet">
     ///   <item>If a persisted link row exists → activity is <see cref="SideActivity.MovedOutOfScope"/>.</item>
-    ///   <item>If no persisted link row exists → the examined link's
+    ///   <item>If no persisted link row exists, or both sides have moved out of scope → the examined link's
     ///   <see cref="ExaminedLink{TItem}.IsRelevantToCurrentScope"/> is set to <c>false</c> so the
     ///   planner silently ignores it.</item>
     /// </list>
@@ -59,10 +59,10 @@ public static class LinkExaminer
             isDeltaRun: isDeltaRun,
             passesFilter: destPassesFilter);
 
-        // When a filter is active and an item is observable but fails the filter without a
-        // persisted link, the link is not part of the current sync scope at all.
+        // Persisted identity alone does not put two observable, out-of-scope items in scope.
+        // Keep other persisted links relevant so absence and one-sided scope exits retain their semantics.
         bool isRelevant = filter is null
-            || persistedState != null
+            || (persistedState != null && (sourceActivity != MovedOutOfScope || destActivity != MovedOutOfScope))
             || sourcePassesFilter
             || destPassesFilter;
 

@@ -162,7 +162,7 @@ Deleting the database resets synchronization history. The next run performs a ne
 
 Kagami builds links from the current loaded items and relevant persisted link records, then matches remaining unlinked items using provider-independent canonical fields. An item present on only one side is in scope for comparison and may be created, updated, or deleted according to direction, conflict, and prune settings. An item absent from both sides is outside the current run and cannot trigger an action.
 
-This scope rule makes filtered full loads safe: a contact or event that does not match the active filter on either side does not participate in pruning merely because an older link record exists in the database.
+This scope rule makes filtered full loads safe: a contact or event that is observed on both sides but does not match the active filter on either side produces no action, including no Skip, merely because an older link record exists in the database. This applies with or without `--prune`.
 
 When an item moves out of the active filter scope, Kagami treats it as deleted within that synchronization scope. With `--prune`, the corresponding item on the other side is deleted; without `--prune`, it is left untouched. The same rules apply when an item is externally deleted and is absent from a full scan.
 

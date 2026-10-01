@@ -772,7 +772,7 @@ public sealed class SyncActionPlannerTests
         var actions = planner.PlanActions(
             CreateJob(SyncMode.Bidirectional, deletePolicy: Mirror),
             sourceItems: [outOfScopeSource],
-            destinationItems: [CreateItem("b1")],
+            destinationItems: [CreateItem("b1", displayName: "Alice")],
             existingLinks: [link],
             filter: filter);
 

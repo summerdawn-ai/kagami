@@ -22,10 +22,10 @@ public sealed class ExaminedLink<TItem> : Link<TItem> where TItem : CanonicalIte
     /// Gets a value indicating whether this link is relevant to the current filter scope.
     /// </summary>
     /// <remarks>
-    /// When <c>false</c>, at least one side of the link is observable in this run but falls
-    /// entirely outside the active filter scope and has no prior persisted record.  The planner
-    /// should silently ignore this link — no action and no skip — to avoid noisy logs for items
-    /// that were never part of the synced set.
+    /// When <c>false</c>, neither side matches the active filter and either no persisted record
+    /// exists or both sides are observable and have moved out of scope. The planner silently
+    /// ignores this link — no action and no skip. Persisted links with an absent or deleted side
+    /// remain relevant for deletion handling.
     /// </remarks>
     public bool IsRelevantToCurrentScope { get; init; } = true;
 

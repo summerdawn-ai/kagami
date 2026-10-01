@@ -568,6 +568,75 @@ public sealed class JobExecutorTests : IDisposable
     // Scenario D: No noisy logs / no skip actions for items outside filter scope
     // -------------------------------------------------------------------------
 
+    [Theory]
+    [InlineData(DeletePolicy.Ignore, true)]
+    [InlineData(DeletePolicy.Mirror, true)]
+    [InlineData(DeletePolicy.Ignore, false)]
+    [InlineData(DeletePolicy.Mirror, false)]
+    public async Task FilteredRun_ProducesNoActionsOrSkips_ForLinkedEventsOutsideScopeOnBothSides(
+        DeletePolicy deletePolicy, bool whatIf)
+    {
+        var sourceConnector = new FakeEventConnector();
+        var destinationConnector = new FakeEventConnector();
+        const string selectedTitle = "Selected event";
+        const string partitionKey = "events:endpointA:endpointB";
+
+        string[] titles = [selectedTitle, "Excluded event"];
+        for (int i = 0; i < titles.Length; i++)
+        {
+            string title = titles[i];
+            sourceConnector.Seed(new CanonicalEvent
+            {
+                Title = title,
+                Description = "Original",
+                Provenance = { ProviderId = $"a{i}", Version = "v1" },
+            });
+            destinationConnector.Seed(new CanonicalEvent
+            {
+                Title = title,
+                Description = i == 0 ? "Updated" : "Original",
+                Provenance = { ProviderId = $"b{i}", Version = i == 0 ? "v2" : "v1" },
+            });
+            await linkStateRepository.UpsertAsync(new LinkStateRow
+            {
+                PartitionKey = partitionKey,
+                SourceId = $"a{i}",
+                DestinationId = $"b{i}",
+                SourceVersion = "v1",
+                DestinationVersion = "v1",
+            });
+        }
+
+        var options = CreateJobOptions(filter: $"title eq '{selectedTitle}'");
+        options.DeletePolicy = deletePolicy;
+        var jobLogger = new InMemoryLogger<JobExecutor>();
+        var syncLogger = new InMemoryLogger<SyncActionExecutor>();
+        var executor = CreateExecutor(logger: jobLogger, syncLogger: syncLogger);
+
+        var result = await executor.ExecuteJobAsync(
+            new Job<CanonicalEvent>(partitionKey, options, sourceConnector, destinationConnector), whatIf);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.ActionsPlanned);
+        Assert.Contains(jobLogger.Entries, entry =>
+            entry.Contains("0 unchanged, 1 updates, 0 creates, 0 deletes, 0 skips.", StringComparison.Ordinal));
+        Assert.Single(syncLogger.Entries, entry =>
+            entry.StartsWith(whatIf ? "What-If: " : "Executing: ", StringComparison.Ordinal));
+        Assert.Contains(syncLogger.Entries, entry =>
+            entry.Contains($"Update event '{selectedTitle}' on endpoint 'endpointA'", StringComparison.Ordinal));
+        var selectedSource = await sourceConnector.GetItemAsync("a0");
+        Assert.NotNull(selectedSource);
+        Assert.Equal(whatIf ? "Original" : "Updated", selectedSource.Description);
+        Assert.All(sourceConnector.Items.Concat(destinationConnector.Items), item => Assert.False(item.IsDeleted));
+        var links = await linkStateRepository.GetByPartitionAsync(partitionKey);
+        Assert.Equal(titles.Length, links.Count);
+        Assert.All(links.Where(link => link.SourceId != "a0"), link =>
+        {
+            Assert.Equal("v1", link.SourceVersion);
+            Assert.Equal("v1", link.DestinationVersion);
+        });
+    }
+
     [Fact]
     public async Task FilteredRun_ProducesNoActions_ForItemsNeverInScope()
     {
@@ -579,11 +648,14 @@ public sealed class JobExecutorTests : IDisposable
         sourceConnector.Seed(CreateContactItem("c1", "v1", "Charlie", email: "charlie@example.com"));
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
-        var executor = CreateExecutor();
+        var jobLogger = new InMemoryLogger<JobExecutor>();
+        var executor = CreateExecutor(logger: jobLogger);
         var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
 
         Assert.True(result.Succeeded);
         Assert.Equal(0, result.ActionsPlanned);
+        Assert.Contains(jobLogger.Entries, entry =>
+            entry.Contains("0 unchanged, 0 updates, 0 creates, 0 deletes, 0 skips.", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -612,7 +684,8 @@ public sealed class JobExecutorTests : IDisposable
         });
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
-        var executor = CreateExecutor();
+        var jobLogger = new InMemoryLogger<JobExecutor>();
+        var executor = CreateExecutor(logger: jobLogger);
         var result = await executor.ExecuteJobAsync(CreateJob("job-1", sourceConnector, destinationConnector, filter: filter.Scope, syncMode: SyncMode.Forward));
 
         Assert.True(result.Succeeded);
@@ -622,8 +695,8 @@ public sealed class JobExecutorTests : IDisposable
         var b1 = await destinationConnector.GetItemAsync("b1");
         Assert.True(b1 is null || b1.IsDeleted, "b1 should have been deleted");
 
-        // c1 must produce no action at all (not even Skip)
-        // (Verified indirectly by ActionsPlanned == 1)
+        Assert.Contains(jobLogger.Entries, entry =>
+            entry.Contains("0 unchanged, 0 updates, 0 creates, 1 deletes, 0 skips.", StringComparison.Ordinal));
     }
 
     // -------------------------------------------------------------------------
