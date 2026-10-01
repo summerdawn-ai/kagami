@@ -144,42 +144,6 @@ Synchronization is source-to-destination by default. Use `--bidirectional` to sy
 - `destination-wins`
 - `skip`
 
-### Pruning
-
-`--prune` enables delete mirroring within the current synchronization scope. Without it, items absent from the source are left on the destination. Filtering limits pruning to the current comparison scope; items outside that scope are not deleted.
-
-### Full Loads
-
-`--full` ignores saved provider cursors and enumerates all items in the current scope. Normal version and canonical-content comparisons still prevent unnecessary writes. Use it when cursor state is stale or after correcting data or configuration.
-
-For event full reads without an applicable delta cursor, Kagami uses a rolling one-year lookback by default. Incremental event runs continue from their saved provider cursors.
-
-### Forced Writes
-
-`--force` includes a full enumeration and bypasses change and content-sameness checks for every in-scope item. It treats matched pairs as changed on both sides and applies the selected conflict policy; it does not make `--from` authoritative in bidirectional mode. Use it only when normal version or content-hash detection is known to be unreliable; it is not intended for normal runs.
-
-To make `--to` match `--from`, use the default forward direction with `--on-conflict source-wins`:
-
-```shell
-kagami events sync --from Microsoft --to Google --force --on-conflict source-wins
-```
-
-To reconcile both sides when the stored baselines are unreliable, use bidirectional force with an explicit conflict policy:
-
-```shell
-kagami events sync --from Microsoft --to Google --bidirectional --force --on-conflict last-write-wins
-```
-
-| Mode | Ignores cursors | Skips identical items | Writes matched pairs |
-|---|---:|---:|---:|
-| Default | No | Yes | When changed |
-| `--full` | Yes | Yes | When changed |
-| `--force` | Yes | No | Per direction and conflict policy |
-
-### Continuous Sync
-
-`--interval` repeats synchronization indefinitely using an ISO 8601 duration such as `PT15M` or `PT2H`; without it, the command runs once and exits. If a repeated run fails, the process exits with a nonzero status.
-
 ### State
 
 Kagami stores synchronization state in SQLite at `<DataDirectory>/sync.db`. The sync database does not store event or contact details, credentials, or other provider payloads. For each synchronized item, it stores only synchronization metadata:
@@ -203,6 +167,46 @@ This scope rule makes filtered full loads safe: a contact or event that does not
 When an item moves out of the active filter scope, Kagami treats it as deleted within that synchronization scope. With `--prune`, the corresponding item on the other side is deleted; without `--prune`, it is left untouched. The same rules apply when an item is externally deleted and is absent from a full scan.
 
 > Kagami only plans actions from the current loaded item sets and persisted links touched by those sets. Link records for items outside the current scope on both sides are inert for that run.
+
+### Change Detection
+
+Kagami tracks each linked item's provider version and canonical-content hash separately for each endpoint. Normal change detection first compares the current version with that endpoint's saved baseline: matching versions mean the item is unchanged. When versions are unavailable, Kagami compares content hashes instead. If neither comparison is possible, the item is conservatively treated as changed. Before writing an update, Kagami also compares the source and destination content hashes to avoid writing content already present on the target.
+
+### Pruning
+
+`--prune` enables delete mirroring within the current synchronization scope. Without it, items absent from the source are left on the destination. Filtering limits pruning to the current comparison scope; items outside that scope are not deleted.
+
+### Full Loads
+
+`--full` ignores saved provider cursors and enumerates all items in the current scope. Normal change detection still prevents unnecessary writes. Use it when cursor state is stale or after correcting data or configuration.
+
+For event full reads without an applicable delta cursor, Kagami uses a rolling one-year lookback by default. Incremental event runs continue from their saved provider cursors.
+
+### Forced Writes
+
+`--force` includes a full enumeration and bypasses normal change detection and the source/destination content comparison for every in-scope item. It treats matched pairs as changed on both sides and applies the selected conflict policy; it does not make `--from` authoritative in bidirectional mode. Use it only when normal change detection is known to be unreliable; it is not intended for normal runs.
+
+To make `--to` match `--from`, use the default forward direction with `--on-conflict source-wins`:
+
+```shell
+kagami events sync --from Microsoft --to Google --force --on-conflict source-wins
+```
+
+To reconcile both sides when the stored baselines are unreliable, use bidirectional force with an explicit conflict policy:
+
+```shell
+kagami events sync --from Microsoft --to Google --bidirectional --force --on-conflict last-write-wins
+```
+
+| Mode | Ignores cursors | Skips identical items | Writes matched pairs |
+|---|---:|---:|---:|
+| Default | No | Yes | When changed |
+| `--full` | Yes | Yes | When changed |
+| `--force` | Yes | No | Per direction and conflict policy |
+
+### Continuous Sync
+
+`--interval` repeats synchronization indefinitely using an ISO 8601 duration such as `PT15M` or `PT2H`; without it, the command runs once and exits. If a repeated run fails, the process exits with a nonzero status.
 
 ## Filtering
 
