@@ -92,17 +92,16 @@ public sealed class SyncActionPlanner(LinkCreator linkCreator)
     /// Maps one examined link to its single policy-driven synchronization action.
     /// </summary>
     /// <remarks>
-    /// Filter relevance is evaluated before link kind so never-synced items outside the current
-    /// scope do not generate noisy skip actions. Each link kind then owns its distinct lifecycle:
+    /// Filter relevance is evaluated before link kind so items outside the current scope on
+    /// both sides do not generate actions merely because a persisted link exists.
+    /// Each link kind then owns its distinct lifecycle:
     /// persisted links use baselines, inferred links establish a safe match, and unmatched or
     /// ambiguous links avoid unsafe writes.
     /// </remarks>
     private static SyncAction<TItem>? MapToAction<TItem>(ExaminedLink<TItem> examined, JobOptions jobOptions)
         where TItem : CanonicalItem
     {
-        // Items that are observable in this run but fall entirely outside the current filter scope
-        // and have no prior persisted record are silently ignored — no action, no skip — to avoid
-        // noisy logs for contacts that were never part of the synced set.
+        // Irrelevant links must not produce writes or noisy skips, even when previously synced.
         if (!examined.IsRelevantToCurrentScope)
         {
             return null;

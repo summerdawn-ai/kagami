@@ -394,7 +394,7 @@ public sealed class LinkExaminerTests
         // A persisted link exists → activity should be MovedOutOfScope.
         var link = PersistedLink(
             sourceItem: Item("a1", version: "v2", displayName: "Bob"),
-            destinationItem: Item("b1", version: "v1"),
+            destinationItem: Item("b1", version: "v1", displayName: "Alice"),
             sourceVersion: "v1", destinationVersion: "v1");
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
@@ -442,18 +442,36 @@ public sealed class LinkExaminerTests
     }
 
     [Fact]
-    public void Examine_IsRelevantToCurrentScope_WhenLinkExistsEvenIfItemFailsFilter()
+    public void Examine_IsRelevantToCurrentScope_WhenLinkedSourceFailsFilterButDestinationMatches()
     {
-        // Even though "Bob" fails the filter, the link exists → relevant (MovedOutOfScope).
+        // The source left scope, but its linked destination is still in scope.
         var link = PersistedLink(
             sourceItem: Item("a1", version: "v2", displayName: "Bob"),
-            destinationItem: Item("b1", version: "v1"),
+            destinationItem: Item("b1", version: "v1", displayName: "Alice"),
             sourceVersion: "v1", destinationVersion: "v1");
 
         var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
         var result = LinkExaminer.Examine(link, FullJobOptions, filter);
 
         Assert.True(result.IsRelevantToCurrentScope);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Examine_IsNotRelevantToCurrentScope_WhenBothPersistedItemsFailFilter(bool full)
+    {
+        var link = PersistedLink(
+            sourceItem: Item("a1", version: "v1", displayName: "Bob"),
+            destinationItem: Item("b1", version: "v1", displayName: "Bob"),
+            sourceVersion: "v1", destinationVersion: "v1");
+        var filter = ContactFilter.Parse("startswith(name,'Alice')")!;
+
+        var result = LinkExaminer.Examine(link, full ? FullJobOptions : DeltaJobOptions, filter);
+
+        Assert.Equal(SideActivity.MovedOutOfScope, result.SourceActivity);
+        Assert.Equal(SideActivity.MovedOutOfScope, result.DestinationActivity);
+        Assert.False(result.IsRelevantToCurrentScope);
     }
 
     // -------------------------------------------------------------------------
