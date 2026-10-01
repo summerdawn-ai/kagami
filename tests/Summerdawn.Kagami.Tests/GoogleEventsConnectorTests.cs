@@ -283,9 +283,28 @@ public sealed class GoogleEventsConnectorTests
 
         string json = GoogleEventsConnector.BuildWritableEvent(item).ToJsonString();
 
-        Assert.Contains("\"start\":{\"date\":\"2026-08-01\"}", json, StringComparison.Ordinal);
-        Assert.Contains("\"end\":{\"date\":\"2026-08-02\"}", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("dateTime", json, StringComparison.Ordinal);
+        Assert.Contains("\"start\":{\"date\":\"2026-08-01\",\"dateTime\":null}", json, StringComparison.Ordinal);
+        Assert.Contains("\"end\":{\"date\":\"2026-08-02\",\"dateTime\":null}", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildWritableEvent_WritesTimedDateTimeValuesAndClearsAllDayDates()
+    {
+        var item = new CanonicalEvent
+        {
+            From = new DateTimeOffset(2026, 08, 01, 10, 00, 00, TimeSpan.Zero),
+            To = new DateTimeOffset(2026, 08, 01, 11, 00, 00, TimeSpan.Zero),
+        };
+
+        string json = GoogleEventsConnector.BuildWritableEvent(item).ToJsonString();
+        using var document = JsonDocument.Parse(json);
+        var start = document.RootElement.GetProperty("start");
+        var end = document.RootElement.GetProperty("end");
+
+        Assert.Equal("2026-08-01T10:00:00.0000000+00:00", start.GetProperty("dateTime").GetString());
+        Assert.Equal(JsonValueKind.Null, start.GetProperty("date").ValueKind);
+        Assert.Equal("2026-08-01T11:00:00.0000000+00:00", end.GetProperty("dateTime").GetString());
+        Assert.Equal(JsonValueKind.Null, end.GetProperty("date").ValueKind);
     }
 
     private static GoogleEventsConnector CreateConnector(SequenceHttpHandler connectorHandler)

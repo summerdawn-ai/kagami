@@ -538,6 +538,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         new()
         {
             ["dateTime"] = value.ToUniversalTime().ToString("o"),
+            ["date"] = null,
             ["timeZone"] = "UTC",
         };
 
@@ -548,6 +549,7 @@ public class GoogleEventsConnector(HttpClient httpClient, string endpointName, E
         new()
         {
             ["date"] = value.UtcDateTime.ToString("yyyy-MM-dd"),
+            ["dateTime"] = null,
         };
 
     /// <summary>
