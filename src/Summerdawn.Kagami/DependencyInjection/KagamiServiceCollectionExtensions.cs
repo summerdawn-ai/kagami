@@ -1,5 +1,3 @@
-using System.Net;
-
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -138,21 +136,8 @@ public static class KagamiServiceCollectionExtensions
             // Keep total timeout above normal retry/backoff so quick transient 5xx responses surface as HTTP failures, not outer timeout exceptions.
             options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(2);
 
-            options.Retry.DelayGenerator = args =>
-            {
-                // Use Retry-After header if available
-                var defaultDelayForTooManyRequests = TimeSpan.FromSeconds(10);
-
-                if (args.Outcome.Result is { StatusCode: HttpStatusCode.TooManyRequests, Headers.RetryAfter: { } retryAfter })
-                {
-                    var delay = retryAfter?.Delta
-                                ?? (retryAfter?.Date is DateTimeOffset date ? date - DateTimeOffset.UtcNow : defaultDelayForTooManyRequests);
-
-                    return ValueTask.FromResult<TimeSpan?>(delay);
-                }
-
-                return ValueTask.FromResult<TimeSpan?>(defaultDelayForTooManyRequests);
-            };
+            // Use Retry-After header if available.
+            options.Retry.ShouldRetryAfterHeader = true;
         });
 
         // ThrottleHandler runs inside (closer to the network than) the resilience handler,
